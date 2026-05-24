@@ -144,7 +144,7 @@ export default function AssistantPage() {
     if (!token) return;
     setIsLoadingSessions(true);
     try {
-      const res = await fetch("http://localhost:3001/ai/sessions", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/sessions`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -171,7 +171,7 @@ export default function AssistantPage() {
     setActiveSessionId(sessionId);
     setIsLoadingChat(true);
     try {
-      const res = await fetch(`http://localhost:3001/ai/sessions/${sessionId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/sessions/${sessionId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -200,7 +200,7 @@ export default function AssistantPage() {
   const handleCreateNewChat = async () => {
     if (!token) return;
     try {
-      const res = await fetch("http://localhost:3001/ai/sessions", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/sessions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -233,7 +233,7 @@ export default function AssistantPage() {
     if (!confirm("Are you sure you want to delete this conversation history?")) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/ai/sessions/${sessionId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/sessions/${sessionId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -257,7 +257,7 @@ export default function AssistantPage() {
   const fetchDocuments = async () => {
     if (!token) return;
     try {
-      const res = await fetch("http://localhost:3001/ai/documents", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/documents`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -298,7 +298,7 @@ export default function AssistantPage() {
     setIsLoadingChat(true);
 
     try {
-      const response = await fetch("http://localhost:3001/ai/chat", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -355,7 +355,7 @@ export default function AssistantPage() {
     formData.append("file", file);
 
     try {
-      const res = await fetch("http://localhost:3001/ai/documents/upload", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/documents/upload`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`
@@ -387,7 +387,7 @@ export default function AssistantPage() {
 
     setIsUploading(true);
     try {
-      const res = await fetch("http://localhost:3001/ai/documents/upload", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/documents/upload`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -421,7 +421,7 @@ export default function AssistantPage() {
     if (!confirm(`Are you sure you want to delete indexed database knowledge of "${name}"?`)) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/ai/documents/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/documents/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });

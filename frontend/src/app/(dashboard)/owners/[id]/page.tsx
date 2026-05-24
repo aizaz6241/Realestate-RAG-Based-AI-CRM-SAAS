@@ -45,7 +45,7 @@ export default function OwnerCommandCenter() {
   const fetchOwnerData = async () => {
     if (!token) return;
     try {
-      const res = await fetch(`http://localhost:3001/owners/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/owners/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -78,7 +78,7 @@ export default function OwnerCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/owners/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/owners/${id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -101,7 +101,7 @@ export default function OwnerCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/owners/${id}/documents`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/owners/${id}/documents`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -123,7 +123,7 @@ export default function OwnerCommandCenter() {
   const handleDeleteDocument = async (docId: string) => {
     if (!confirm("Delete this document?")) return;
     try {
-      const res = await fetch(`http://localhost:3001/owners/${id}/documents/${docId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/owners/${id}/documents/${docId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -139,7 +139,7 @@ export default function OwnerCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/owners/${id}/communications`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/owners/${id}/communications`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

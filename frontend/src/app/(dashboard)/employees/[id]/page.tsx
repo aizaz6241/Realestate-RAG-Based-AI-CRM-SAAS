@@ -59,7 +59,7 @@ export default function EmployeeCommandCenter() {
   const fetchEmployeeData = async () => {
     if (!token) return;
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -98,7 +98,7 @@ export default function EmployeeCommandCenter() {
   const handleCheckIn = async () => {
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/attendance/check-in`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/attendance/check-in`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -119,7 +119,7 @@ export default function EmployeeCommandCenter() {
   const handleCheckOut = async (summaryText: string) => {
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/attendance/check-out`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/attendance/check-out`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -144,7 +144,7 @@ export default function EmployeeCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/profile`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/profile`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -168,7 +168,7 @@ export default function EmployeeCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/leaves`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/leaves`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -189,7 +189,7 @@ export default function EmployeeCommandCenter() {
 
   const handleUpdateLeaveStatus = async (leaveId: string, status: string) => {
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/leaves/${leaveId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/leaves/${leaveId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -210,7 +210,7 @@ export default function EmployeeCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/documents`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/documents`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -232,7 +232,7 @@ export default function EmployeeCommandCenter() {
   const handleDeleteDocument = async (docId: string) => {
     if (!confirm("Are you sure you want to delete this document?")) return;
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/documents/${docId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/documents/${docId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -251,7 +251,7 @@ export default function EmployeeCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/tasks`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/tasks`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -273,7 +273,7 @@ export default function EmployeeCommandCenter() {
   const handleToggleTaskStatus = async (taskId: string, currentStatus: string) => {
     const newStatus = currentStatus === "COMPLETED" ? "PENDING" : "COMPLETED";
     try {
-      const res = await fetch(`http://localhost:3001/tasks/${taskId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks/${taskId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -294,7 +294,7 @@ export default function EmployeeCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/performance`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/performance`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -318,7 +318,7 @@ export default function EmployeeCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/payrolls`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/payrolls`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -345,7 +345,7 @@ export default function EmployeeCommandCenter() {
 
   const handleUpdatePayrollStatus = async (payrollId: string, status: string) => {
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/payrolls/${payrollId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/payrolls/${payrollId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -364,7 +364,7 @@ export default function EmployeeCommandCenter() {
   const handleDeletePayroll = async (payrollId: string) => {
     if (!confirm("Are you sure you want to delete this payroll record?")) return;
     try {
-      const res = await fetch(`http://localhost:3001/employees/${id}/payrolls/${payrollId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/payrolls/${payrollId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });

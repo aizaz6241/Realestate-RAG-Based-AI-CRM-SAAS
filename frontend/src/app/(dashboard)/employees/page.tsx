@@ -29,7 +29,7 @@ export default function EmployeesPage() {
       return;
     }
     try {
-      const res = await fetch("http://localhost:3001/employees", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -93,7 +93,7 @@ export default function EmployeesPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3001/employees", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

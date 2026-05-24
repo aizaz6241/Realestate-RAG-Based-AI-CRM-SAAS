@@ -35,7 +35,7 @@ export default function PropertiesPage() {
       return;
     }
     try {
-      const res = await fetch("http://localhost:3001/properties", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/properties`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -81,7 +81,7 @@ export default function PropertiesPage() {
         images: ["https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80"]
       };
 
-      const res = await fetch("http://localhost:3001/properties", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/properties`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

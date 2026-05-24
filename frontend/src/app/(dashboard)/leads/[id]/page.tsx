@@ -58,7 +58,7 @@ export default function LeadDetailPage() {
     if (!token || !leadId) return;
     try {
       // Fetch Lead Detail
-      const leadRes = await fetch(`http://localhost:3001/leads/${leadId}`, {
+      const leadRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/leads/${leadId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -79,7 +79,7 @@ export default function LeadDetailPage() {
       }
 
       // Fetch Employees for Reallocation
-      const empRes = await fetch("http://localhost:3001/employees", {
+      const empRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (empRes.ok) {
@@ -130,7 +130,7 @@ export default function LeadDetailPage() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const res = await fetch(`http://localhost:3001/leads/${leadId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/leads/${leadId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -154,7 +154,7 @@ export default function LeadDetailPage() {
     if (!activityDescription.trim()) return;
     setIsLoggingActivity(true);
     try {
-      const res = await fetch(`http://localhost:3001/leads/${leadId}/activities`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/leads/${leadId}/activities`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

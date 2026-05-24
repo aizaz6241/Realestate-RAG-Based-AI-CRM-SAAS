@@ -173,7 +173,7 @@ export default function DashboardLayout({
   const initFloatingAiSession = async () => {
     if (!token) return;
     try {
-      const res = await fetch("http://localhost:3001/ai/sessions", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/sessions`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -185,7 +185,7 @@ export default function DashboardLayout({
 
         if (targetSession) {
           setAiSessionId(targetSession.id);
-          const detailsRes = await fetch(`http://localhost:3001/ai/sessions/${targetSession.id}`, {
+          const detailsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/sessions/${targetSession.id}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           if (detailsRes.ok) {
@@ -204,7 +204,7 @@ export default function DashboardLayout({
             }
           }
         } else {
-          const createRes = await fetch("http://localhost:3001/ai/sessions", {
+          const createRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/sessions`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -255,7 +255,7 @@ export default function DashboardLayout({
     setAiIsLoading(true);
 
     try {
-      const response = await fetch("http://localhost:3001/ai/chat", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -299,7 +299,7 @@ export default function DashboardLayout({
   const fetchLayoutNotifications = async () => {
     if (!token) return;
     try {
-      const res = await fetch("http://localhost:3001/chat/rooms", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/chat/rooms`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) return;
@@ -309,7 +309,7 @@ export default function DashboardLayout({
       const sysRoom = roomsData.find((r: any) => r.isSystem);
       if (sysRoom) {
         setSystemRoomId(sysRoom.id);
-        const msgRes = await fetch(`http://localhost:3001/chat/rooms/${sysRoom.id}/messages`, {
+        const msgRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/chat/rooms/${sysRoom.id}/messages`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (msgRes.ok) {
@@ -326,7 +326,7 @@ export default function DashboardLayout({
       }
 
       // Fetch calendar events
-      const evRes = await fetch("http://localhost:3001/calendar/events", {
+      const evRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (evRes.ok) {
@@ -349,7 +349,7 @@ export default function DashboardLayout({
   const fetchMiniMessages = async () => {
     if (!token || !miniActiveRoom) return;
     try {
-      const res = await fetch(`http://localhost:3001/chat/rooms/${miniActiveRoom.id}/messages`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/chat/rooms/${miniActiveRoom.id}/messages`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -397,7 +397,7 @@ export default function DashboardLayout({
 
     setMiniIsSending(true);
     try {
-      const res = await fetch(`http://localhost:3001/chat/rooms/${miniActiveRoom.id}/messages`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/chat/rooms/${miniActiveRoom.id}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

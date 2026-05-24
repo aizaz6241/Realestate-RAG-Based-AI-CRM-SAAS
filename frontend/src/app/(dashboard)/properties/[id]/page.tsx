@@ -61,7 +61,7 @@ export default function PropertyCommandCenter() {
     if (!token) return;
     try {
       // 1. Fetch Property details
-      const res = await fetch(`http://localhost:3001/properties/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/properties/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -86,7 +86,7 @@ export default function PropertyCommandCenter() {
       }
 
       // 2. Fetch Agents
-      const agentsRes = await fetch("http://localhost:3001/employees", {
+      const agentsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (agentsRes.ok) {
@@ -94,7 +94,7 @@ export default function PropertyCommandCenter() {
       }
 
       // 3. Fetch Owners
-      const ownersRes = await fetch("http://localhost:3001/owners", {
+      const ownersRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/owners`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (ownersRes.ok) {
@@ -111,7 +111,7 @@ export default function PropertyCommandCenter() {
     if (!token) return;
     setIsLoadingMatches(true);
     try {
-      const res = await fetch(`http://localhost:3001/properties/${id}/matches`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/properties/${id}/matches`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -142,7 +142,7 @@ export default function PropertyCommandCenter() {
         ? profileData.amenitiesInput.split(",").map(x => x.trim()).filter(Boolean)
         : [];
 
-      const res = await fetch(`http://localhost:3001/properties/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/properties/${id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

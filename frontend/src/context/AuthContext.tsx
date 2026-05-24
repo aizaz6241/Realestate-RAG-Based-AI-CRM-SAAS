@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         try {
           axios.defaults.headers.common["Authorization"] = `Bearer ${storedToken}`;
           // Verify with NestJS backend
-          const response = await axios.get("http://localhost:3001/auth/profile");
+          const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/auth/profile`);
           
           setToken(storedToken);
           setUser(response.data);

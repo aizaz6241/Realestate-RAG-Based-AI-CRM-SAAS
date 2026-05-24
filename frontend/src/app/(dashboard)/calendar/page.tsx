@@ -154,8 +154,8 @@ export default function CalendarPage() {
       const cleanId = editingEventId.replace("task-", "").replace("logistics-", "");
       
       const endpoint = isTask
-        ? `http://localhost:3001/tasks/${cleanId}`
-        : `http://localhost:3001/calendar/events/${cleanId}`;
+        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks/${cleanId}`
+        : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${cleanId}`;
 
       const payload = isTask
         ? {
@@ -207,7 +207,7 @@ export default function CalendarPage() {
     const cleanId = taskId.replace("task-", "");
     const newStatus = currentStatus === "COMPLETED" ? "PENDING" : "COMPLETED";
     try {
-      const res = await fetch(`http://localhost:3001/tasks/${cleanId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks/${cleanId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -240,7 +240,7 @@ export default function CalendarPage() {
 
     try {
       // 1. Fetch final state to get all attendees
-      const stateRes = await fetch(`http://localhost:3001/calendar/events/${eventId}/meeting-state`, {
+      const stateRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${eventId}/meeting-state`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       let finalAttendees: any[] = [];
@@ -295,7 +295,7 @@ export default function CalendarPage() {
 
       // 2. If host wants to terminate:
       if (terminate) {
-        await fetch(`http://localhost:3001/calendar/events/${eventId}/meeting-state/terminate`, {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${eventId}/meeting-state/terminate`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -341,7 +341,7 @@ export default function CalendarPage() {
 
       pc.onicecandidate = (event) => {
         if (event.candidate && token && callRoomEvent) {
-          fetch(`http://localhost:3001/calendar/events/${callRoomEvent.id}/meeting-state/signal`, {
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state/signal`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -396,7 +396,7 @@ export default function CalendarPage() {
       const pollFunction = async () => {
         try {
           // A. Ping our presence
-          await fetch(`http://localhost:3001/calendar/events/${callRoomEvent.id}/meeting-state/ping`, {
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state/ping`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -412,7 +412,7 @@ export default function CalendarPage() {
           });
 
           // B. Get active participants and chat messages
-          const stateRes = await fetch(`http://localhost:3001/calendar/events/${callRoomEvent.id}/meeting-state`, {
+          const stateRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           if (stateRes.ok) {
@@ -438,7 +438,7 @@ export default function CalendarPage() {
                 pc.createOffer()
                   .then(offer => pc.setLocalDescription(offer))
                   .then(() => {
-                    fetch(`http://localhost:3001/calendar/events/${callRoomEvent.id}/meeting-state/signal`, {
+                    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state/signal`, {
                       method: "POST",
                       headers: {
                         "Content-Type": "application/json",
@@ -461,7 +461,7 @@ export default function CalendarPage() {
           }
 
           // C. Get incoming WebRTC signals targeting us
-          const signalsRes = await fetch(`http://localhost:3001/calendar/events/${callRoomEvent.id}/meeting-state/signals/${myPeerId}`, {
+          const signalsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state/signals/${myPeerId}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           if (signalsRes.ok) {
@@ -477,7 +477,7 @@ export default function CalendarPage() {
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
                 
-                await fetch(`http://localhost:3001/calendar/events/${callRoomEvent.id}/meeting-state/signal`, {
+                await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state/signal`, {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
@@ -583,7 +583,7 @@ export default function CalendarPage() {
     if (!token) return;
     if (showLoading) setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:3001/calendar/events", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -601,7 +601,7 @@ export default function CalendarPage() {
   const fetchEmployees = async () => {
     if (!token) return;
     try {
-      const res = await fetch("http://localhost:3001/employees", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -705,7 +705,7 @@ export default function CalendarPage() {
     }
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3001/calendar/events", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -750,10 +750,10 @@ export default function CalendarPage() {
           : eventId;
       
       const endpoint = eventId.startsWith("task-")
-        ? `http://localhost:3001/tasks/${actualId}`
+        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks/${actualId}`
         : eventId.startsWith("logistics-")
-          ? `http://localhost:3001/logistics/schedules/${actualId}` // wait, deleting logistics might be restricted
-          : `http://localhost:3001/calendar/events/${actualId}`;
+          ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/schedules/${actualId}` // wait, deleting logistics might be restricted
+          : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${actualId}`;
 
       const method = "DELETE";
 
@@ -1158,7 +1158,7 @@ export default function CalendarPage() {
                           onClick={async () => {
                             const cleanId = event.id.replace("task-", "").replace("logistics-", "");
                             try {
-                              const res = await fetch(`http://localhost:3001/calendar/events/${cleanId}/meeting-state`, {
+                              const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${cleanId}/meeting-state`, {
                                 headers: { Authorization: `Bearer ${token}` }
                               });
                               if (res.ok) {
@@ -1318,7 +1318,7 @@ export default function CalendarPage() {
                       onClick={async () => {
                         const cleanId = selectedEvent.id.replace("task-", "").replace("logistics-", "");
                         try {
-                          const res = await fetch(`http://localhost:3001/calendar/events/${cleanId}/meeting-state`, {
+                          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${cleanId}/meeting-state`, {
                             headers: { Authorization: `Bearer ${token}` }
                           });
                           if (res.ok) {
@@ -1886,7 +1886,7 @@ export default function CalendarPage() {
                   const senderName = getDisplayName(currentUser);
                   
                   try {
-                    await fetch(`http://localhost:3001/calendar/events/${callRoomEvent.id}/meeting-state/message`, {
+                    await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state/message`, {
                       method: "POST",
                       headers: {
                         "Content-Type": "application/json",
@@ -1899,7 +1899,7 @@ export default function CalendarPage() {
                     });
                     
                     // Fetch state immediately to update the log
-                    const stateRes = await fetch(`http://localhost:3001/calendar/events/${callRoomEvent.id}/meeting-state`, {
+                    const stateRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state`, {
                       headers: { Authorization: `Bearer ${token}` }
                     });
                     if (stateRes.ok) {
@@ -2174,7 +2174,7 @@ export default function CalendarPage() {
                   onClick={async () => {
                     if (!confirm("⚠️ Are you sure you want to permanently CLOSE this meeting link? Once closed, no one can join this session again.")) return;
                     try {
-                      await fetch(`http://localhost:3001/calendar/events/${summaryData.eventId}/meeting-state/terminate`, {
+                      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${summaryData.eventId}/meeting-state/terminate`, {
                         method: "POST",
                         headers: {
                           "Content-Type": "application/json",

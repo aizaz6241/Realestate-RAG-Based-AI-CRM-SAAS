@@ -26,7 +26,7 @@ export default function OwnersPage() {
       return;
     }
     try {
-      const res = await fetch("http://localhost:3001/owners", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/owners`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -53,7 +53,7 @@ export default function OwnersPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3001/owners", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/owners`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

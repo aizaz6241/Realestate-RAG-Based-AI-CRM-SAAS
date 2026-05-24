@@ -49,7 +49,7 @@ export default function ClientCommandCenter() {
     if (!token) return;
     try {
       // 1. Fetch Client CRM
-      const res = await fetch(`http://localhost:3001/clients/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/clients/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -70,7 +70,7 @@ export default function ClientCommandCenter() {
       }
 
       // 2. Fetch all properties to populate dropdowns
-      const propRes = await fetch("http://localhost:3001/properties", {
+      const propRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/properties`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (propRes.ok) {
@@ -91,7 +91,7 @@ export default function ClientCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/clients/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/clients/${id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -115,7 +115,7 @@ export default function ClientCommandCenter() {
     if (!interestData.propertyId) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/clients/${id}/interests`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/clients/${id}/interests`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -136,7 +136,7 @@ export default function ClientCommandCenter() {
 
   const handleRemoveInterest = async (interestId: string) => {
     try {
-      const res = await fetch(`http://localhost:3001/clients/${id}/interests/${interestId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/clients/${id}/interests/${interestId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -153,7 +153,7 @@ export default function ClientCommandCenter() {
     if (!viewingData.propertyId || !viewingData.viewingDate) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/clients/${id}/viewings`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/clients/${id}/viewings`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -174,7 +174,7 @@ export default function ClientCommandCenter() {
 
   const handleUpdateViewingStatus = async (viewingId: string, status: string, feedback?: string) => {
     try {
-      const res = await fetch(`http://localhost:3001/clients/${id}/viewings/${viewingId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/clients/${id}/viewings/${viewingId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -194,7 +194,7 @@ export default function ClientCommandCenter() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/clients/${id}/communications`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/clients/${id}/communications`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

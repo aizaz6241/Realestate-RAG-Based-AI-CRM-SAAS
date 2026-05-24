@@ -44,7 +44,7 @@ export default function DashboardPage() {
     if (!token) return;
     if (showLoading) setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:3001/calendar/events", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -61,7 +61,7 @@ export default function DashboardPage() {
   const fetchAttendanceStatus = async () => {
     if (!token || !user?.id) return;
     try {
-      const res = await fetch(`http://localhost:3001/employees/${user.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${user.id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -131,7 +131,7 @@ export default function DashboardPage() {
     if (!token || !user?.id) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${user.id}/attendance/check-in`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${user.id}/attendance/check-in`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -153,7 +153,7 @@ export default function DashboardPage() {
     if (!token || !user?.id) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/employees/${user.id}/attendance/check-out`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${user.id}/attendance/check-out`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

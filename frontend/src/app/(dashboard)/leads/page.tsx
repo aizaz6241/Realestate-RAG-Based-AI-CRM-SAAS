@@ -58,7 +58,7 @@ export default function LeadsCRMPage() {
       return;
     }
     try {
-      const res = await fetch("http://localhost:3001/leads", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/leads`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -114,7 +114,7 @@ export default function LeadsCRMPage() {
   const fetchEmployees = async () => {
     if (!token) return;
     try {
-      const res = await fetch("http://localhost:3001/employees", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -139,7 +139,7 @@ export default function LeadsCRMPage() {
       setLeads(leads.map(lead => lead.id === draggableId ? { ...lead, status: updatedStatus } : lead));
       
       try {
-        await fetch(`http://localhost:3001/leads/${draggableId}`, {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/leads/${draggableId}`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -167,7 +167,7 @@ export default function LeadsCRMPage() {
         assignedToId: formData.assignedToId || undefined,
       };
 
-      const res = await fetch("http://localhost:3001/leads", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/leads`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -205,7 +205,7 @@ export default function LeadsCRMPage() {
     e.preventDefault();
     if (!confirm("Are you sure you want to permanently delete this lead?")) return;
     try {
-      const res = await fetch(`http://localhost:3001/leads/${leadId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/leads/${leadId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });

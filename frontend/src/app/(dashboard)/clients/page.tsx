@@ -30,7 +30,7 @@ export default function ClientsPage() {
       return;
     }
     try {
-      const res = await fetch("http://localhost:3001/clients", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/clients`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -56,7 +56,7 @@ export default function ClientsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3001/clients", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/clients`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

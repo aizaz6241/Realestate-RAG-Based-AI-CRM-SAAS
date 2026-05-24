@@ -56,7 +56,7 @@ export default function DocumentsPage() {
   const fetchEmployees = async () => {
     if (!token) return;
     try {
-      const res = await fetch("http://localhost:3001/employees", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -73,7 +73,7 @@ export default function DocumentsPage() {
       return;
     }
     try {
-      const res = await fetch("http://localhost:3001/documents", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/documents`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -146,7 +146,7 @@ export default function DocumentsPage() {
         writeUserIds
       };
 
-      const res = await fetch("http://localhost:3001/documents", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/documents`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -176,7 +176,7 @@ export default function DocumentsPage() {
     if (!versionFileUrl || !selectedDoc) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/documents/${selectedDoc.id}/versions`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/documents/${selectedDoc.id}/versions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -199,7 +199,7 @@ export default function DocumentsPage() {
   const handleDeleteDoc = async (docId: string) => {
     if (!confirm("Are you sure you want to permanently delete this document from vault?")) return;
     try {
-      const res = await fetch(`http://localhost:3001/documents/${docId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/documents/${docId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });

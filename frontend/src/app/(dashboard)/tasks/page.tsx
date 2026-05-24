@@ -56,7 +56,7 @@ export default function TasksPage() {
     }
     if (showLoading) setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:3001/tasks", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -100,7 +100,7 @@ export default function TasksPage() {
   const fetchEmployees = async () => {
     if (!token) return;
     try {
-      const res = await fetch("http://localhost:3001/employees", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -135,7 +135,7 @@ export default function TasksPage() {
       setTasks(tasks.map(t => t.id === draggableId ? { ...t, status: updatedStatus } : t));
       
       try {
-        await fetch(`http://localhost:3001/tasks/${draggableId}`, {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks/${draggableId}`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -161,7 +161,7 @@ export default function TasksPage() {
         assignedToId: formData.assignedToId || undefined, // undefined triggers backend auto round-robin or me
       };
 
-      const res = await fetch("http://localhost:3001/tasks", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -192,7 +192,7 @@ export default function TasksPage() {
     e.stopPropagation();
     if (!confirm("Are you sure you want to permanently delete this task?")) return;
     try {
-      const res = await fetch(`http://localhost:3001/tasks/${taskId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks/${taskId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });

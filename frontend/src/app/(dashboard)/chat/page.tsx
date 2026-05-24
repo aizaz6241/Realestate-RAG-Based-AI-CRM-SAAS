@@ -49,7 +49,7 @@ export default function ChatPage() {
     if (!token) return;
     if (showLoading) setIsLoadingRooms(true);
     try {
-      const res = await fetch("http://localhost:3001/chat/rooms", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/chat/rooms`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -93,7 +93,7 @@ export default function ChatPage() {
     if (!token || !roomId) return;
     if (showLoading) setIsLoadingMessages(true);
     try {
-      const res = await fetch(`http://localhost:3001/chat/rooms/${roomId}/messages`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/chat/rooms/${roomId}/messages`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -121,7 +121,7 @@ export default function ChatPage() {
   const fetchEmployees = async () => {
     if (!token) return;
     try {
-      const res = await fetch("http://localhost:3001/employees", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -205,7 +205,7 @@ export default function ChatPage() {
     setIsSending(true);
     
     try {
-      const res = await fetch(`http://localhost:3001/chat/rooms/${activeRoom.id}/messages`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/chat/rooms/${activeRoom.id}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -228,7 +228,7 @@ export default function ChatPage() {
     if (!targetId || !token) return;
     setIsCreatingDm(true);
     try {
-      const res = await fetch("http://localhost:3001/chat/rooms/direct", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/chat/rooms/direct`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -59,37 +59,37 @@ export default function LogisticsPage() {
     }
     try {
       // 1. Drivers
-      const driversRes = await fetch("http://localhost:3001/logistics/drivers", {
+      const driversRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/drivers`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (driversRes.ok) setDrivers(await driversRes.json());
 
       // 2. Vehicles
-      const vehiclesRes = await fetch("http://localhost:3001/logistics/vehicles", {
+      const vehiclesRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/vehicles`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (vehiclesRes.ok) setVehicles(await vehiclesRes.json());
 
       // 3. Transit Schedules
-      const schedulesRes = await fetch("http://localhost:3001/logistics/schedules", {
+      const schedulesRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/schedules`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (schedulesRes.ok) setSchedules(await schedulesRes.json());
 
       // 4. Keys
-      const keysRes = await fetch("http://localhost:3001/logistics/keys", {
+      const keysRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/keys`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (keysRes.ok) setKeys(await keysRes.json());
 
       // 5. Employees list for driver dropdown
-      const empRes = await fetch("http://localhost:3001/employees", {
+      const empRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (empRes.ok) setEmployees(await empRes.json());
 
       // 6. Properties list for keys dropdown
-      const propRes = await fetch("http://localhost:3001/properties", {
+      const propRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/properties`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (propRes.ok) setProperties(await propRes.json());
@@ -124,7 +124,7 @@ export default function LogisticsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3001/logistics/schedules", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/schedules`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(scheduleForm)
@@ -145,7 +145,7 @@ export default function LogisticsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3001/logistics/vehicles", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/vehicles`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(vehicleForm)
@@ -166,7 +166,7 @@ export default function LogisticsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3001/logistics/drivers", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/drivers`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(driverForm)
@@ -187,7 +187,7 @@ export default function LogisticsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3001/logistics/keys", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(keyForm)
@@ -209,7 +209,7 @@ export default function LogisticsPage() {
     if (!selectedItem) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/logistics/keys/${selectedItem.id}/checkout`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/keys/${selectedItem.id}/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ notes: checkoutNotes })
@@ -229,7 +229,7 @@ export default function LogisticsPage() {
   const handleReturnKey = async (checkoutId: string) => {
     const notes = prompt("Enter checkout return check notes:") || "";
     try {
-      const res = await fetch(`http://localhost:3001/logistics/checkout/${checkoutId}/return`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/checkout/${checkoutId}/return`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ notes })
@@ -247,7 +247,7 @@ export default function LogisticsPage() {
     if (!selectedItem) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3001/logistics/vehicles/${selectedItem.id}/maintenance`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/vehicles/${selectedItem.id}/maintenance`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(maintenanceForm)
@@ -267,7 +267,7 @@ export default function LogisticsPage() {
   const handleResolveMaintenance = async (maintenanceId: string) => {
     if (!confirm("Complete vehicle maintenance and set car status back to active?")) return;
     try {
-      const res = await fetch(`http://localhost:3001/logistics/maintenance/${maintenanceId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/maintenance/${maintenanceId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status: "COMPLETED" })
@@ -282,7 +282,7 @@ export default function LogisticsPage() {
 
   const handleUpdateScheduleStatus = async (sId: string, status: string) => {
     try {
-      const res = await fetch(`http://localhost:3001/logistics/schedules/${sId}/status`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/logistics/schedules/${sId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ status })
