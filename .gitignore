@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Local Env Files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+**/.env
+**/.env.local
+
+# Next.js Build Outputs
+.next/
+**/ .next/
+out/
+**/out/
+
+# NestJS Build Outputs
+dist/
+**/dist/
+
+# System / Editor files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db

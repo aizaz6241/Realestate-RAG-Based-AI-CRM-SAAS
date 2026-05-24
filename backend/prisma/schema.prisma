@@ -1,0 +1,670 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  SALES_MANAGER
+  AGENT
+  HR
+  LOGISTICS
+  FINANCE
+  RECEPTIONIST
+  VIEWER
+}
+
+// -----------------------------------------------------------------------------
+// Core SaaS Multi-Tenant Models
+// -----------------------------------------------------------------------------
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  domain      String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users            User[]
+  properties       Property[]
+  leads            Lead[]
+  employeeProfiles EmployeeProfile[]
+  clients          Client[]
+  tasks            Task[]
+  owners           Owner[]
+  documents        Document[]
+  vehicles         Vehicle[]
+  chatRooms        ChatRoom[]
+  calendarEvents   CalendarEvent[]
+  aiDocuments      AiDocument[]
+  aiChatSessions   AiChatSession[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  passwordHash   String
+  firstName      String
+  lastName       String?
+  role           Role         @default(AGENT)
+  isActive       Boolean      @default(true)
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  assignedProperties Property[]
+  assignedLeads      Lead[]
+  employeeProfile    EmployeeProfile?
+  clients            Client[]
+  assignedTasks      Task[]
+  assignedOwners     Owner[]
+  createdDocuments   Document[]       @relation("DocumentCreator")
+  versionedDocuments DocumentVersion[] @relation("VersionUpdater")
+  keyCheckouts       KeyCheckout[]
+  chatRooms          ChatRoom[]       @relation("ChatMembers")
+  messages           Message[]
+  createdTasks       Task[]           @relation("TaskCreator")
+  createdEvents      CalendarEvent[]  @relation("EventCreator")
+  aiDocuments        AiDocument[]
+  aiChatSessions     AiChatSession[]
+}
+
+model EmployeeProfile {
+  id             String       @id @default(uuid())
+  userId         String       @unique
+  user           User         @relation(fields: [userId], references: [id])
+  
+  department     String?
+  designation    String?
+  joiningDate    DateTime?
+  salary         Float?
+  status         String       @default("ACTIVE") // ACTIVE, ON_LEAVE, TERMINATED
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  // New Command Center Relationships
+  documents      EmployeeDocument[]
+  attendances    Attendance[]
+  leaveRequests  LeaveRequest[]
+  activities     ActivityLog[]
+  reviews        PerformanceReview[]
+  payrolls       Payroll[]
+  driverProfile  DriverProfile?
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model EmployeeDocument {
+  id                String          @id @default(uuid())
+  name              String          // e.g., Emirates ID, Resume, Contract
+  category          String          // ID, CONTRACT, RESUME, OTHER
+  fileUrl           String
+  uploadedAt        DateTime        @default(now())
+  
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+}
+
+model Attendance {
+  id                String          @id @default(uuid())
+  dateStr           String          // Format: YYYY-MM-DD
+  checkIn           DateTime?
+  checkOut          DateTime?
+  status            String          @default("PRESENT") // PRESENT, LATE, ABSENT, ON_LEAVE
+  checkoutSummary   String?
+  
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([employeeProfileId, dateStr])
+}
+
+model LeaveRequest {
+  id                String          @id @default(uuid())
+  startDate         DateTime
+  endDate           DateTime
+  type              String          // SICK, CASUAL, ANNUAL, UNPAID
+  status            String          @default("PENDING") // PENDING, APPROVED, REJECTED
+  reason            String?
+  approvedAt        DateTime?
+  
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model ActivityLog {
+  id                String          @id @default(uuid())
+  description       String
+  category          String          // WORK, MEETING, COFFEE_BREAK, CALL, OTHER
+  logTime           DateTime        @default(now())
+  startTime         DateTime?
+  endTime           DateTime?
+  duration          Int             @default(0)
+  
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model PerformanceReview {
+  id                String          @id @default(uuid())
+  reviewDate        DateTime        @default(now())
+  rating            Int             // 1-5 stars
+  feedback          String
+  reviewedById      String
+  
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+
+// -----------------------------------------------------------------------------
+// Phase 1 MVP Models (Stubs)
+// -----------------------------------------------------------------------------
+
+model Property {
+  id             String       @id @default(uuid())
+  title          String
+  description    String?
+  type           String       // APARTMENT, VILLA, COMMERCIAL, PLOT, etc.
+  status         String       // DRAFT, PUBLISHED, SOLD, RENTED, AVAILABLE
+  listingType    String       @default("SALE") // RENT, SALE
+  price          Float
+  location       String
+  
+  // Real Estate specific fields
+  bedrooms       Int?
+  bathrooms      Int?
+  areaSqft       Float?
+  images         String[]     // Array of image URLs
+  amenities      String[]     // Array of amenities, e.g. ["Pool", "Gym", "Security"]
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  
+  assignedToId   String?
+  assignedTo     User?        @relation(fields: [assignedToId], references: [id])
+
+  // New Relations for Owners & CRM matching
+  ownerId        String?
+  owner          Owner?       @relation(fields: [ownerId], references: [id])
+  clientInterests ClientPropertyInterest[]
+  clientViewings  ClientViewing[]
+  priceHistory    PropertyPriceHistory[]
+  keyTracker      KeyTracker?
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Lead {
+  id             String       @id @default(uuid())
+  name           String
+  email          String?
+  phone          String?
+  source         String?      @default("DIRECT") // ZILLOW, PROPERTY_FINDER, FACEBOOK, DIRECT, WEBSITE, etc.
+  status         String       @default("NEW") // NEW, CONTACTED, ENGAGED, DISQUALIFIED, CLOSED
+  score          Int          @default(0)
+  isDuplicate    Boolean      @default(false)
+  duplicateOfId  String?
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  assignedToId   String?
+  assignedTo     User?        @relation(fields: [assignedToId], references: [id])
+
+  activities     LeadActivity[]
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Client {
+  id             String       @id @default(uuid())
+  name           String
+  email          String?
+  phone          String
+  type           String       // BUYER, SELLER, INVESTOR
+  address        String?
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  assignedToId   String?
+  assignedTo     User?        @relation(fields: [assignedToId], references: [id])
+
+  // CRM expanded details
+  stage          String       @default("INQUIRY") // INQUIRY, VIEWING, OFFER, CLOSED
+  budget         Float?
+  preferences    String?      // e.g. "3 Bed, DHA Lahore"
+
+  interestedProperties ClientPropertyInterest[]
+  viewings             ClientViewing[]
+  communications       ClientCommunication[]
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Task {
+  id             String       @id @default(uuid())
+  title          String
+  description    String?
+  status         String       @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  dueDate        DateTime?
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  assignedToId   String?
+  assignedTo     User?        @relation(fields: [assignedToId], references: [id])
+
+  createdById    String?
+  createdBy      User?        @relation("TaskCreator", fields: [createdById], references: [id])
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+// -----------------------------------------------------------------------------
+// Landlord / Owner Management Models
+// -----------------------------------------------------------------------------
+
+model Owner {
+  id             String          @id @default(uuid())
+  name           String
+  email          String?
+  phone          String
+  status         String          @default("ACTIVE") // ACTIVE, INACTIVE
+  
+  // KYC Documents
+  kycVerified    Boolean         @default(false)
+  kycNotes       String?
+  
+  // Agreements & Commission Terms
+  commissionRate Float?          // percentage, e.g. 5.0
+  agreementUrl   String?
+  agreementExpiry DateTime?
+  
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  
+  assignedToId   String?
+  assignedTo     User?           @relation(fields: [assignedToId], references: [id])
+  
+  // Relationships
+  properties     Property[]      // One Owner can list many properties
+  communications OwnerCommunication[]
+  documents      OwnerDocument[]
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model OwnerCommunication {
+  id             String          @id @default(uuid())
+  type           String          // CALL, EMAIL, MEETING, WHATSAPP
+  summary        String
+  date           DateTime        @default(now())
+  
+  ownerId        String
+  owner          Owner           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model OwnerDocument {
+  id             String          @id @default(uuid())
+  name           String          // Emirates ID, Title Deed, POA
+  fileUrl        String
+  uploadedAt     DateTime        @default(now())
+  
+  ownerId        String
+  owner          Owner           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// Buyer / Tenant CRM Supplementary Models
+// -----------------------------------------------------------------------------
+
+model ClientPropertyInterest {
+  id             String       @id @default(uuid())
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  propertyId     String
+  property       Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  
+  createdAt      DateTime     @default(now())
+}
+
+model ClientViewing {
+  id             String       @id @default(uuid())
+  viewingDate    DateTime
+  feedback       String?
+  status         String       @default("SCHEDULED") // SCHEDULED, COMPLETED, CANCELLED
+  
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  propertyId     String
+  property       Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  
+  createdAt      DateTime     @default(now())
+}
+
+model ClientCommunication {
+  id             String       @id @default(uuid())
+  type           String       // CALL, EMAIL, MEETING, WHATSAPP
+  summary        String
+  date           DateTime     @default(now())
+  
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// Payroll & Property Price History Models
+// -----------------------------------------------------------------------------
+
+model Payroll {
+  id                String          @id @default(uuid())
+  month             String          // Format: YYYY-MM
+  baseSalary        Float
+  allowances        Float           @default(0)
+  deductions        Float           @default(0)
+  netSalary         Float
+  status            String          @default("UNPAID") // UNPAID, PAID
+  paidAt            DateTime?
+  
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model PropertyPriceHistory {
+  id             String       @id @default(uuid())
+  price          Float
+  changeDate     DateTime     @default(now())
+  
+  propertyId     String
+  property       Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// Files & Documents Vault Models
+// -----------------------------------------------------------------------------
+
+model Document {
+  id             String           @id @default(uuid())
+  name           String
+  category       String           // e.g. SALES, TENANCY, KYC, CORPORATE, OTHER
+  fileUrl        String
+  version        Int              @default(1)
+  tags           String[]         // Tag keywords
+  expiryDate     DateTime?
+  isExpired      Boolean          @default(false)
+  accessRole     String           @default("VIEWER") // VIEWER, AGENT, ADMIN, SUPER_ADMIN
+  
+  targetRoles    String[]
+  targetUserIds  String[]
+  writeRoles     String[]
+  writeUserIds   String[]
+  
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  
+  createdById    String
+  createdBy      User             @relation("DocumentCreator", fields: [createdById], references: [id])
+  
+  versions       DocumentVersion[]
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model DocumentVersion {
+  id             String           @id @default(uuid())
+  version        Int
+  fileUrl        String
+  updatedAt      DateTime         @default(now())
+  
+  documentId     String
+  document       Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  updatedById    String
+  updatedBy      User             @relation("VersionUpdater", fields: [updatedById], references: [id])
+}
+
+// -----------------------------------------------------------------------------
+// Company Operations & Logistics Models
+// -----------------------------------------------------------------------------
+
+model DriverProfile {
+  id             String           @id @default(uuid())
+  licenseNumber  String
+  status         String           @default("AVAILABLE") // AVAILABLE, BUSY, OFF_DUTY
+  
+  employeeProfileId String         @unique
+  employeeProfile   EmployeeProfile  @relation(fields: [employeeProfileId], references: [id], onDelete: Cascade)
+  
+  schedules      LogisticsSchedule[]
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model Vehicle {
+  id             String           @id @default(uuid())
+  modelName      String
+  plateNumber    String           @unique
+  status         String           @default("ACTIVE") // ACTIVE, MAINTENANCE, OUT_OF_SERVICE
+  
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  
+  maintenanceRequests VehicleMaintenance[]
+  schedules           LogisticsSchedule[]
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model VehicleMaintenance {
+  id             String           @id @default(uuid())
+  description    String
+  cost           Float?
+  status         String           @default("PENDING") // PENDING, COMPLETED, CANCELLED
+  requestDate    DateTime         @default(now())
+  completionDate DateTime?
+  
+  vehicleId      String
+  vehicle        Vehicle          @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model LogisticsSchedule {
+  id             String           @id @default(uuid())
+  visitDate      DateTime
+  pickupLocation String
+  dropLocation   String
+  status         String           @default("SCHEDULED") // SCHEDULED, IN_TRANSIT, COMPLETED, CANCELLED
+  
+  driverId       String?
+  driver         DriverProfile?   @relation(fields: [driverId], references: [id])
+  vehicleId      String?
+  vehicle        Vehicle?         @relation(fields: [vehicleId], references: [id])
+  
+  viewingId      String?          // Dynamic viewing linkage
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model KeyTracker {
+  id             String           @id @default(uuid())
+  keyTag         String           @unique // e.g. KEY-DHA-42
+  status         String           @default("IN_OFFICE") // IN_OFFICE, CHECKED_OUT, LOST
+  
+  propertyId     String           @unique
+  property       Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  
+  checkouts      KeyCheckout[]
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model KeyCheckout {
+  id             String           @id @default(uuid())
+  checkoutDate   DateTime         @default(now())
+  returnDate     DateTime?
+  notes          String?
+  
+  keyId          String
+  key            KeyTracker       @relation(fields: [keyId], references: [id], onDelete: Cascade)
+  
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+}
+
+// -----------------------------------------------------------------------------
+// Smart Lead Timeline & Activities Models
+// -----------------------------------------------------------------------------
+
+model LeadActivity {
+  id             String           @id @default(uuid())
+  type           String           // CALL, EMAIL, NOTES, STATUS_CHANGE
+  description    String
+  activityDate   DateTime         @default(now())
+  
+  leadId         String
+  lead           Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// Real-Time Chat & Automated System Notifications Center
+// -----------------------------------------------------------------------------
+
+model ChatRoom {
+  id             String           @id @default(uuid())
+  name           String?          // e.g. "General Team Chat"
+  isGroup        Boolean          @default(false)
+  isSystem       Boolean          @default(false)
+  systemUserId   String?          // Links private bot logs to a specific user
+  
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  
+  members        User[]           @relation("ChatMembers")
+  messages       Message[]
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model Message {
+  id             String           @id @default(uuid())
+  content        String
+  isSystem       Boolean          @default(false)
+  
+  chatRoomId     String
+  chatRoom       ChatRoom         @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  
+  senderId       String?          // Null for system bot alerts
+  sender         User?            @relation(fields: [senderId], references: [id])
+  
+  createdAt      DateTime         @default(now())
+}
+
+model CalendarEvent {
+  id             String        @id @default(uuid())
+  title          String
+  description    String?
+  startTime      DateTime
+  endTime        DateTime
+  location       String?
+  
+  isPrivate      Boolean       @default(false)
+  targetRoles    String[]      // e.g. ["HR", "FINANCE"] for department meetings
+  targetUserIds  String[]      // e.g. ["user-uuid-1"] for specific invites
+  
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  
+  createdById    String
+  createdBy      User          @relation("EventCreator", fields: [createdById], references: [id])
+  
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+// -----------------------------------------------------------------------------
+// RAG-Based AI Assistant & Vector Knowledge Base Models
+// -----------------------------------------------------------------------------
+
+model AiDocument {
+  id             String            @id @default(uuid())
+  name           String            // e.g., "DHA-Listing-Policy-2026.pdf"
+  fileUrl        String?           // Local path or URL
+  fileType       String            // PDF, TXT, NOTE, etc.
+  fileSize       Int?              // in bytes
+  
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  
+  createdById    String
+  createdBy      User              @relation(fields: [createdById], references: [id])
+  
+  chunks         AiDocumentChunk[]
+  
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+}
+
+model AiDocumentChunk {
+  id           String     @id @default(uuid())
+  content      String     @db.Text
+  embedding    Float[]    // stores the floating point vector representation (768 for Gemini, 1536 for OpenAI)
+  
+  documentId   String
+  document     AiDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  
+  createdAt    DateTime   @default(now())
+}
+
+model AiChatSession {
+  id             String        @id @default(uuid())
+  title          String
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  messages       Json          // Array of messages: [{role: "user" | "model", content: string, toolExecuted?: string, toolData?: any, citations?: any[], createdAt: string}]
+  
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+
+

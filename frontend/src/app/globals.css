@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  :root {
+    /* Ultra Premium Dark Theme - Deep Space / Neon Vibe */
+    --background: hsl(230, 25%, 5%);
+    --foreground: hsl(210, 20%, 98%);
+
+    --card: hsl(230, 25%, 8%);
+    --card-foreground: hsl(210, 20%, 98%);
+
+    --popover: hsl(230, 25%, 8%);
+    --popover-foreground: hsl(210, 20%, 98%);
+
+    /* Vibrant Purple/Gold Accent for Core Operations */
+    --primary: hsl(260, 100%, 65%); /* Neon Purple */
+    --primary-foreground: hsl(210, 20%, 98%);
+
+    --secondary: hsl(230, 25%, 12%);
+    --secondary-foreground: hsl(210, 20%, 98%);
+
+    --muted: hsl(230, 25%, 15%);
+    --muted-foreground: hsl(215, 20%, 65%);
+
+    --accent: hsl(38, 100%, 55%); /* Gold */
+    --accent-foreground: hsl(230, 15%, 10%);
+
+    --destructive: hsl(350, 84%, 60%);
+    --destructive-foreground: hsl(210, 20%, 98%);
+
+    --border: hsl(230, 25%, 15%);
+    --input: hsl(230, 25%, 12%);
+    --ring: hsl(260, 100%, 65%);
+
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+    /* Rich background gradient */
+    background: radial-gradient(circle at 50% -20%, hsl(260, 100%, 15%), hsl(230, 25%, 5%) 60%);
+    background-attachment: fixed;
+  }
+}
+
+/* Glassmorphism Utilities */
+.glass {
+  background: rgba(20, 22, 35, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.glass-input:focus {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: hsl(260, 100%, 65%); /* Neon Purple Focus */
+  box-shadow: 0 0 20px rgba(138, 43, 226, 0.3);
+  outline: none;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+
+/* Custom Gradient Text */
+.text-gradient {
+  background: linear-gradient(135deg, hsl(260, 100%, 75%) 0%, hsl(38, 100%, 60%) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Glowing Elements */
+.glow-primary {
+  box-shadow: 0 0 25px rgba(138, 43, 226, 0.4);
+}
+.glow-accent {
+  box-shadow: 0 0 25px rgba(240, 165, 0, 0.4);
+}

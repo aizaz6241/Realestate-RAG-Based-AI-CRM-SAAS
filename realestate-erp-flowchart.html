@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Real Estate ERP — System Flowchart</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --border: #1e2229;
+    --border-bright: #2d333d;
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --accent: #f0a500;
+    --accent2: #3b82f6;
+    --accent3: #10b981;
+    --accent4: #8b5cf6;
+    --accent5: #ef4444;
+    --accent6: #06b6d4;
+
+    --c-core: #f0a500;
+    --c-hr: #3b82f6;
+    --c-crm: #10b981;
+    --c-property: #8b5cf6;
+    --c-ops: #ef4444;
+    --c-finance: #6b7280;
+    --c-docs: #06b6d4;
+    --c-ai: #f472b6;
+    --c-infra: #94a3b8;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* HEADER */
+  .header {
+    padding: 48px 40px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .header-title {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(28px, 5vw, 52px);
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+  .header-title span { color: var(--accent); }
+  .header-sub {
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .phase-legend {
+    margin-left: auto;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .legend-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+
+  /* MAIN CANVAS */
+  .canvas {
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  /* CENTER NODE */
+  .center-zone {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+  .core-node {
+    background: linear-gradient(135deg, #1a1506 0%, #1c1a08 100%);
+    border: 2px solid var(--c-core);
+    border-radius: 16px;
+    padding: 24px 48px;
+    text-align: center;
+    position: relative;
+    box-shadow: 0 0 60px rgba(240,165,0,0.15);
+  }
+  .core-node::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 17px;
+    background: linear-gradient(135deg, rgba(240,165,0,0.2), transparent 60%);
+    pointer-events: none;
+  }
+  .core-node .label {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--c-core);
+    letter-spacing: -0.5px;
+  }
+  .core-node .sublabel {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+
+  /* PHASE ROWS */
+  .phase-row {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .phase-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .phase-badge {
+    font-family: 'Syne', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 4px;
+    border: 1px solid currentColor;
+  }
+  .phase-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .phase-desc {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  /* MODULE GRID */
+  .module-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+  }
+
+  /* MODULE CARD */
+  .module {
+    background: var(--surface);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    transition: border-color 0.2s, transform 0.2s;
+    position: relative;
+  }
+  .module:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-bright);
+  }
+  .module-header {
+    padding: 14px 16px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .module-icon {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .module-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .module-tag {
+    margin-left: auto;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-weight: 500;
+    opacity: 0.9;
+  }
+  .module-body {
+    padding: 12px 16px 14px;
+  }
+  .feature-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .feature-list li {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    line-height: 1.4;
+  }
+  .feature-list li::before {
+    content: '→';
+    flex-shrink: 0;
+    opacity: 0.5;
+    font-size: 10px;
+    margin-top: 1px;
+  }
+  .feature-list li strong {
+    color: #9ca3af;
+    font-weight: 500;
+  }
+
+  /* FLOW CONNECTOR */
+  .flow-connector {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 4px 0;
+  }
+  .flow-arrow {
+    font-size: 20px;
+    color: var(--border-bright);
+  }
+
+  /* INTEGRATION ROW */
+  .integration-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 16px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    align-items: center;
+  }
+  .int-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+  .int-chip {
+    font-size: 11px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border-bright);
+    color: #9ca3af;
+    background: var(--bg);
+    transition: all 0.2s;
+  }
+  .int-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* AI SPECIAL */
+  .ai-section {
+    background: linear-gradient(135deg, #130a1a 0%, #0d0f1a 100%);
+    border: 1px solid rgba(244,114,182,0.3);
+    border-radius: 16px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .ai-section::after {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(244,114,182,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .ai-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .ai-card {
+    background: rgba(244,114,182,0.05);
+    border: 1px solid rgba(244,114,182,0.15);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .ai-card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #f472b6;
+    margin-bottom: 8px;
+  }
+  .ai-card ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ai-card ul li {
+    font-size: 10px;
+    color: var(--muted);
+    padding-left: 10px;
+    position: relative;
+    line-height: 1.4;
+  }
+  .ai-card ul li::before {
+    content: '·';
+    position: absolute; left: 0;
+    color: #f472b6;
+  }
+
+  /* RBAC SECTION */
+  .rbac-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .rbac-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .role-chip {
+    font-size: 11px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  /* PHASES COLOR */
+  .p1 { color: var(--accent3); border-color: var(--accent3); }
+  .p2 { color: var(--accent2); border-color: var(--accent2); }
+  .p3 { color: var(--accent4); border-color: var(--accent4); }
+  .p4 { color: var(--c-ai); border-color: var(--c-ai); }
+  .p-future { color: var(--c-finance); border-color: var(--c-finance); }
+
+  .col-core { color: var(--c-core); }
+  .col-hr { color: var(--c-hr); }
+  .col-crm { color: var(--c-crm); }
+  .col-prop { color: var(--c-property); }
+  .col-ops { color: var(--c-ops); }
+  .col-fin { color: var(--c-finance); }
+  .col-docs { color: var(--c-docs); }
+  .col-ai { color: var(--c-ai); }
+  .col-infra { color: var(--c-infra); }
+
+  .bg-core { background: rgba(240,165,0,0.12); }
+  .bg-hr { background: rgba(59,130,246,0.12); }
+  .bg-crm { background: rgba(16,185,129,0.12); }
+  .bg-prop { background: rgba(139,92,246,0.12); }
+  .bg-ops { background: rgba(239,68,68,0.12); }
+  .bg-fin { background: rgba(107,114,128,0.12); }
+  .bg-docs { background: rgba(6,182,212,0.12); }
+  .bg-ai { background: rgba(244,114,182,0.12); }
+  .bg-infra { background: rgba(148,163,184,0.12); }
+
+  .tag-mvp { background: rgba(16,185,129,0.15); color: var(--accent3); border: 1px solid rgba(16,185,129,0.3); }
+  .tag-p2 { background: rgba(59,130,246,0.15); color: var(--accent2); border: 1px solid rgba(59,130,246,0.3); }
+  .tag-p3 { background: rgba(139,92,246,0.15); color: var(--accent4); border: 1px solid rgba(139,92,246,0.3); }
+  .tag-future { background: rgba(107,114,128,0.15); color: var(--muted); border: 1px solid rgba(107,114,128,0.3); }
+  .tag-ai { background: rgba(244,114,182,0.15); color: #f472b6; border: 1px solid rgba(244,114,182,0.3); }
+
+  /* FOOTER */
+  .footer {
+    padding: 32px 40px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: gap;
+    gap: 16px;
+  }
+  .footer-note {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+  .footer-stack {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .stack-chip {
+    font-size: 10px;
+    padding: 3px 10px;
+    border: 1px solid var(--border-bright);
+    border-radius: 3px;
+    color: #6b7280;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* DIVIDER LINE */
+  .vline {
+    display: flex; align-items: center; gap: 16px;
+    margin: 4px 0;
+  }
+  .vline-bar { flex: 1; height: 1px; background: var(--border); }
+  .vline-text { font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div>
+    <div class="header-sub">Real Estate Operations Platform</div>
+    <div class="header-title">System <span>Flowchart</span></div>
+  </div>
+  <div class="phase-legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent3)"></div> Phase 1 — MVP</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div> Phase 2</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent4)"></div> Phase 3</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f472b6"></div> Phase 4 — AI</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--muted)"></div> Future</div>
+  </div>
+</div>
+
+<div class="canvas">
+
+  <!-- CENTER NODE -->
+  <div class="center-zone">
+    <div class="core-node">
+      <div class="label">🏢 Real Estate ERP</div>
+      <div class="sublabel">Internal Office Management System</div>
+    </div>
+  </div>
+
+  <!-- RBAC — BACKBONE -->
+  <div class="rbac-section">
+    <div class="phase-header">
+      <span class="phase-badge p1">Phase 1 — MVP</span>
+      <div class="phase-line"></div>
+      <span class="phase-desc col-core">🔐 RBAC — Backbone of the Entire System</span>
+    </div>
+    <div class="rbac-grid">
+      <div class="role-chip" style="background:rgba(240,165,0,0.1);color:var(--c-core);border:1px solid rgba(240,165,0,0.3)">👑 Super Admin</div>
+      <div class="role-chip" style="background:rgba(59,130,246,0.1);color:var(--c-hr);border:1px solid rgba(59,130,246,0.3)">🛡 Admin</div>
+      <div class="role-chip" style="background:rgba(16,185,129,0.1);color:var(--c-crm);border:1px solid rgba(16,185,129,0.3)">📊 Sales Manager</div>
+      <div class="role-chip" style="background:rgba(139,92,246,0.1);color:var(--c-property);border:1px solid rgba(139,92,246,0.3)">🏠 Agent</div>
+      <div class="role-chip" style="background:rgba(6,182,212,0.1);color:var(--c-docs);border:1px solid rgba(6,182,212,0.3)">👥 HR</div>
+      <div class="role-chip" style="background:rgba(239,68,68,0.1);color:var(--c-ops);border:1px solid rgba(239,68,68,0.3)">📦 Logistics</div>
+      <div class="role-chip" style="background:rgba(107,114,128,0.1);color:var(--muted);border:1px solid rgba(107,114,128,0.3)">💰 Finance</div>
+      <div class="role-chip" style="background:rgba(148,163,184,0.1);color:var(--c-infra);border:1px solid rgba(148,163,184,0.3)">🗃 Receptionist</div>
+    </div>
+    <div style="margin-top:12px;font-size:10px;color:var(--muted);letter-spacing:1px;">
+      Har user ka access → unke role ke hisaab se. Granular permissions: View / Edit / Delete / Export per module.
+    </div>
+  </div>
+
+  <!-- PHASE 1 -->
+  <div class="phase-row">
+    <div class="phase-header">
+      <span class="phase-badge p1">Phase 1 — MVP</span>
+      <div class="phase-line"></div>
+      <span class="phase-desc">Core modules — pehle ye banao</span>
+    </div>
+    <div class="module-grid">
+
+      <!-- AUTH -->
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-core">🔑</div>
+          <span class="module-title col-core">Auth System</span>
+          <span class="module-tag tag-mvp">MVP</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Login / Logout</li>
+            <li>JWT + Refresh Tokens</li>
+            <li>Password reset</li>
+            <li>2FA (optional later)</li>
+            <li>Session management</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- EMPLOYEES -->
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-hr">👤</div>
+          <span class="module-title col-hr">Employee Management</span>
+          <span class="module-tag tag-mvp">MVP</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Employee profiles + docs</li>
+            <li>Department / Role assign</li>
+            <li><strong>Attendance</strong> — check-in/out</li>
+            <li><strong>Leave management</strong></li>
+            <li>Daily activity logs</li>
+            <li>Task assignment</li>
+            <li>Performance tracking</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- PROPERTY MANAGEMENT -->
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-prop">🏠</div>
+          <span class="module-title col-prop">Property Management</span>
+          <span class="module-tag tag-mvp">MVP</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Apartments / Villas / Commercial</li>
+            <li>Rent / Sale listings</li>
+            <li>Status: Draft → Published → Sold</li>
+            <li>Pricing + history</li>
+            <li>Location + amenities</li>
+            <li>Media gallery (images/videos)</li>
+            <li>Assigned agent</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- OWNER / SELLER -->
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-crm">🤝</div>
+          <span class="module-title col-crm">Owner / Seller Mgmt</span>
+          <span class="module-tag tag-mvp">MVP</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Owner profiles + KYC docs</li>
+            <li>1 Owner → Many Properties</li>
+            <li>Commission terms</li>
+            <li>Property agreements</li>
+            <li>Communication history</li>
+            <li>Notes + timeline</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- BUYER / TENANT CRM -->
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-crm">👥</div>
+          <span class="module-title col-crm">Buyer / Tenant CRM</span>
+          <span class="module-tag tag-mvp">MVP</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Client profiles</li>
+            <li>Budget + preferences</li>
+            <li>Interested properties</li>
+            <li>Visit history</li>
+            <li>Deal stage tracking</li>
+            <li>Assigned agent</li>
+            <li>Follow-up reminders</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- LEADS CRM -->
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-crm">📥</div>
+          <span class="module-title col-crm">Lead Management</span>
+          <span class="module-tag tag-mvp">MVP</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Facebook / Portal / Manual leads</li>
+            <li>Auto lead assignment to agent</li>
+            <li>Pipeline: New → Contacted → Viewing → Closed</li>
+            <li>Lead source tracking</li>
+            <li>Duplicate detection</li>
+            <li>Follow-up overdue alerts</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- FILES -->
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-docs">📂</div>
+          <span class="module-title col-docs">File & Document Mgmt</span>
+          <span class="module-tag tag-mvp">MVP</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Emirates ID / Passport uploads</li>
+            <li>Agreements + contracts</li>
+            <li>NOC + receipts</li>
+            <li>Folders per entity</li>
+            <li>Expiry reminders</li>
+            <li>Storage: S3 / Cloudflare R2</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- TASKS -->
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-ops">✅</div>
+          <span class="module-title col-ops">Tasks & Activities</span>
+          <span class="module-tag tag-mvp">MVP</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Assign tasks to employees</li>
+            <li>Due dates + priorities</li>
+            <li>Activity timeline per entity</li>
+            <li>Status tracking</li>
+            <li>Tags (Hot Lead, VIP, Urgent)</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="flow-connector">
+    <span class="flow-arrow">↓</span>
+    <span>Phase 1 complete → Phase 2 shuru karo</span>
+    <span class="flow-arrow">↓</span>
+  </div>
+
+  <!-- PHASE 2 -->
+  <div class="phase-row">
+    <div class="phase-header">
+      <span class="phase-badge p2">Phase 2</span>
+      <div class="phase-line"></div>
+      <span class="phase-desc">Operations layer — scheduling, logistics, notifications</span>
+    </div>
+    <div class="module-grid">
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-ops">📅</div>
+          <span class="module-title col-ops">Calendar & Scheduling</span>
+          <span class="module-tag tag-p2">Phase 2</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Property viewing booking</li>
+            <li>Agent calendar</li>
+            <li>Conflict detection</li>
+            <li>Visit reminders</li>
+            <li>Google Calendar sync (future)</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-ops">🚗</div>
+          <span class="module-title col-ops">Logistics Management</span>
+          <span class="module-tag tag-p2">Phase 2</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Vehicle + driver management</li>
+            <li>Visit scheduling + pickup/drop</li>
+            <li>Keys tracking</li>
+            <li>Maintenance requests</li>
+            <li>Route optimization</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-hr">🔔</div>
+          <span class="module-title col-hr">Notification Center</span>
+          <span class="module-tag tag-p2">Phase 2</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>In-app notifications</li>
+            <li>Email alerts</li>
+            <li>WhatsApp messages</li>
+            <li>Expiry reminders (docs, agreements)</li>
+            <li>Missed follow-up alerts</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-docs">📝</div>
+          <span class="module-title col-docs">Contract & Agreement Mgmt</span>
+          <span class="module-tag tag-p2">Phase 2</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Contract templates</li>
+            <li>Auto-generated PDFs</li>
+            <li>E-signature support</li>
+            <li>Renewal reminders</li>
+            <li>Version history</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-ops">⚙️</div>
+          <span class="module-title col-ops">Workflow Automation</span>
+          <span class="module-tag tag-p2">Phase 2</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>New lead → auto assign agent</li>
+            <li>Agreement expiry → notify owner</li>
+            <li>Missed follow-up → escalate</li>
+            <li>Status change → trigger action</li>
+            <li>SLA / response time tracking</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-core">🔍</div>
+          <span class="module-title col-core">Global Search</span>
+          <span class="module-tag tag-p2">Phase 2</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Search: property, client, owner, agent</li>
+            <li>Search by phone / email / file</li>
+            <li>Ctrl+K quick access</li>
+            <li>Filters: area, budget, bedrooms</li>
+            <li>Meilisearch / Elasticsearch</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="flow-connector">
+    <span class="flow-arrow">↓</span>
+    <span>Phase 2 complete → Phase 3 shuru karo</span>
+    <span class="flow-arrow">↓</span>
+  </div>
+
+  <!-- PHASE 3 -->
+  <div class="phase-row">
+    <div class="phase-header">
+      <span class="phase-badge p3">Phase 3</span>
+      <div class="phase-line"></div>
+      <span class="phase-desc">Finance, analytics, reporting — business intelligence layer</span>
+    </div>
+    <div class="module-grid">
+
+      <div class="module" style="border-color:rgba(107,114,128,0.4)">
+        <div class="module-header">
+          <div class="module-icon bg-fin">💰</div>
+          <span class="module-title col-fin">Finance Management</span>
+          <span class="module-tag tag-future">Inactive Now</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Commission calculation</li>
+            <li>Agent payouts + splits</li>
+            <li>Invoices + expenses</li>
+            <li>Rent collection tracking</li>
+            <li>Owner settlements</li>
+            <li>Profit / loss reports</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-prop">📊</div>
+          <span class="module-title col-prop">Analytics & Reports</span>
+          <span class="module-tag tag-p3">Phase 3</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Top agents dashboard</li>
+            <li>Best areas + conversion rate</li>
+            <li>Lead source performance</li>
+            <li>Revenue trends</li>
+            <li>Export: Excel / PDF / CSV</li>
+            <li>Occupancy rates</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-docs">💬</div>
+          <span class="module-title col-docs">Communication Hub</span>
+          <span class="module-tag tag-p3">Phase 3</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>WhatsApp integration</li>
+            <li>Email + SMS</li>
+            <li>Call logs</li>
+            <li>Conversation history per client</li>
+            <li>Shared inbox</li>
+            <li>WhatsApp templates</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-hr">🗂</div>
+          <span class="module-title col-hr">Commission Engine</span>
+          <span class="module-tag tag-p3">Phase 3</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Split commissions</li>
+            <li>Team / bonus commissions</li>
+            <li>Referral commission</li>
+            <li>Payout rules engine</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-ops">🌐</div>
+          <span class="module-title col-ops">Portal Integration</span>
+          <span class="module-tag tag-p3">Phase 3</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>Bayut / Dubizzle / PropertyFinder</li>
+            <li>Auto publish listings</li>
+            <li>Auto sync updates</li>
+            <li>Lead import from portals</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="module">
+        <div class="module-header">
+          <div class="module-icon bg-core">🏢</div>
+          <span class="module-title col-core">Multi-Branch Support</span>
+          <span class="module-tag tag-p3">Phase 3</span>
+        </div>
+        <div class="module-body">
+          <ul class="feature-list">
+            <li>organization_id + branch_id</li>
+            <li>Branch-wise users + reports</li>
+            <li>Branch permissions</li>
+            <li>Future SaaS ready from day 1</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="flow-connector">
+    <span class="flow-arrow">↓</span>
+    <span>Phase 3 complete → AI Layer activate karo</span>
+    <span class="flow-arrow">↓</span>
+  </div>
+
+  <!-- PHASE 4 — AI -->
+  <div class="ai-section">
+    <div class="phase-header">
+      <span class="phase-badge p4">Phase 4 — AI Layer</span>
+      <div class="phase-line" style="background:rgba(244,114,182,0.2)"></div>
+      <span class="phase-desc col-ai">RAG Chatbot + Voice AI + Smart Automation</span>
+    </div>
+    <div class="ai-grid">
+
+      <div class="ai-card">
+        <div class="ai-card-title">🤖 RAG Chatbot</div>
+        <ul>
+          <li>Natural language queries</li>
+          <li>"Marina main 2BR under 120k dikhao"</li>
+          <li>"Last month top agent?"</li>
+          <li>"Pending commissions?"</li>
+          <li>pgvector + OpenAI</li>
+        </ul>
+      </div>
+
+      <div class="ai-card">
+        <div class="ai-card-title">📞 VAPI Voice AI</div>
+        <ul>
+          <li>Auto lead qualification call</li>
+          <li>Appointment scheduling</li>
+          <li>Follow-up calls</li>
+          <li>Missed lead recovery</li>
+          <li>Owner verification</li>
+        </ul>
+      </div>
+
+      <div class="ai-card">
+        <div class="ai-card-title">🔍 AI OCR</div>
+        <ul>
+          <li>Upload Emirates ID / Passport</li>
+          <li>Auto extract: Name, DOB, Expiry</li>
+          <li>Agreement data extraction</li>
+          <li>OCR pipeline (cloud-based)</li>
+        </ul>
+      </div>
+
+      <div class="ai-card">
+        <div class="ai-card-title">🧠 Smart Search</div>
+        <ul>
+          <li>Natural language property search</li>
+          <li>"Furnished Marina apartment under 150k"</li>
+          <li>Lead-property matching</li>
+          <li>AI property recommendations</li>
+        </ul>
+      </div>
+
+      <div class="ai-card">
+        <div class="ai-card-title">✍️ AI Assistant</div>
+        <ul>
+          <li>Summarize client conversation</li>
+          <li>Generate follow-up message</li>
+          <li>Generate tenancy agreement</li>
+          <li>Suggest matching properties</li>
+        </ul>
+      </div>
+
+      <div class="ai-card">
+        <div class="ai-card-title">📚 Knowledge Base</div>
+        <ul>
+          <li>Internal SOPs + training docs</li>
+          <li>Sales scripts</li>
+          <li>Company FAQs</li>
+          <li>AI chatbot data source</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- INFRASTRUCTURE -->
+  <div class="vline">
+    <div class="vline-bar"></div>
+    <div class="vline-text">Infrastructure — Always Active</div>
+    <div class="vline-bar"></div>
+  </div>
+
+  <div class="module-grid">
+
+    <div class="module">
+      <div class="module-header">
+        <div class="module-icon bg-infra">📋</div>
+        <span class="module-title col-infra">Audit Logs</span>
+        <span class="module-tag" style="background:rgba(148,163,184,0.1);color:var(--c-infra);border:1px solid rgba(148,163,184,0.3)">Core</span>
+      </div>
+      <div class="module-body">
+        <ul class="feature-list">
+          <li>Who changed what + when</li>
+          <li>Who deleted what</li>
+          <li>Login history</li>
+          <li>Sensitive data access log</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="module">
+      <div class="module-header">
+        <div class="module-icon bg-infra">🗑</div>
+        <span class="module-title col-infra">Soft Delete System</span>
+        <span class="module-tag" style="background:rgba(148,163,184,0.1);color:var(--c-infra);border:1px solid rgba(148,163,184,0.3)">Core</span>
+      </div>
+      <div class="module-body">
+        <ul class="feature-list">
+          <li>deleted_at / archived_at fields</li>
+          <li>Kabhi hard delete nahi</li>
+          <li>Archive system</li>
+          <li>Recovery possible</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="module">
+      <div class="module-header">
+        <div class="module-icon bg-infra">📤</div>
+        <span class="module-title col-infra">Import / Export</span>
+        <span class="module-tag" style="background:rgba(148,163,184,0.1);color:var(--c-infra);border:1px solid rgba(148,163,184,0.3)">Core</span>
+      </div>
+      <div class="module-body">
+        <ul class="feature-list">
+          <li>Import: CSV / Excel leads</li>
+          <li>Export: reports, listings, clients</li>
+          <li>Bulk operations</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="module">
+      <div class="module-header">
+        <div class="module-icon bg-infra">⚡</div>
+        <span class="module-title col-infra">Queue System</span>
+        <span class="module-tag" style="background:rgba(148,163,184,0.1);color:var(--c-infra);border:1px solid rgba(148,163,184,0.3)">Core</span>
+      </div>
+      <div class="module-body">
+        <ul class="feature-list">
+          <li>BullMQ + Redis</li>
+          <li>Emails / WhatsApp async</li>
+          <li>OCR + AI processing</li>
+          <li>Image compression</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="module">
+      <div class="module-header">
+        <div class="module-icon bg-infra">🏷</div>
+        <span class="module-title col-infra">Tags + Notes System</span>
+        <span class="module-tag" style="background:rgba(148,163,184,0.1);color:var(--c-infra);border:1px solid rgba(148,163,184,0.3)">Core</span>
+      </div>
+      <div class="module-body">
+        <ul class="feature-list">
+          <li>Tags: VIP, Hot Lead, Urgent</li>
+          <li>Rich text notes per entity</li>
+          <li>Voice notes (future)</li>
+          <li>Mention users in notes</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="module">
+      <div class="module-header">
+        <div class="module-icon bg-infra">🔒</div>
+        <span class="module-title col-infra">Security Layer</span>
+        <span class="module-tag" style="background:rgba(148,163,184,0.1);color:var(--c-infra);border:1px solid rgba(148,163,184,0.3)">Core</span>
+      </div>
+      <div class="module-body">
+        <ul class="feature-list">
+          <li>Rate limiting</li>
+          <li>Feature flags (Finance=OFF)</li>
+          <li>Webhook system</li>
+          <li>API-first architecture</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TECH STACK -->
+  <div class="integration-row">
+    <span class="int-label">Recommended Stack</span>
+    <span class="int-chip">NestJS</span>
+    <span class="int-chip">Next.js</span>
+    <span class="int-chip">PostgreSQL</span>
+    <span class="int-chip">Prisma ORM</span>
+    <span class="int-chip">Tailwind + ShadCN</span>
+    <span class="int-chip">S3 / R2 Storage</span>
+    <span class="int-chip">BullMQ + Redis</span>
+    <span class="int-chip">Meilisearch</span>
+    <span class="int-chip">pgvector (AI)</span>
+    <span class="int-chip">OpenAI (AI)</span>
+    <span class="int-chip">VAPI (Voice)</span>
+  </div>
+
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <div class="footer-note">Real Estate ERP — Conceptual System Map — All phases shown</div>
+  <div class="footer-stack">
+    <div class="stack-chip">Phase 1: MVP</div>
+    <div class="stack-chip">Phase 2: Ops</div>
+    <div class="stack-chip">Phase 3: Finance</div>
+    <div class="stack-chip">Phase 4: AI</div>
+  </div>
+</div>
+
+</body>
+</html>
