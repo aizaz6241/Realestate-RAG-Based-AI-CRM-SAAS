@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-05-29T23:49:02.805Z",
+    "userId": "user-admin-id",
+    "userName": "Aizaz Admin",
+    "userRole": "SUPER_ADMIN",
+    "organizationId": "org-1234",
+    "rawInput": "how many employees checked in late this week",
+    "domain": "HR",
+    "scope": "GLOBAL",
+    "temporalRange": {
+      "startDate": "2026-05-24T19:00:00.000Z",
+      "endDate": "2026-05-30T18:59:59.999Z",
+      "label": "this-week"
+    },
+    "toolExecuted": "getAttendanceRecord",
+    "verificationStatus": "SUCCESS",
+    "confidenceScore": 100
+  },
+  {
+    "timestamp": "2026-05-29T23:49:48.923Z",
+    "userId": "user-admin-id",
+    "userName": "Aizaz Admin",
+    "userRole": "SUPER_ADMIN",
+    "organizationId": "org-1234",
+    "rawInput": "how many employees checked in late this week",
+    "domain": "HR",
+    "scope": "GLOBAL",
+    "temporalRange": {
+      "startDate": "2026-05-24T19:00:00.000Z",
+      "endDate": "2026-05-30T18:59:59.999Z",
+      "label": "this-week"
+    },
+    "toolExecuted": "getAttendanceRecord",
+    "verificationStatus": "SUCCESS",
+    "confidenceScore": 100
+  }
+]
