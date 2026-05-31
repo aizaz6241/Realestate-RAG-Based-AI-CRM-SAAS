@@ -400,7 +400,7 @@ export class AiLlmService {
     const openaiKey = this.getOpenAIKey();
 
     if (geminiKey) {
-      for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash-lite', 'gemini-2.5-flash-lite']) {
+      for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
         try {
           const contents: any[] = [];
           
