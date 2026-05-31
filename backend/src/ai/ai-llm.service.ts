@@ -62,7 +62,7 @@ export class AiLlmService {
     const localUrl = this.getLocalLlmUrl();
     const localModel = this.getLocalLlmModel();
     const openrouterKey = this.getOpenRouterKey();
-
+ 
     const messages = [{ role: 'system', content: systemPrompt }];
     for (const h of history) {
       messages.push({
@@ -71,38 +71,53 @@ export class AiLlmService {
       });
     }
     messages.push({ role: 'user', content: userPrompt });
-
+ 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (openrouterKey) {
       headers['Authorization'] = `Bearer ${openrouterKey}`;
       headers['HTTP-Referer'] = 'http://localhost:3000';
       headers['X-Title'] = 'RENS ERP Chatbot';
     }
-
-    try {
-      const response = await fetch(`${localUrl}/chat/completions`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model: localModel,
-          messages,
-          temperature: 0.1,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const text = data?.choices?.[0]?.message?.content;
-        if (text) {
-          this.logger.log(`Successfully generated completion via Local/OpenRouter LLM (${localModel})`);
-          return text;
+ 
+    const attempts = 3;
+    const delayMs = 1500;
+ 
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const response = await fetch(`${localUrl}/chat/completions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: localModel,
+            messages,
+            temperature: 0.1,
+          }),
+        });
+ 
+        if (response.ok) {
+          const data = await response.json();
+          const text = data?.choices?.[0]?.message?.content;
+          if (text) {
+            this.logger.log(`Successfully generated completion via Local/OpenRouter LLM (${localModel})`);
+            return text;
+          }
+        }
+        
+        // If it returns a non-200 status (like rate limits or gateway delays), wait and retry
+        this.logger.warn(`OpenRouter/Local LLM returned status ${response.status}. Attempt ${i + 1} of ${attempts} in progress...`);
+        if (i < attempts - 1) {
+          await new Promise(resolve => setTimeout(resolve, delayMs * (i + 1)));
+        }
+      } catch (err) {
+        this.logger.warn(`OpenRouter/Local LLM attempt ${i + 1} failed: ${err.message}`);
+        if (i < attempts - 1) {
+          await new Promise(resolve => setTimeout(resolve, delayMs * (i + 1)));
+        } else if (i === attempts - 1) {
+          throw err;
         }
       }
-      throw new Error(`Local/OpenRouter LLM responded with status: ${response.status}`);
-    } catch (err) {
-      this.logger.warn(`Local/OpenRouter LLM generation failed: ${err.message}`);
-      throw err;
     }
+    throw new Error('Local/OpenRouter LLM failed after maximum retry attempts.');
   }
 
   async generateLocalEmbedding(text: string): Promise<number[] | null> {

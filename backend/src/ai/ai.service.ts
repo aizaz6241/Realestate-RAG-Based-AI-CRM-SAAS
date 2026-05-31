@@ -677,6 +677,11 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
 
       let cleanedText = finalResponseText.trim();
 
+      // STRICT JARGON SHIELD: Clean up any accidental technical leaks or backend tool/SQL mentions
+      cleanedText = cleanedText.replace(/(?:I am using the|using the|executed the|I call the|I will execute|executed|calling|triggering)\s*["']?(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask)["']?\s*(?:tool)?\s*(?:to retrieve|to query|to search|to look up)?/gi, '');
+      cleanedText = cleanedText.replace(/(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask)\s*(?:tool|query|SQL)/gi, 'system search');
+      cleanedText = cleanedText.replace(/Postgres|database tool|SQL query|PrismaClientKnownRequestError/gi, 'system lookup');
+
       cleanedText = cleanedText.replace(/(?:\[?Orchestrator\]?|\*Orchestrator\*)\s*➔\s*Delegating[\s\S]*?(?:Orchestrator\s*(?:\(Main\s*Brain\))?\s*(?:AI)?\s*:\s*|Orchestrator:\s*)/gi, '');
       cleanedText = cleanedText.replace(/👥?\s*(?:HR|Finance|Property|Sales|Logistics|Orchestrator)\s+Agent:\s*["'].*?["']/gi, '');
       cleanedText = cleanedText.replace(/(?:\[?Orchestrator\]?|\*Orchestrator\*)\s*➔\s*Delegating[^\n]*/gi, '');
