@@ -365,6 +365,14 @@ You have access ONLY to the following 11 database tools:
    - Params: {}
 10. "runDatabaseQuery": Run a raw read-only SQL query for complex joins, aggregations, trend analytics, or counts (e.g. total employee counts or owner property distribution).
     - Params: { "query": "SELECT COUNT(*) FROM \"User\" WHERE ... (Ensure proper double quotes on camelCase table/column names)" }
+    - SCHEMA REFERENCE FOR SQL QUERIES (CRITICAL):
+      * Table "User" columns: "id", "email", "passwordHash", "firstName", "lastName", "role" (SUPER_ADMIN | ADMIN | SALES_MANAGER | AGENT | HR | LOGISTICS | FINANCE), "isActive", "organizationId", "createdAt", "updatedAt"
+        (⚠️ IMPORTANT: "User" does NOT have a "name" column! You must use "firstName" and "lastName"! E.g. SELECT "firstName", "lastName" FROM "User")
+      * Table "EmployeeProfile" columns: "id", "userId", "department", "designation", "salary", "status", "organizationId", "joiningDate", "createdAt", "updatedAt"
+      * Table "Property" columns: "id", "title", "description", "type", "status", "listingType" (SALE | RENT), "price", "location", "bedrooms", "bathrooms", "areaSqft", "ownerId", "organizationId"
+      * Table "Client" columns: "id", "name", "email", "phone", "type", "stage", "budget", "preferences", "organizationId"
+      * Table "Lead" columns: "id", "name", "email", "phone", "source", "status", "score", "organizationId"
+      * Table "Task" columns: "id", "title", "description", "status", "dueDate", "organizationId", "assignedToId"
     - Example (Total Employee Count): {"tool": "runDatabaseQuery", "params": {"query": "SELECT COUNT(*) as count FROM \"User\""}}
 11. "createTask": Create a new task. (Always follow the strict validation flow first!).
     - Params: { "title": "Task title", "employeeName": "Target employee name", "description": "Details", "dueDate": "YYYY-MM-DD", "priority": "STANDARD | HIGH | URGENT" }

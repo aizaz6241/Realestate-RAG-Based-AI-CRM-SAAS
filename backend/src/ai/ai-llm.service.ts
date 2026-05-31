@@ -79,8 +79,8 @@ export class AiLlmService {
       headers['X-Title'] = 'RENS ERP Chatbot';
     }
  
-    const attempts = 3;
-    const delayMs = 1500;
+    const attempts = 2;
+    const delayMs = 800;
  
     for (let i = 0; i < attempts; i++) {
       try {
