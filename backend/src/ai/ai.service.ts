@@ -469,10 +469,8 @@ CONVERSATIONAL RULES & WORKFLOWS:
 
 If the question CANNOT be answered by database tools, or the tool has already run, answer using:
 - The context from retrieved unstructured documents (RAG) attached below.
-- General ERP operational knowledge.
-
-RESOURCES:
-${documentContext}`;`;
+- General ERP resources:
+${documentContext}`;
 
       if (!allowDbTools) {
         systemPrompt += `
