@@ -55,6 +55,8 @@ export default function EmployeeCommandCenter() {
   const [reviewData, setReviewData] = useState({ rating: "5", feedback: "" });
   const [payrollData, setPayrollData] = useState({ month: new Date().toISOString().slice(0, 7), baseSalary: "", allowances: "0", deductions: "0", status: "UNPAID" });
   const [isVaultLockOpen, setIsVaultLockOpen] = useState(false);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+  const [newPasswordVal, setNewPasswordVal] = useState("");
 
   const fetchEmployeeData = async () => {
     if (!token) return;
@@ -376,6 +378,35 @@ export default function EmployeeCommandCenter() {
     }
   };
 
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPasswordVal.trim() || !token) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${id}/reset-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ password: newPasswordVal })
+      });
+      if (res.ok) {
+        alert("🔒 User password reset successfully!");
+        setNewPasswordVal("");
+        setIsResetPasswordOpen(false);
+      } else {
+        const err = await res.json();
+        alert(`⚠️ Failed to reset password: ${err.message || 'Server error'}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("⚠️ Network connection error.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Authorization Check Helpers
   const isAdmin = currentUser?.role === "SUPER_ADMIN" || currentUser?.role === "ADMIN" || currentUser?.role === "HR";
 
@@ -630,6 +661,18 @@ export default function EmployeeCommandCenter() {
                     <Calendar className="w-4 h-4 text-primary" /> {new Date(employee.createdAt).toLocaleDateString([], { dateStyle: 'long' })}
                   </p>
                 </div>
+
+                {currentUser?.role === "SUPER_ADMIN" && (
+                  <div className="pt-4.5 border-t border-border/40 space-y-3">
+                    <p className="text-xs text-gray-400 uppercase tracking-widest font-black">Security Controls</p>
+                    <button
+                      onClick={() => setIsResetPasswordOpen(true)}
+                      className="w-full py-2.5 bg-red-500/10 hover:bg-red-500 hover:text-white border border-red-500/30 hover:border-red-500 text-red-400 font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Lock className="w-4 h-4" /> Reset User Password
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1547,6 +1590,59 @@ export default function EmployeeCommandCenter() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Super Admin Password Reset Modal */}
+      {isResetPasswordOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-fade-in">
+          <div className="glass w-full max-w-md rounded-2xl overflow-hidden border border-red-500/40 shadow-2xl glow-red max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-6 border-b border-border bg-red-950/10">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-red-400">
+                <Lock className="w-5 h-5 animate-pulse" />
+                Reset User Password
+              </h2>
+              <button onClick={() => { setIsResetPasswordOpen(false); setNewPasswordVal(""); }} className="text-gray-400 hover:text-white transition-colors"><X className="w-6 h-6" /></button>
+            </div>
+            <form onSubmit={handleResetPassword} className="p-6 space-y-4 text-sm">
+              <div className="bg-red-500/10 border border-red-500/20 p-3.5 rounded-xl text-[11px] text-red-400 leading-relaxed font-semibold">
+                ⚠️ WARNING: You are initiating a password override for <strong className="text-white">{fullName}</strong>. The user will be logged out and must use the new password to log back in.
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase text-gray-400 mb-2 tracking-widest leading-relaxed">
+                  Enter New Password
+                </label>
+                <input
+                  required
+                  type="password"
+                  minLength={6}
+                  className="w-full glass-input px-3.5 py-2.5 rounded-xl text-sm text-white placeholder-gray-600 bg-secondary/20"
+                  placeholder="•••••••• (Min 6 characters)"
+                  value={newPasswordVal}
+                  onChange={(e) => setNewPasswordVal(e.target.value)}
+                />
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-4 border-t border-border/60">
+                <button
+                  type="button"
+                  onClick={() => { setIsResetPasswordOpen(false); setNewPasswordVal(""); }}
+                  className="px-5 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-secondary transition-colors text-xs font-bold uppercase tracking-wider"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white flex items-center gap-2 font-bold text-xs uppercase tracking-wider shadow-lg shadow-red-500/20 transition-all duration-300 cursor-pointer"
+                >
+                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Confirm Override
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

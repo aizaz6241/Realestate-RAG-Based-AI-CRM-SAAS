@@ -43,6 +43,11 @@ model Organization {
   calendarEvents   CalendarEvent[]
   aiDocuments      AiDocument[]
   aiChatSessions   AiChatSession[]
+  aiMemoryVectors  AiMemoryVector[]
+
+  integrationConfigs   IntegrationConfig[]
+  communicationTemplates CommunicationTemplate[]
+  integrationLogs      IntegrationLog[]
 }
 
 model User {
@@ -664,6 +669,67 @@ model AiChatSession {
   
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+}
+
+model IntegrationConfig {
+  id             String       @id @default(uuid())
+  type           String       // EMAIL, WHATSAPP, SMS, VOICE, PORTAL_FEED, GOOGLE_DRIVE, GOOGLE_MAPS
+  isEnabled      Boolean      @default(false)
+  credentials    Json         // API keys, client secrets, Twilio numbers, etc.
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, type])
+}
+
+model CommunicationTemplate {
+  id             String       @id @default(uuid())
+  name           String       // e.g., "Welcome Lead Email", "OTP Reminder"
+  subject        String?      // Dynamic subject line if Email
+  content        String       @db.Text // Variable-supported body text: e.g. {{leadName}}
+  channel        String       // EMAIL, WHATSAPP, SMS
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model IntegrationLog {
+  id             String       @id @default(uuid())
+  channel        String       // EMAIL, WHATSAPP, SMS, VOICE, PORTAL
+  direction      String       // INBOUND, OUTBOUND
+  status         String       // SUCCESS, FAILED, PENDING
+  payload        Json?        // Full transaction payload details
+  errorMessage   String?
+  leadId         String?      // Optional foreign link
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  createdAt      DateTime     @default(now())
+}
+
+model AiMemoryVector {
+  id             String   @id @default(uuid())
+  category       String   // e.g. CLIENT_PREFERENCE, EMPLOYEE_PERFORMANCE, OPERATIONAL_NOTE
+  content        String   @db.Text
+  embedding      Float[]  // Vector representation
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  clientId       String?
+  userId         String?
+  propertyId     String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 

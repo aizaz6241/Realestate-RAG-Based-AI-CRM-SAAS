@@ -115,5 +115,12 @@ export class EmployeesController {
   deletePayroll(@Param('id') id: string, @Param('payrollId') payrollId: string) {
     return this.employeesService.deletePayroll(id, payrollId);
   }
+
+  // 13. Reset User Password (restricted to SUPER_ADMIN)
+  @Roles('SUPER_ADMIN')
+  @Post(':id/reset-password')
+  resetPassword(@Param('id') id: string, @Body() body: any, @Request() req) {
+    return this.employeesService.resetPassword(id, req.user.organizationId, body.password);
+  }
 }
 

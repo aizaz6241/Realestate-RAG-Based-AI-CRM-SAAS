@@ -415,5 +415,15 @@ export class EmployeesService {
       where: { id: payrollId }
     });
   }
+
+  async resetPassword(id: string, organizationId: string, newPassword: string) {
+    const user = await this.findOne(id, organizationId);
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash }
+    });
+    return { success: true, message: 'Password reset successfully!' };
+  }
 }
 

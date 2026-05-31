@@ -131,6 +131,42 @@ export default function CalendarPage() {
   const peerConnectionsRef = React.useRef<{ [peerId: string]: RTCPeerConnection }>({});
   const myPeerIdRef = React.useRef<string>("");
 
+  // Synchronize Call Room Event ID with sessionStorage to survive browser reloads
+  useEffect(() => {
+    if (callRoomEvent) {
+      sessionStorage.setItem("activeCallRoomEventId", callRoomEvent.id);
+      if (joinTime) {
+        sessionStorage.setItem("activeCallJoinTime", joinTime.toString());
+      } else {
+        sessionStorage.setItem("activeCallJoinTime", Date.now().toString());
+      }
+    } else {
+      sessionStorage.removeItem("activeCallRoomEventId");
+      sessionStorage.removeItem("activeCallJoinTime");
+    }
+  }, [callRoomEvent, joinTime]);
+
+  // Restore Call Room Session on reload/refresh
+  useEffect(() => {
+    if (events.length > 0 && !isCallActive && !callRoomEvent) {
+      const savedEventId = sessionStorage.getItem("activeCallRoomEventId");
+      if (savedEventId) {
+        const savedEvent = events.find(e => e.id === savedEventId);
+        if (savedEvent) {
+          const savedJoinTime = sessionStorage.getItem("activeCallJoinTime");
+          if (savedJoinTime) {
+            setJoinTime(parseInt(savedJoinTime, 10));
+          } else {
+            setJoinTime(Date.now());
+          }
+          setCallRoomEvent(savedEvent);
+          setIsCallActive(true);
+          console.log("Restored active call room session:", savedEvent.title);
+        }
+      }
+    }
+  }, [events, isCallActive, callRoomEvent]);
+
   const getDisplayName = (u: any) => {
     if (!u) return "Colleague";
     const first = u.firstName && u.firstName !== "undefined" ? u.firstName : "";
@@ -319,6 +355,7 @@ export default function CalendarPage() {
   useEffect(() => {
     let activeStream: MediaStream | null = null;
     let pollInterval: any = null;
+    let mediaInitComplete = false;
 
     if (!myPeerIdRef.current) {
       myPeerIdRef.current = currentUser?.id || `peer-${Math.random().toString(36).substr(2, 9)}`;
@@ -337,6 +374,13 @@ export default function CalendarPage() {
       // Add local stream tracks to PC
       if (streamObj) {
         streamObj.getTracks().forEach(track => pc.addTrack(track, streamObj));
+      } else {
+        try {
+          pc.addTransceiver("audio", { direction: "recvonly" });
+          pc.addTransceiver("video", { direction: "recvonly" });
+        } catch (e) {
+          console.warn("addTransceiver failed:", e);
+        }
       }
 
       pc.onicecandidate = (event) => {
@@ -385,15 +429,21 @@ export default function CalendarPage() {
           Object.values(peerConnectionsRef.current).forEach(pc => {
             stream.getTracks().forEach(track => pc.addTrack(track, stream));
           });
+          
+          mediaInitComplete = true;
         })
         .catch(err => {
           console.error("Camera/Mic access rejected or unavailable:", err);
+          mediaInitComplete = true; // allow receiving streams even if local media fails
         });
 
       // 2. Setup periodic polling loop (every 1.5 seconds)
       const myName = getDisplayName(currentUser);
       
       const pollFunction = async () => {
+        if (!mediaInitComplete) {
+          return; // Wait until media device check completes to avoid negotiation glare / race conditions
+        }
         try {
           // A. Ping our presence
           await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state/ping`, {
@@ -433,7 +483,7 @@ export default function CalendarPage() {
               // WebRTC Glare Prevention: Only the alphabetically smaller peer ID acts as initiator
               const isInitiator = myPeerId < peer.id;
               
-              if (isInitiator && !peerConnectionsRef.current[peer.id] && activeStream) {
+              if (isInitiator && !peerConnectionsRef.current[peer.id]) {
                 const pc = initiatePC(peer.id, activeStream);
                 pc.createOffer()
                   .then(offer => pc.setLocalDescription(offer))
@@ -468,7 +518,7 @@ export default function CalendarPage() {
             const signals = await signalsRes.json();
             for (const sig of signals) {
               if (sig.type === "webrtc-offer") {
-                const pc = initiatePC(sig.senderId, activeStream);
+                const pc = initiatePC(sig.senderId, activeStream) as any;
                 // If collision occurs (state is not stable), polite peer rolls back description
                 if (pc.signalingState !== "stable") {
                   await pc.setLocalDescription({ type: "rollback" });
@@ -490,18 +540,37 @@ export default function CalendarPage() {
                     payload: pc.localDescription
                   })
                 });
+
+                // Add queued ICE candidates
+                if (pc.iceQueue) {
+                  for (const candidate of pc.iceQueue) {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((e: any) => console.error("Error adding queued ICE candidate:", e));
+                  }
+                  pc.iceQueue = [];
+                }
               } else if (sig.type === "webrtc-answer") {
-                const pc = peerConnectionsRef.current[sig.senderId];
+                const pc = peerConnectionsRef.current[sig.senderId] as any;
                 // WebRTC state check: Only apply remote answer SDP if we are actively expecting it (have-local-offer)
                 if (pc && pc.signalingState === "have-local-offer") {
                   await pc.setRemoteDescription(new RTCSessionDescription(sig.payload));
+
+                  // Add queued ICE candidates
+                  if (pc.iceQueue) {
+                    for (const candidate of pc.iceQueue) {
+                      await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((e: any) => console.error("Error adding queued ICE candidate:", e));
+                    }
+                    pc.iceQueue = [];
+                  }
                 }
               } else if (sig.type === "webrtc-ice") {
-                const pc = peerConnectionsRef.current[sig.senderId];
+                const pc = peerConnectionsRef.current[sig.senderId] as any;
                 if (pc) {
                   // Only add ICE candidate if remote description is set (RTCPeerConnection requirement)
                   if (pc.remoteDescription) {
-                    await pc.addIceCandidate(new RTCIceCandidate(sig.payload));
+                    await pc.addIceCandidate(new RTCIceCandidate(sig.payload)).catch((e: any) => console.error("Error adding ICE candidate:", e));
+                  } else {
+                    pc.iceQueue = pc.iceQueue || [];
+                    pc.iceQueue.push(sig.payload);
                   }
                 }
               }

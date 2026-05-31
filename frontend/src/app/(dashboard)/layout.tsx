@@ -27,10 +27,30 @@ import {
   AlertCircle,
   Wallet,
   Mic,
-  MicOff
+  MicOff,
+  Sun,
+  Moon,
+  Cable
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
 import { useEffect } from "react";
+import { io } from "socket.io-client";
+
+const SPEECH_LANGUAGES = [
+  { code: "en-US", name: "English (US)", flag: "🇺🇸", label: "EN" },
+  { code: "ur-PK", name: "Urdu (Pakistan)", flag: "🇵🇰", label: "UR" },
+  { code: "ru-RU", name: "Russian (Russia)", flag: "🇷🇺", label: "RU" },
+  { code: "tr-TR", name: "Turkish (Turkey)", flag: "🇹🇷", label: "TR" },
+  { code: "fil-PH", name: "Filipino (Philippines)", flag: "🇵🇭", label: "PH" },
+  { code: "ar-SA", name: "Arabic (Saudi Arabia)", flag: "🇸🇦", label: "AR" },
+  { code: "es-ES", name: "Spanish (Spain)", flag: "🇪🇸", label: "ES" },
+  { code: "fr-FR", name: "French (France)", flag: "🇫🇷", label: "FR" },
+  { code: "de-DE", name: "German (Germany)", flag: "🇩🇪", label: "DE" },
+  { code: "zh-CN", name: "Chinese (Simplified)", flag: "🇨🇳", label: "ZH" },
+  { code: "hi-IN", name: "Hindi (India)", flag: "🇮🇳", label: "HI" },
+  { code: "en-NG", name: "English (Nigeria)", flag: "🇳🇬", label: "NG" }
+];
 
 // Strict Role-Based Permission Matrix Mapping
 const isRouteAllowed = (href: string, role: string, userId?: string) => {
@@ -63,6 +83,8 @@ const isRouteAllowed = (href: string, role: string, userId?: string) => {
       return ["SUPER_ADMIN", "ADMIN", "LOGISTICS", "SALES_MANAGER", "AGENT"].includes(role);
     case "/finance":
       return ["SUPER_ADMIN", "ADMIN", "FINANCE"].includes(role);
+    case "/integrations":
+      return ["SUPER_ADMIN", "ADMIN"].includes(role);
     default:
       return true;
   }
@@ -76,13 +98,23 @@ export default function DashboardLayout({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const pathname = usePathname();
   const { user, token, isLoading, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const router = useRouter();
+
+  // Collapsible category groups state for premium navigation
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const toggleGroup = (title: string) => {
+    setCollapsedGroups(prev => ({ ...prev, [title]: !prev[title] }));
+  };
 
   // Notifications State
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [systemRoomId, setSystemRoomId] = useState<string | null>(null);
+  
+  // Real-time synchronization socket toast alerts state
+  const [activeToast, setActiveToast] = useState<{ id: string; title: string; message: string; type: 'task' | 'lead' | 'alert' } | null>(null);
 
   // Header Calendar dropdown states
   const [isHeaderCalOpen, setIsHeaderCalOpen] = useState(false);
@@ -345,6 +377,76 @@ export default function DashboardLayout({
     return () => clearInterval(interval);
   }, [token]);
 
+  // Real-time toast auto-clear timer
+  useEffect(() => {
+    if (!activeToast) return;
+    const timer = setTimeout(() => {
+      setActiveToast(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [activeToast]);
+
+  // Establish real-time WebSocket connection to the RENS Autonomous OS Brain
+  useEffect(() => {
+    if (!token || !user?.organizationId) return;
+
+    const socketUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    const socket = io(socketUrl, {
+      transports: ['websocket'],
+      forceNew: true
+    });
+
+    const triggerToast = (title: string, message: string, type: 'task' | 'lead' | 'alert') => {
+      setActiveToast({
+        id: `toast-${Date.now()}`,
+        title,
+        message,
+        type
+      });
+      // Refresh the notification dropdown immediately to pull the new alert from backend
+      fetchLayoutNotifications();
+    };
+
+    socket.on('connect', () => {
+      console.log('⚡ Connected to RENS-AOS socket server');
+      socket.emit('join', { organizationId: user.organizationId, userId: user.id });
+    });
+
+    socket.on('task_sync', (data: any) => {
+      console.log('📬 WebSocket: task_sync received', data);
+      if (data.action === 'create') {
+        triggerToast('📋 New Task Assigned', `"${data.task.title}" is assigned to ${data.task.assignedToName || 'a team member'}.`, 'task');
+      } else if (data.action === 'update') {
+        triggerToast('📋 Task Status Updated', `"${data.task.title}" is now ${data.task.status}.`, 'task');
+      }
+    });
+
+    socket.on('lead_sync', (data: any) => {
+      console.log('📬 WebSocket: lead_sync received', data);
+      if (data.action === 'update') {
+        triggerToast('🔥 CRM Lead Status Updated', `Lead "${data.lead.name}" score updated to ${data.lead.score || 0}% / Status: ${data.lead.status}.`, 'lead');
+      }
+    });
+
+    socket.on('alert_sync', (data: any) => {
+      console.log('📬 WebSocket: alert_sync received', data);
+      const isMe = data.recipientId === user.id || data.recipientName === `${user.firstName} ${user.lastName || ''}`.trim();
+      if (isMe) {
+        triggerToast('⏰ RENS Brain System Reminder', data.message, 'alert');
+      } else {
+        triggerToast('⏰ RENS Cognitive Alert', `Alert sent to ${data.recipientName || 'team member'}: ${data.message}`, 'alert');
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('❌ Disconnected from RENS-AOS socket server');
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [token, user]);
+
   // Load mini chat messages when active room changes
   const fetchMiniMessages = async () => {
     if (!token || !miniActiveRoom) return;
@@ -496,8 +598,8 @@ export default function DashboardLayout({
     { name: "Operations & Logistics", href: "/logistics", icon: Truck },
     { name: "Chat Terminal", href: "/chat", icon: MessageSquare },
     { name: "AI Chat Assistant", href: "/assistant", icon: Bot },
+    { name: "Integrations Hub", href: "/integrations", icon: Cable },
   ];
-
   // Dynamic filtration of sidebar links
   const allowedNavigation = navigation.filter(item => isRouteAllowed(item.href, userRole, user?.id));
 
@@ -508,6 +610,53 @@ export default function DashboardLayout({
 
   const currentNavItem = navigation.find(item => pathname.startsWith(item.href));
   const isCurrentAllowed = isSelf ? true : (currentNavItem ? isRouteAllowed(currentNavItem.href, userRole, user?.id) : true);
+
+  // Grouped Navigation Layout for clean, non-scrolling UI
+  const groupedNavigation = [
+    {
+      title: "Core Operations",
+      items: [
+        { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+        { name: "My Profile", href: `/employees/${user?.id || ""}`, icon: UserCircle },
+        { name: "Calendar Terminal", href: "/calendar", icon: Calendar },
+        { name: "Chat Terminal", href: "/chat", icon: MessageSquare },
+      ]
+    },
+    {
+      title: "Sales & CRM",
+      items: [
+        { name: "Leads CRM", href: "/leads", icon: Target },
+        { name: "Buyers & Tenants CRM", href: "/clients", icon: Users },
+        { name: "Owners & Sellers", href: "/owners", icon: Handshake },
+        { name: "Properties", href: "/properties", icon: Building2 },
+      ]
+    },
+    {
+      title: "Administration",
+      items: [
+        { name: "Tasks Checklist", href: "/tasks", icon: CheckSquare },
+        { name: "Employees", href: "/employees", icon: Users },
+        { name: "Finance & Payroll", href: "/finance", icon: Wallet },
+        { name: "Documents Vault", href: "/documents", icon: Folder },
+      ]
+    },
+    {
+      title: "Logistics & Hubs",
+      items: [
+        { name: "Operations & Logistics", href: "/logistics", icon: Truck },
+        { name: "AI Chat Assistant", href: "/assistant", icon: Bot },
+        { name: "Integrations Hub", href: "/integrations", icon: Cable },
+      ]
+    }
+  ];
+
+  // Map each group to only include allowed routes, filtering out empty groups
+  const groupedAllowedNavigation = groupedNavigation.map(group => ({
+    ...group,
+    items: group.items.filter(item => 
+      allowedNavigation.some(allowed => allowed.href === item.href)
+    )
+  })).filter(group => group.items.length > 0);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden relative">
@@ -526,7 +675,7 @@ export default function DashboardLayout({
         }`}
       >
         {/* Logo Area */}
-        <div className="h-20 flex items-center justify-between px-6 border-b border-border">
+        <div className="h-20 flex items-center justify-between px-6 border-b border-border flex-shrink-0">
           <div className={`font-bold text-gradient text-xl whitespace-nowrap overflow-hidden transition-all ${!isSidebarOpen && "lg:opacity-0"}`}>
             RENS ERP
           </div>
@@ -538,32 +687,55 @@ export default function DashboardLayout({
           </button>
         </div>
 
-        {/* Navigation Links filtered by security clearance */}
-        <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-2">
-          {allowedNavigation.map((item) => {
-            const isActive = pathname.startsWith(item.href);
+        {/* Grouped Navigation Links filtered by security clearance */}
+        <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-4 scrollbar-thin">
+          {groupedAllowedNavigation.map((group) => {
+            const isCollapsed = !!collapsedGroups[group.title];
             return (
-              <a
-                key={item.name}
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all group relative ${
-                  isActive 
-                    ? "bg-primary/10 text-primary" 
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                }`}
-                title={!isSidebarOpen ? item.name : ""}
-              >
-                {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full glow-primary"></div>}
-                <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-primary" : "text-gray-400 group-hover:text-white"}`} />
-                <span className={`font-medium whitespace-nowrap transition-all ${!isSidebarOpen && "lg:hidden"}`}>
-                  {item.name}
-                </span>
-              </a>
+              <div key={group.title} className="space-y-1.5 text-left">
+                {/* Category Header Title (Collapsible) */}
+                {isSidebarOpen ? (
+                  <button
+                    onClick={() => toggleGroup(group.title)}
+                    className="w-full flex items-center justify-between text-[9.5px] font-black tracking-widest text-muted-foreground hover:text-foreground uppercase px-3 py-1.5 select-none mt-2 transition-colors cursor-pointer text-left focus:outline-none"
+                  >
+                    <span>{group.title}</span>
+                    <ChevronRight className={`w-3.5 h-3.5 text-gray-500 transition-transform duration-300 ${!isCollapsed ? "rotate-90 text-primary" : ""}`} />
+                  </button>
+                ) : (
+                  <div className="border-t border-border/40 my-3 mx-2"></div>
+                )}
+
+                {/* Group Items (Collapsible inside expanded sidebar, always visible when minimized) */}
+                {(!isCollapsed || !isSidebarOpen) && (
+                  <div className="space-y-1.5 animate-fade-in duration-200">
+                    {group.items.map((item) => {
+                      const isActive = pathname.startsWith(item.href);
+                      return (
+                        <a
+                          key={item.name}
+                          href={item.href}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group relative ${
+                            isActive 
+                              ? "bg-primary/10 text-primary" 
+                              : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                          }`}
+                          title={!isSidebarOpen ? item.name : ""}
+                        >
+                          {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-7 bg-primary rounded-r-full glow-primary"></div>}
+                          <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-primary" : "text-gray-400 group-hover:text-white"}`} />
+                          <span className={`font-semibold text-xs whitespace-nowrap transition-all duration-300 ${!isSidebarOpen && "lg:hidden"}`}>
+                            {item.name}
+                          </span>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
-        </nav>
-
-        {/* User / Logout */}
+        </nav>        {/* User / Logout */}
         <div className="p-4 border-t border-border">
           <div className={`flex items-center gap-3 mb-4 px-2 ${!isSidebarOpen && "lg:hidden"}`}>
             <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
@@ -765,6 +937,19 @@ export default function DashboardLayout({
                   </div>
                 )}
               </div>
+
+              {/* Premium Theme Toggle Button */}
+              <button
+                onClick={toggleTheme}
+                className="p-2.5 text-gray-400 hover:text-white hover:bg-secondary/40 rounded-xl transition-all duration-200 cursor-pointer"
+                title={theme === "dark" ? "Switch to Light Theme" : "Switch to Dark Theme"}
+              >
+                {theme === "dark" ? (
+                  <Sun className="w-5 h-5 text-amber-400 hover:scale-110 transition-transform" />
+                ) : (
+                  <Moon className="w-5 h-5 text-primary hover:scale-110 transition-transform" />
+                )}
+              </button>
             </div>
           </header>
 
@@ -909,24 +1094,21 @@ export default function DashboardLayout({
                 onSubmit={executeFloatingAiQuery}
                 className="p-3 border-t border-border/40 bg-secondary/15 flex gap-2 items-center flex-shrink-0"
               >
-                {/* Language Switcher Pill */}
-                <button
-                  type="button"
+                {/* Language Switcher Dropdown */}
+                <select
                   disabled={aiIsLoading || aiIsListening}
-                  onClick={() => {
-                    setAiSpeechLang((prev) => {
-                      if (prev === "en-US") return "ur-PK";
-                      if (prev === "ur-PK") return "en-NG";
-                      return "en-US";
-                    });
-                  }}
-                  className="px-2 py-2 bg-secondary/50 hover:bg-secondary border border-border/60 rounded-xl text-[9px] font-bold text-gray-300 hover:text-white flex items-center gap-1 transition-all select-none cursor-pointer disabled:opacity-50 flex-shrink-0"
-                  title="Click to toggle speaking language"
+                  value={aiSpeechLang}
+                  onChange={(e) => setAiSpeechLang(e.target.value)}
+                  className="px-2 py-2 bg-secondary/60 hover:bg-secondary border border-border/60 rounded-xl text-[9px] font-bold text-gray-200 outline-none transition-all cursor-pointer disabled:opacity-50 flex-shrink-0 appearance-none text-center"
+                  style={{ minWidth: "65px" }}
+                  title="Select Speech Input Language"
                 >
-                  {aiSpeechLang === "en-US" && <span>🇺🇸 EN</span>}
-                  {aiSpeechLang === "ur-PK" && <span>🇵🇰 UR</span>}
-                  {aiSpeechLang === "en-NG" && <span>🇳🇬 NG</span>}
-                </button>
+                  {SPEECH_LANGUAGES.map((lang) => (
+                    <option key={lang.code} value={lang.code} className="bg-card text-gray-200">
+                      {lang.flag} {lang.label}
+                    </option>
+                  ))}
+                </select>
 
                 <input 
                   type="text"
@@ -935,7 +1117,7 @@ export default function DashboardLayout({
                   placeholder={
                     aiIsListening
                       ? `Listening (${
-                          aiSpeechLang === "en-US" ? "EN" : aiSpeechLang === "ur-PK" ? "UR" : "NG"
+                          SPEECH_LANGUAGES.find((l) => l.code === aiSpeechLang)?.label || "selected"
                         })...`
                       : "Ask RENS AI Assistant..."
                   }
@@ -1102,6 +1284,37 @@ export default function DashboardLayout({
                 })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* REAL-TIME SYSTEM SYNC GLASSMORPHIC TOAST */}
+      {activeToast && (
+        <div 
+          className="fixed bottom-6 right-6 z-[9999] max-w-sm glass border border-primary/45 bg-card/75 p-4 rounded-2xl shadow-[0_0_20px_rgba(var(--color-primary),0.2)] flex gap-3 text-xs leading-relaxed animate-fade-in relative overflow-hidden"
+          style={{ backdropFilter: "blur(12px)" }}
+        >
+          {/* Glowing Top line indicator */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary to-secondary animate-pulse" />
+          
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center border flex-shrink-0 mt-0.5 text-primary bg-primary/10 border-primary/20">
+            {activeToast.type === 'task' ? (
+              <CheckSquare className="w-4 h-4 text-primary glow-primary" />
+            ) : activeToast.type === 'lead' ? (
+              <Target className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-amber-400" />
+            )}
+          </div>
+          <div className="space-y-1 pr-6 text-left">
+            <h5 className="font-extrabold text-white text-xs tracking-wide">{activeToast.title}</h5>
+            <p className="text-gray-300 font-medium text-[10px] leading-relaxed">{activeToast.message}</p>
+          </div>
+          <button 
+            onClick={() => setActiveToast(null)}
+            className="absolute top-3 right-3 text-gray-500 hover:text-white transition-all cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </div>

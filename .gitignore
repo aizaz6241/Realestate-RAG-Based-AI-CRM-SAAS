@@ -31,3 +31,8 @@ dist/
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Ollama models
+Ollama/
+**/Ollama/
+

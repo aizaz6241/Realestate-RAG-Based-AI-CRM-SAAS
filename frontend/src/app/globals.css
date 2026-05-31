@@ -68,6 +68,38 @@
 
     --radius: 0.75rem;
   }
+
+  :root.light {
+    /* Ultra Premium Light Theme - Sleek Ice / Professional Vibe */
+    --background: hsl(220, 25%, 97%);
+    --foreground: hsl(230, 25%, 10%);
+
+    --card: hsl(220, 20%, 94%);
+    --card-foreground: hsl(230, 25%, 10%);
+
+    --popover: hsl(220, 20%, 94%);
+    --popover-foreground: hsl(230, 25%, 10%);
+
+    /* Primary Accent remains neon purple but tuned for readability */
+    --primary: hsl(260, 85%, 60%);
+    --primary-foreground: hsl(210, 20%, 98%);
+
+    --secondary: hsl(220, 20%, 90%);
+    --secondary-foreground: hsl(230, 25%, 10%);
+
+    --muted: hsl(220, 20%, 88%);
+    --muted-foreground: hsl(230, 10%, 40%);
+
+    --accent: hsl(38, 100%, 45%); /* Sleek Gold/Amber */
+    --accent-foreground: hsl(210, 20%, 98%);
+
+    --destructive: hsl(350, 84%, 55%);
+    --destructive-foreground: hsl(210, 20%, 98%);
+
+    --border: hsl(220, 20%, 85%);
+    --input: hsl(220, 20%, 90%);
+    --ring: hsl(260, 85%, 60%);
+  }
 }
 
 @layer base {
@@ -80,6 +112,12 @@
     /* Rich background gradient */
     background: radial-gradient(circle at 50% -20%, hsl(260, 100%, 15%), hsl(230, 25%, 5%) 60%);
     background-attachment: fixed;
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+
+  .light body {
+    background: radial-gradient(circle at 50% -20%, hsl(260, 50%, 90%), hsl(220, 25%, 97%) 60%);
+    background-attachment: fixed;
   }
 }
 
@@ -90,6 +128,13 @@
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.light .glass {
+  background: rgba(255, 255, 255, 0.45);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
 }
 
 .glass-input {
@@ -100,11 +145,136 @@
   transition: all 0.3s ease;
 }
 
+.light .glass-input {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: hsl(230, 25%, 10%);
+}
+
 .glass-input:focus {
   background: rgba(255, 255, 255, 0.06);
   border-color: hsl(260, 100%, 65%); /* Neon Purple Focus */
   box-shadow: 0 0 20px rgba(138, 43, 226, 0.3);
   outline: none;
+}
+
+.light .glass-input:focus {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: hsl(260, 85%, 60%);
+  box-shadow: 0 0 20px rgba(138, 43, 226, 0.15);
+}
+
+/* Premium Light Theme Text Color Inversion Hacks */
+.light .text-white {
+  color: var(--foreground) !important;
+}
+.light .text-gray-100 {
+  color: hsl(230, 25%, 15%) !important;
+}
+.light .text-gray-200 {
+  color: hsl(230, 25%, 20%) !important;
+}
+.light .text-gray-300 {
+  color: hsl(230, 25%, 25%) !important;
+}
+.light .text-gray-400 {
+  color: hsl(230, 10%, 40%) !important;
+}
+.light .text-muted-foreground {
+  color: hsl(230, 10%, 40%) !important;
+}
+.light .border-white\/5 {
+  border-color: rgba(0, 0, 0, 0.05) !important;
+}
+.light .border-white\/10 {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+.light .border-white\/15 {
+  border-color: rgba(0, 0, 0, 0.10) !important;
+}
+.light .border-white\/20 {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+.light .border-white\/25 {
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+.light .border-border\/40 {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+.light .border-border\/60 {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+.light .bg-white\/5 {
+  background-color: rgba(0, 0, 0, 0.02) !important;
+}
+.light .bg-white\/10 {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+.light .bg-card\/20 {
+  background-color: rgba(255, 255, 255, 0.20) !important;
+}
+.light .bg-card\/25 {
+  background-color: rgba(255, 255, 255, 0.25) !important;
+}
+.light .bg-card\/45 {
+  background-color: rgba(255, 255, 255, 0.45) !important;
+}
+.light .bg-card\/50 {
+  background-color: rgba(255, 255, 255, 0.45) !important;
+}
+.light .bg-card\/60 {
+  background-color: rgba(255, 255, 255, 0.60) !important;
+}
+.light .bg-card\/80 {
+  background-color: rgba(255, 255, 255, 0.65) !important;
+}
+.light .bg-card\/90 {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+}
+.light .bg-card\/95 {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+}
+.light .bg-slate-900\/20 {
+  background-color: rgba(255, 255, 255, 0.20) !important;
+}
+.light .bg-slate-900\/30 {
+  background-color: rgba(255, 255, 255, 0.28) !important;
+}
+.light .bg-slate-900\/40 {
+  background-color: rgba(255, 255, 255, 0.35) !important;
+}
+.light .bg-slate-900\/60 {
+  background-color: rgba(255, 255, 255, 0.45) !important;
+}
+.light .bg-slate-950\/40 {
+  background-color: rgba(0, 0, 0, 0.015) !important;
+}
+.light .bg-slate-950\/60 {
+  background-color: rgba(0, 0, 0, 0.025) !important;
+}
+.light .bg-slate-950\/90 {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+.light .bg-secondary\/15 {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+.light .bg-secondary\/25 {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+.light .bg-secondary\/30 {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+.light .bg-secondary\/35 {
+  background-color: rgba(0, 0, 0, 0.045) !important;
+}
+.light .bg-secondary\/40 {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+.light .bg-secondary\/50 {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+}
+.light ::placeholder {
+  color: rgba(0, 0, 0, 0.45) !important;
 }
 
 /* Animations */
