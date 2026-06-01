@@ -763,7 +763,7 @@ export default function CalendarPage() {
       // Run immediately
       pollFunction();
       // Setup interval
-      pollInterval = setInterval(pollFunction, 1500);
+      pollInterval = setInterval(pollFunction, 400);
     }
 
     return () => {
@@ -2148,8 +2148,8 @@ export default function CalendarPage() {
             <div className="flex items-center flex-wrap gap-2.5">
               {/* Spoken Language Dropdown */}
               {isCaptionsOn && (
-                <div className="flex items-center gap-1 bg-slate-800/80 border border-slate-700 rounded-xl px-2.5 py-1.5">
-                  <span className="text-[9px] font-black uppercase text-gray-400">Speak:</span>
+                <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700 rounded-xl px-2.5 py-1.5">
+                  <span className="text-[9px] font-black uppercase text-gray-400">I Will Speak In:</span>
                   <select
                     value={spokenLang}
                     onChange={(e) => setSpokenLang(e.target.value)}
@@ -2165,8 +2165,8 @@ export default function CalendarPage() {
 
               {/* Subtitles Target Language Dropdown */}
               {isCaptionsOn && (
-                <div className="flex items-center gap-1 bg-slate-800/80 border border-slate-700 rounded-xl px-2.5 py-1.5">
-                  <span className="text-[9px] font-black uppercase text-gray-400">View In:</span>
+                <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700 rounded-xl px-2.5 py-1.5">
+                  <span className="text-[9px] font-black uppercase text-gray-400">Show Subtitles In:</span>
                   <select
                     value={preferredTranslationLang}
                     onChange={(e) => setPreferredTranslationLang(e.target.value)}
@@ -2303,8 +2303,9 @@ export default function CalendarPage() {
             {/* Live Subtitles HUD Overlay */}
             {isCaptionsOn && activeCaptions && activeCaptions.length > 0 && (() => {
               const latestCap = activeCaptions[activeCaptions.length - 1];
-              // Subtitle disappears after 7 seconds of silence
-              const isRecent = latestCap ? (Date.now() - latestCap.timestamp < 7000) : false;
+              // Subtitle disappears after 10 seconds of silence (with absolute clock-drift tolerance)
+              const diff = Date.now() - latestCap.timestamp;
+              const isRecent = latestCap ? (diff < 10000 && diff > -10000) : false;
               
               if (!isRecent) return null;
 
