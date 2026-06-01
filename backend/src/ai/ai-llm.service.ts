@@ -398,9 +398,10 @@ export class AiLlmService {
   async callLLM(
     systemPrompt: string,
     userPrompt: string,
-    history: { role: 'user' | 'model'; content: string }[] = []
+    history: { role: 'user' | 'model'; content: string }[] = [],
+    forceCloud = false
   ): Promise<string> {
-    const tier = this.determineExecutionTier(userPrompt, history);
+    const tier = forceCloud ? 'cloud' : this.determineExecutionTier(userPrompt, history);
     
     if (tier === 'local') {
       try {

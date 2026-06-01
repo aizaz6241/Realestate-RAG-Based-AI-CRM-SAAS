@@ -383,30 +383,57 @@ export default function CalendarPage() {
     const to = (toLang || "en-US").substring(0, 2).toLowerCase();
     if (from === to) return text;
 
-    const translations: { [key: string]: { [lang: string]: string } } = {
-      "salam": { "en": "Hello / Greetings", "ru": "Привет", "tr": "Merhaba" },
-      "hello": { "ur": "سلام / ہیلو", "ru": "Привет", "tr": "Merhaba" },
+    const dictionary: { [key: string]: { [lang: string]: string } } = {
+      // Full Sentences
       "how many employees do we have": { "ur": "ہمارے پاس کتنے ملازمین ہیں؟", "ru": "Сколько у нас сотрудников?", "tr": "Kaç çalışanımız var?" },
+      "so how many employees do we have": { "ur": "تو ہمارے پاس کتنے ملازمین ہیں؟", "ru": "Итак, сколько у нас сотрудников?", "tr": "Peki kaç çalışanımız var?" },
       "who is sara in our team": { "ur": "ہماری ٹیم میں سارہ کون ہے؟", "ru": "Кто такая Сара в нашей команде?", "tr": "Ekibimizdeki Sara kim?" },
-      "assign task to sara": { "ur": "سارہ کو ٹاسک اسائن کریں", "ru": "Поручить задачу Саре", "tr": "Sara'ya görev ata" }
+      "do you have an employee with the name sara": { "ur": "کیا سارہ نام کا کوئی ملازم ہے؟", "ru": "Есть ли у вас сотрудник по имени Сара?", "tr": "Sara adında bir çalışanınız var mı?" },
+      "assign task to sara to verify rens property documents till sunday": { "ur": "اتوار تک رینس پراپرٹی کے دستاویزات کی تصدیق کے لیے سارہ کو ٹاسک تفویض کریں", "ru": "Поручить Саре проверить документы на недвижимость RENS до воскресенья", "tr": "Sara'ya pazar gününe kadar RENS gayrimenkul belgelerini doğrulaması için görev ata" },
+      "how many meetings we have today": { "ur": "آج ہماری کتنی میٹنگز ہیں؟", "ru": "Сколько у нас встреч сегодня?", "tr": "Bugün kaç toplantımız var?" },
+      "any pending meetings today": { "ur": "کیا آج کوئی پینڈنگ میٹنگز ہیں؟", "ru": "Есть ли сегодня нерешенные встречи?", "tr": "Bugün bekleyen toplantı var mı?" },
+
+      // Individual Words / Small Phrases
+      "hello": { "ur": "ہیلو", "ru": "Привет", "tr": "Merhaba" },
+      "salam": { "ur": "اسلام علیکم", "ru": "Привет", "tr": "Merhaba" },
+      "yes": { "ur": "جی ہاں", "ru": "Да", "tr": "Evet" },
+      "no": { "ur": "جی نہیں", "ru": "Нет", "tr": "Hayır" },
+      "ok": { "ur": "ٹھیک ہے", "ru": "Ок", "tr": "Tamam" },
+      "perfect": { "ur": "بہترین", "ru": "Отлично", "tr": "Harika" },
+      "employee": { "ur": "ملازم", "ru": "сотрудник", "tr": "çalışan" },
+      "employees": { "ur": "ملازمین", "ru": "сотрудники", "tr": "çalışanlar" },
+      "meeting": { "ur": "میٹنگ", "ru": "встреча", "tr": "toplantı" },
+      "meetings": { "ur": "میٹنگز", "ru": "встречи", "tr": "toplantılar" },
+      "pending": { "ur": "زیر التواء", "ru": "в ожидании", "tr": "beklemede" },
+      "sara": { "ur": "سارہ", "ru": "Сара", "tr": "Sara" },
+      "task": { "ur": "ٹاسک / کام", "ru": "задача", "tr": "görev" }
     };
 
     const lower = text.toLowerCase().trim().replace(/[.?]/g, "");
-    for (const key of Object.keys(translations)) {
-      if (lower.includes(key)) {
-        if (translations[key][to]) return translations[key][to];
+    
+    // 1. Direct full sentence match
+    if (dictionary[lower]) {
+      if (dictionary[lower][to]) return dictionary[lower][to];
+    }
+
+    // 2. Phrase contains matches
+    for (const key of Object.keys(dictionary)) {
+      if (key.length > 8 && lower.includes(key)) {
+        if (dictionary[key][to]) return dictionary[key][to];
       }
     }
 
-    if (to === "ur") {
-      return `[ترجمہ شدہ]: ${text} (اردو)`;
-    } else if (to === "ru") {
-      return `[Перевод]: ${text} (русский)`;
-    } else if (to === "tr") {
-      return `[Çeviri]: ${text} (Türkçe)`;
-    } else {
-      return `[Translated]: ${text}`;
-    }
+    // 3. Fallback word-by-word replacement
+    const words = text.split(" ");
+    const translatedWords = words.map(w => {
+      const cleanW = w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+      if (dictionary[cleanW] && dictionary[cleanW][to]) {
+        return dictionary[cleanW][to];
+      }
+      return w; // Keep original if no translation
+    });
+
+    return translatedWords.join(" ");
   };
 
   // Continuous Speech Recognition for Live Meeting Subtitles / Captions
@@ -2098,43 +2125,40 @@ export default function CalendarPage() {
             </div>
 
             {/* Live Subtitles HUD Overlay */}
-            {isCaptionsOn && activeCaptions && activeCaptions.length > 0 && (
-              <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 w-[90%] max-w-2xl bg-slate-950/85 backdrop-blur-md border border-cyan-500/30 rounded-2xl p-4 shadow-[0_0_25px_rgba(6,182,212,0.15)] flex flex-col gap-2 max-h-[140px] overflow-y-auto animate-fade-in scrollbar-none">
-                {activeCaptions.map((cap: any) => {
-                  const translatedText = translateCaption(cap.text, cap.language, preferredTranslationLang);
-                  
-                  // Role dynamic classes
-                  const roleColors: { [role: string]: string } = {
-                    "SUPER_ADMIN": "bg-red-500/10 border-red-500/20 text-red-400",
-                    "ADMIN": "bg-red-500/10 border-red-500/20 text-red-400",
-                    "HR": "bg-yellow-500/10 border-yellow-500/20 text-yellow-400",
-                    "FINANCE": "bg-cyan-500/10 border-cyan-500/20 text-cyan-400",
-                    "LOGISTICS": "bg-purple-500/10 border-purple-500/20 text-purple-400",
-                    "AGENT": "bg-blue-500/10 border-blue-500/20 text-blue-400"
-                  };
-                  const roleClass = roleColors[cap.role] || "bg-slate-500/10 border-slate-500/20 text-slate-400";
+            {isCaptionsOn && activeCaptions && activeCaptions.length > 0 && (() => {
+              const latestCap = activeCaptions[activeCaptions.length - 1];
+              // Subtitle disappears after 7 seconds of silence
+              const isRecent = latestCap ? (Date.now() - latestCap.timestamp < 7000) : false;
+              
+              if (!isRecent) return null;
 
-                  return (
-                    <div key={cap.id} className="flex gap-2 items-start text-xs border-b border-white/5 pb-1.5 last:border-b-0 last:pb-0 animate-slide-in">
-                      <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase tracking-wider ${roleClass} shrink-0`}>
-                        {cap.role || 'MEMBER'}
-                      </span>
-                      <span className="font-extrabold text-cyan-400 shrink-0">
-                        {cap.senderName}:
-                      </span>
-                      <p className="text-gray-100 font-semibold leading-relaxed break-words">
-                        {translatedText}
-                        {cap.language !== preferredTranslationLang && (
-                          <span className="text-[8px] text-gray-500 font-bold ml-1.5 uppercase tracking-wide">
-                            (Translated from {cap.language.split('-')[0].toUpperCase()})
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+              const translatedText = translateCaption(latestCap.text, latestCap.language, preferredTranslationLang);
+              
+              // Role dynamic classes
+              const roleColors: { [role: string]: string } = {
+                "SUPER_ADMIN": "bg-red-500/10 border-red-500/20 text-red-400",
+                "ADMIN": "bg-red-500/10 border-red-500/20 text-red-400",
+                "HR": "bg-yellow-500/10 border-yellow-500/20 text-yellow-400",
+                "FINANCE": "bg-cyan-500/10 border-cyan-500/20 text-cyan-400",
+                "LOGISTICS": "bg-purple-500/10 border-purple-500/20 text-purple-400",
+                "AGENT": "bg-blue-500/10 border-blue-500/20 text-blue-400"
+              };
+              const roleClass = roleColors[latestCap.role] || "bg-slate-500/10 border-slate-500/20 text-slate-400";
+
+              return (
+                <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 w-[85%] max-w-xl bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 rounded-full px-5 py-3 shadow-[0_0_30px_rgba(6,182,212,0.2)] flex items-center justify-center gap-3 animate-fade-in">
+                  <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-wider ${roleClass} shrink-0`}>
+                    {latestCap.role || 'MEMBER'}
+                  </span>
+                  <span className="font-extrabold text-cyan-400 shrink-0 text-xs">
+                    {latestCap.senderName}:
+                  </span>
+                  <p className="text-gray-100 font-extrabold text-xs leading-relaxed text-center break-words flex-1">
+                    {translatedText}
+                  </p>
+                </div>
+              );
+            })()}
 
             {/* Live Chat & Messages Sidebar (Right Side) */}
             <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-white/5 bg-slate-900/20 flex flex-col justify-between min-h-[250px] lg:min-h-0">

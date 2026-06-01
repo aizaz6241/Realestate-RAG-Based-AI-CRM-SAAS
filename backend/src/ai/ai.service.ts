@@ -43,9 +43,10 @@ export class AiService {
   async callLLM(
     systemPrompt: string,
     userPrompt: string,
-    history: { role: 'user' | 'model'; content: string }[] = []
+    history: { role: 'user' | 'model'; content: string }[] = [],
+    forceCloud = false
   ): Promise<string> {
-    return this.llmService.callLLM(systemPrompt, userPrompt, history);
+    return this.llmService.callLLM(systemPrompt, userPrompt, history, forceCloud);
   }
 
   async findEmployeeFuzzy(nameQuery: string, organizationId: string): Promise<any[]> {
@@ -778,7 +779,7 @@ JSON Structure:
 }`;
 
     try {
-      const response = await this.llmService.callLLM(systemPrompt, `Raw Transcript Logs:\n${transcriptText}`, []);
+      const response = await this.llmService.callLLM(systemPrompt, `Raw Transcript Logs:\n${transcriptText}`, [], true);
       const cleanResponse = response.trim();
       let jsonBlock = cleanResponse;
       const jsonStart = cleanResponse.indexOf('{');
