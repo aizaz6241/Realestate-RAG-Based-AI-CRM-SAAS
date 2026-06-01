@@ -326,4 +326,26 @@ export class AiController {
 
     return { success: true, status: 'generating' };
   }
+
+  @Post('translate')
+  async translate(
+    @Body('text') text: string,
+    @Body('from') from: string,
+    @Body('to') to: string
+  ) {
+    if (!text || !text.trim()) {
+      return { translatedText: '' };
+    }
+
+    const systemPrompt = `You are a professional real-time translation agent for a virtual calling CRM system.
+Translate the user's input phrase from "${from}" to "${to}".
+Provide ONLY the translated text as the output. Do NOT include any extra explanations, notes, punctuation, or wrappers. Just return the translated text directly.`;
+
+    try {
+      const translatedText = await this.aiService.callLLM(systemPrompt, text, [], false);
+      return { translatedText: (translatedText || '').trim() };
+    } catch (err) {
+      return { translatedText: text }; // Fallback to original text on failure
+    }
+  }
 }

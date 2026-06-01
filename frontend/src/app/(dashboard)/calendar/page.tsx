@@ -135,6 +135,9 @@ export default function CalendarPage() {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [activePeers, setActivePeers] = useState<any[]>([]);
   const [peerStreams, setPeerStreams] = useState<{ [peerId: string]: MediaStream }>({});
+  const [translatedText, setTranslatedText] = useState<string>("");
+  const [lastTranslatedCaptionId, setLastTranslatedCaptionId] = useState<string>("");
+  const [lastTranslatedLang, setLastTranslatedLang] = useState<string>("");
   const localVideoRef = React.useRef<HTMLVideoElement | null>(null);
   const broadcastChannelRef = React.useRef<BroadcastChannel | null>(null);
   const peerConnectionsRef = React.useRef<{ [peerId: string]: RTCPeerConnection }>({});
@@ -700,6 +703,81 @@ export default function CalendarPage() {
     return translatedWords.join(" ");
   };
 
+  // Asynchronously translate the latest caption when it changes
+  useEffect(() => {
+    if (!isCallActive || !activeCaptions || activeCaptions.length === 0) {
+      setTranslatedText("");
+      setLastTranslatedCaptionId("");
+      setLastTranslatedLang("");
+      return;
+    }
+
+    const latestCap = activeCaptions[activeCaptions.length - 1];
+    const captionId = latestCap.id;
+
+    // Only translate if this is a new caption OR if target language changed
+    if (captionId === lastTranslatedCaptionId && preferredTranslationLang === lastTranslatedLang) {
+      return;
+    }
+
+    const translate = async () => {
+      // 1. Try local dictionary first for instant zero-latency match
+      const localResult = translateCaption(latestCap.text, latestCap.language, preferredTranslationLang);
+      
+      // If the local dictionary managed to translate it to something different, use it immediately
+      if (localResult !== latestCap.text) {
+        setTranslatedText(localResult);
+        setLastTranslatedCaptionId(captionId);
+        setLastTranslatedLang(preferredTranslationLang);
+        return;
+      }
+
+      // If spoken and target languages are the same, no need to translate
+      const from = (latestCap.language || "en-US").substring(0, 2).toLowerCase();
+      const to = (preferredTranslationLang || "en-US").substring(0, 2).toLowerCase();
+      if (from === to) {
+        setTranslatedText(latestCap.text);
+        setLastTranslatedCaptionId(captionId);
+        setLastTranslatedLang(preferredTranslationLang);
+        return;
+      }
+
+      // 2. Call backend translation API for robust AI translation of arbitrary phrases
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/translate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            text: latestCap.text,
+            from: latestCap.language,
+            to: preferredTranslationLang
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.translatedText) {
+            setTranslatedText(data.translatedText);
+          } else {
+            setTranslatedText(latestCap.text); // fallback
+          }
+        } else {
+          setTranslatedText(latestCap.text); // fallback
+        }
+      } catch (err) {
+        console.error("AI translation API failed:", err);
+        setTranslatedText(latestCap.text); // fallback
+      }
+      setLastTranslatedCaptionId(captionId);
+      setLastTranslatedLang(preferredTranslationLang);
+    };
+
+    translate();
+  }, [activeCaptions, preferredTranslationLang, isCallActive, token]);
+
   // Continuous Speech Recognition for Live Meeting Subtitles / Captions
   useEffect(() => {
     if (typeof window === "undefined" || !isCallActive || !isCaptionsOn || isMicMuted || !callRoomEvent || !token) return;
@@ -803,6 +881,36 @@ export default function CalendarPage() {
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
       });
       peerConnectionsRef.current[peerId] = pc;
+
+      const cleanupPeer = (pId: string, peerConnectionInstance: RTCPeerConnection) => {
+        if (peerConnectionsRef.current[pId] === peerConnectionInstance) {
+          console.log(`Cleaning up failed/disconnected peer connection for peer: ${pId}`);
+          try {
+            peerConnectionInstance.close();
+          } catch (e) {}
+          delete peerConnectionsRef.current[pId];
+          delete peerStreamsRef.current[pId];
+          setPeerStreams(prev => {
+            const updated = { ...prev };
+            delete updated[pId];
+            return updated;
+          });
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        console.log(`Connection state change for peer ${peerId}: ${pc.connectionState}`);
+        if (pc.connectionState === "failed" || pc.connectionState === "closed" || pc.connectionState === "disconnected") {
+          cleanupPeer(peerId, pc);
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log(`ICE Connection state change for peer ${peerId}: ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "closed" || pc.iceConnectionState === "disconnected") {
+          cleanupPeer(peerId, pc);
+        }
+      };
 
       // Add local stream tracks to PC
       if (streamObj) {
@@ -939,6 +1047,24 @@ export default function CalendarPage() {
             // Set dynamic peers list (excluding ourselves)
             const peers = state.participants.filter((p: any) => p.id !== myPeerId);
             setActivePeers(peers);
+
+            // Clean up stale peer connections for peers that have left the call room
+            const activePeerIds = new Set(peers.map((p: any) => p.id));
+            Object.keys(peerConnectionsRef.current).forEach(peerId => {
+              if (!activePeerIds.has(peerId)) {
+                console.log(`Cleaning up stale peer connection for disconnected peer: ${peerId}`);
+                try {
+                  peerConnectionsRef.current[peerId].close();
+                } catch (e) {}
+                delete peerConnectionsRef.current[peerId];
+                delete peerStreamsRef.current[peerId];
+                setPeerStreams(prev => {
+                  const updated = { ...prev };
+                  delete updated[peerId];
+                  return updated;
+                });
+              }
+            });
 
             // Trigger offers for new peers that we don't have peer connections for yet
             peers.forEach((peer: any) => {
@@ -1080,7 +1206,7 @@ export default function CalendarPage() {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
     }
-  }, [localStream, isCallActive]);
+  }, [localStream, isCallActive, isCamMuted]);
 
   // Toggle Camera tracks & broadcast status
   useEffect(() => {
@@ -2600,7 +2726,7 @@ export default function CalendarPage() {
               
               if (!isRecent) return null;
 
-              const translatedText = translateCaption(latestCap.text, latestCap.language, preferredTranslationLang);
+              const displaySub = translatedText || translateCaption(latestCap.text, latestCap.language, preferredTranslationLang);
               
               // Role dynamic classes
               const roleColors: { [role: string]: string } = {
@@ -2622,7 +2748,7 @@ export default function CalendarPage() {
                     {latestCap.senderName}:
                   </span>
                   <p className="text-gray-100 font-extrabold text-xs leading-relaxed text-center break-words flex-1">
-                    {translatedText}
+                    {displaySub}
                   </p>
                 </div>
               );
