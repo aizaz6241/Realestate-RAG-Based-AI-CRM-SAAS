@@ -961,9 +961,12 @@ export default function CalendarPage() {
           stream.addTrack(event.track);
         }
         
+        // Clone/create a new MediaStream instance so React state updates trigger a re-render and video binding!
+        const newStream = new MediaStream(stream.getTracks());
+        
         setPeerStreams(prev => ({
           ...prev,
-          [peerId]: stream
+          [peerId]: newStream
         }));
       };
 
