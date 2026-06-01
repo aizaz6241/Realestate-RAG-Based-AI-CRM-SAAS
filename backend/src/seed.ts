@@ -11,8 +11,8 @@ const prisma = new PrismaClient({
 
 async function main() {
   try {
-    // Test connection first to verify database reachability (bypasses isolated build-time network blocks)
-    await prisma.$connect();
+    // Test connection first with a real query to verify active database reachability (bypasses isolated build-time network blocks)
+    await prisma.$queryRaw`SELECT 1`;
   } catch (err) {
     console.warn("⚠️ [RENS Deploy Alert] Database server is unreachable at this stage (possibly build-time isolated network on Render).");
     console.warn("⚠️ Gracefully skipping database seeding to allow the build compilation to succeed.");
@@ -691,8 +691,24 @@ async function main() {
 
 main()
   .catch(e => {
-    console.error("❌ Seeding Error encountered:", e);
-    process.exit(1);
+    const errorMessage = e?.message || String(e);
+    const isConnError = 
+      errorMessage.includes("Can't reach database server") ||
+      errorMessage.includes("PrismaClientInitializationError") ||
+      e?.code === 'P1001' || 
+      e?.code === 'P1002' ||
+      e?.code === 'P1008' ||
+      e?.code === 'P1017';
+
+    if (isConnError) {
+      console.warn("⚠️ [RENS Deploy Alert] Database connection failed during seeding.");
+      console.warn(errorMessage);
+      console.warn("⚠️ Gracefully exiting with code 0 to allow build to succeed.");
+      process.exit(0);
+    } else {
+      console.error("❌ Seeding Error encountered:", e);
+      process.exit(1);
+    }
   })
   .finally(async () => {
     await prisma.$disconnect();
