@@ -389,52 +389,88 @@ export default function CalendarPage() {
 
     const dictionary: { [key: string]: { [lang: string]: string } } = {
       // Full Sentences
-      "how many employees do we have": { "ur": "ہمارے پاس کتنے ملازمین ہیں؟", "ru": "Сколько у нас сотрудников?", "tr": "Kaç çalışanımız var?" },
-      "so how many employees do we have": { "ur": "تو ہمارے پاس کتنے ملازمین ہیں؟", "ru": "Итак, сколько у нас сотрудников?", "tr": "Peki kaç çalışanımız var?" },
-      "who is sara in our team": { "ur": "ہماری ٹیم میں سارہ کون ہے؟", "ru": "Кто такая Сара в нашей команде?", "tr": "Ekibimizdeki Sara kim?" },
-      "do you have an employee with the name sara": { "ur": "کیا سارہ نام کا کوئی ملازم ہے؟", "ru": "Есть ли у вас сотрудник по имени Сара?", "tr": "Sara adında bir çalışanınız var mı?" },
-      "assign task to sara to verify rens property documents till sunday": { "ur": "اتوار تک رینس پراپرٹی کے دستاویزات کی تصدیق کے لیے سارہ کو ٹاسک تفویض کریں", "ru": "Поручить Саре проверить документы на недвижимость RENS до воскресенья", "tr": "Sara'ya pazar gününe kadar RENS gayrimenkul belgelerini doğrulaması için görev ata" },
-      "how many meetings we have today": { "ur": "آج ہماری کتنی میٹنگز ہیں؟", "ru": "Сколько у нас встреч сегодня?", "tr": "Bugün kaç toplantımız var?" },
-      "any pending meetings today": { "ur": "کیا آج کوئی پینڈنگ میٹنگز ہیں؟", "ru": "Есть ли сегодня нерешенные встречи?", "tr": "Bugün bekleyen toplantı var mı?" },
+      "how many employees do we have": { "ur": "ہمارے پاس کتنے ملازمین ہیں", "ru": "сколько у нас сотрудников", "tr": "kaç çalışanımız var" },
+      "so how many employees do we have": { "ur": "تو ہمارے پاس کتنے ملازمین ہیں", "ru": "итак сколько у нас сотрудников", "tr": "peki kaç çalışanımız var" },
+      "who is sara in our team": { "ur": "ہماری ٹیم میں سارہ کون ہے", "ru": "кто такая сара в нашей команде", "tr": "ekibimizdeki sara kim" },
+      "do you have an employee with the name sara": { "ur": "کیا سارہ نام کا کوئی ملازم ہے", "ru": "есть ли у вас сотрудник по имени сара", "tr": "sara adında bir çalışanınız var mı" },
+      "assign task to sara to verify rens property documents till sunday": { "ur": "اتوار تک رینس پراپرٹی کے دستاویزات کی تصدیق کے لیے سارہ کو ٹاسک تفویض کریں", "ru": "поручить саре проверить документы на недвижимость rens до воскресенья", "tr": "sara'ya pazar gününe kadar rens gayrimenkul belgelerini doğrulaması için görev ata" },
+      "how many meetings we have today": { "ur": "آج ہماری کتنی میٹنگز ہیں", "ru": "сколько у нас встреч сегодня", "tr": "bugün kaç toplantımız var" },
+      "any pending meetings today": { "ur": "کیا آج کوئی پینڈنگ میٹنگز ہیں", "ru": "есть ли сегодня нерешенные встречи", "tr": "bugün bekleyen toplantı var mı" },
 
       // Individual Words / Small Phrases
-      "hello": { "ur": "ہیلو", "ru": "Привет", "tr": "Merhaba" },
-      "salam": { "ur": "اسلام علیکم", "ru": "Привет", "tr": "Merhaba" },
-      "yes": { "ur": "جی ہاں", "ru": "Да", "tr": "Evet" },
-      "no": { "ur": "جی نہیں", "ru": "Нет", "tr": "Hayır" },
-      "ok": { "ur": "ٹھیک ہے", "ru": "Ок", "tr": "Tamam" },
-      "perfect": { "ur": "بہترین", "ru": "Отлично", "tr": "Harika" },
+      "hello": { "ur": "ہیلو", "ru": "привет", "tr": "merhaba" },
+      "salam": { "ur": "اسلام علیکم", "ru": "привет", "tr": "merhaba" },
+      "yes": { "ur": "جی ہاں", "ru": "да", "tr": "evet" },
+      "no": { "ur": "جی نہیں", "ru": "нет", "tr": "hayır" },
+      "ok": { "ur": "ٹھیک ہے", "ru": "ок", "tr": "tamam" },
+      "perfect": { "ur": "بہترین", "ru": "отлично", "tr": "harika" },
       "employee": { "ur": "ملازم", "ru": "сотрудник", "tr": "çalışan" },
       "employees": { "ur": "ملازمین", "ru": "сотрудники", "tr": "çalışanlar" },
       "meeting": { "ur": "میٹنگ", "ru": "встреча", "tr": "toplantı" },
       "meetings": { "ur": "میٹنگز", "ru": "встречи", "tr": "toplantılar" },
       "pending": { "ur": "زیر التواء", "ru": "в ожидании", "tr": "beklemede" },
-      "sara": { "ur": "سارہ", "ru": "Сара", "tr": "Sara" },
-      "task": { "ur": "ٹاسک / کام", "ru": "задача", "tr": "görev" }
+      "sara": { "ur": "سارہ", "ru": "сара", "tr": "sara" },
+      "task": { "ur": "ٹاسک", "ru": "задача", "tr": "görev" }
     };
 
-    const lower = text.toLowerCase().trim().replace(/[.?]/g, "");
-    
-    // 1. Direct full sentence match
-    if (dictionary[lower]) {
-      if (dictionary[lower][to]) return dictionary[lower][to];
-    }
+    const cleanInput = text.toLowerCase().trim().replace(/[.?؟]/g, "").trim();
 
-    // 2. Phrase contains matches
-    for (const key of Object.keys(dictionary)) {
-      if (key.length > 8 && lower.includes(key)) {
-        if (dictionary[key][to]) return dictionary[key][to];
+    // Helper to find the English key for any text in any language
+    const findEnglishKey = (inputText: string, srcLang: string): string | null => {
+      const src = srcLang.substring(0, 2).toLowerCase();
+      if (src === 'en') return inputText;
+
+      // Check full sentence matches in source language values
+      for (const [engKey, translations] of Object.entries(dictionary)) {
+        const val = translations[src];
+        if (val && val.toLowerCase().trim().replace(/[.?؟]/g, "").trim() === inputText) {
+          return engKey;
+        }
+      }
+
+      // Check substring matches
+      for (const [engKey, translations] of Object.entries(dictionary)) {
+        const val = translations[src];
+        if (val && inputText.includes(val.toLowerCase().trim().replace(/[.?؟]/g, "").trim())) {
+          return engKey;
+        }
+      }
+      
+      return null;
+    };
+
+    // 1. Try to find a matching full-sentence English key from the source language
+    const engKey = findEnglishKey(cleanInput, fromLang);
+    if (engKey) {
+      if (to === "en") return engKey;
+      if (dictionary[engKey] && dictionary[engKey][to]) {
+        return dictionary[engKey][to];
       }
     }
 
-    // 3. Fallback word-by-word replacement
+    // 2. Word-by-word fallback omnidirectional translation
     const words = text.split(" ");
     const translatedWords = words.map(w => {
-      const cleanW = w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-      if (dictionary[cleanW] && dictionary[cleanW][to]) {
-        return dictionary[cleanW][to];
+      const cleanW = w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?؟]/g,"").trim();
+      if (!cleanW) return w;
+
+      if (from === "en") {
+        if (dictionary[cleanW] && dictionary[cleanW][to]) {
+          return dictionary[cleanW][to];
+        }
+        return w;
       }
-      return w; // Keep original if no translation
+
+      // If from other language, find if cleanW is a value in dictionary for that language
+      for (const [engKey, translations] of Object.entries(dictionary)) {
+        const srcVal = translations[from];
+        if (srcVal && srcVal.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?؟]/g,"").trim() === cleanW) {
+          if (to === "en") return engKey;
+          if (translations[to]) return translations[to];
+        }
+      }
+
+      return w;
     });
 
     return translatedWords.join(" ");
