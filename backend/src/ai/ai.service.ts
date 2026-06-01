@@ -740,6 +740,11 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
       };
     }
 
+    if ((state as any).summaryReport) {
+      this.logger.log(`Returning cached AI Meeting Summary for event: ${eventId}`);
+      return (state as any).summaryReport;
+    }
+
     const captions = (state as any).allTimeCaptions || [];
     if (captions.length === 0) {
       return {
@@ -779,7 +784,7 @@ JSON Structure:
 }`;
 
     try {
-      const response = await this.llmService.callLLM(systemPrompt, `Raw Transcript Logs:\n${transcriptText}`, [], true);
+      const response = await this.llmService.callLLM(systemPrompt, `Raw Transcript Logs:\n${transcriptText}`, [], false);
       const cleanResponse = response.trim();
       let jsonBlock = cleanResponse;
       const jsonStart = cleanResponse.indexOf('{');

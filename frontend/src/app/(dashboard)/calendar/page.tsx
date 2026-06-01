@@ -25,7 +25,9 @@ import {
   Monitor,
   PhoneOff,
   MessageSquare,
-  History
+  History,
+  Sparkles,
+  Cpu
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -93,6 +95,8 @@ export default function CalendarPage() {
   const [joinTime, setJoinTime] = useState<number>(0);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<any | null>(null);
+  const [drawerMeetingState, setDrawerMeetingState] = useState<any | null>(null);
+  const [isFetchingDrawerSummary, setIsFetchingDrawerSummary] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -869,6 +873,126 @@ export default function CalendarPage() {
     }, 3000);
     return () => clearInterval(interval);
   }, [token]);
+
+  // Dynamic drawer meeting state fetching & background polling
+  useEffect(() => {
+    let intervalId: any = null;
+    
+    if (isDrawerOpen && selectedEvent && selectedEvent.type === "meeting") {
+      setDrawerMeetingState(null);
+      setIsFetchingDrawerSummary(false);
+      
+      const fetchMeetingState = async () => {
+        try {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${selectedEvent.id}/meeting-state`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setDrawerMeetingState(data);
+          }
+        } catch (err) {
+          console.error("Failed to fetch meeting state for drawer:", err);
+        }
+      };
+      
+      fetchMeetingState();
+    } else {
+      setDrawerMeetingState(null);
+      setIsFetchingDrawerSummary(false);
+    }
+    
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isDrawerOpen, selectedEvent, token]);
+
+  const handleOpenDrawerSummary = () => {
+    if (!selectedEvent || !drawerMeetingState) return;
+    
+    const finalAttendees = drawerMeetingState.allTimeAttendees || [];
+    const inviteeIds = selectedEvent.targetUserIds || [];
+    const inviteeRoles = selectedEvent.targetRoles || [];
+    
+    const inviteesList = employees.filter((emp: any) => {
+      return inviteeIds.includes(emp.id) || inviteeRoles.includes(emp.role);
+    });
+    
+    const absentees = inviteesList.filter((emp: any) => {
+      return !finalAttendees.some((att: any) => att.id === emp.id);
+    }).map((emp: any) => ({
+      name: `${emp.firstName} ${emp.lastName || ''}`.trim(),
+      role: emp.role
+    }));
+
+    const formatTimeHelper = (ms: number) => {
+      const secs = Math.floor(ms / 1000);
+      const hrs = Math.floor(secs / 3600);
+      const mins = Math.floor((secs % 3600) / 60);
+      const leftSecs = secs % 60;
+      return `${hrs > 0 ? `${hrs.toString().padStart(2, '0')}:` : ''}${mins.toString().padStart(2, '0')}:${leftSecs.toString().padStart(2, '0')}`;
+    };
+
+    const formattedAttendees = finalAttendees.map((att: any) => {
+      const stayMs = Math.max(0, att.lastPing - att.joinedAt);
+      return {
+        ...att,
+        duration: formatTimeHelper(stayMs)
+      };
+    });
+
+    setSummaryData({
+      title: selectedEvent.title,
+      eventId: selectedEvent.id,
+      joinedAt: new Date(selectedEvent.startTime).getTime(),
+      duration: "Meeting Completed",
+      allTimeAttendees: formattedAttendees,
+      absentees: absentees,
+      isHost: currentUser?.id === selectedEvent.createdBy?.id || currentUser?.role === "ADMIN" || currentUser?.role === "SUPER_ADMIN",
+      summaryReport: drawerMeetingState.summaryReport
+    });
+    setShowSummary(true);
+  };
+
+  const handleTriggerSummaryFromDrawer = async () => {
+    if (!selectedEvent) return;
+    setIsFetchingDrawerSummary(true);
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/meeting/${selectedEvent.id}/summary`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      let attempts = 0;
+      const interval = setInterval(async () => {
+        attempts++;
+        if (attempts > 30) {
+          clearInterval(interval);
+          setIsFetchingDrawerSummary(false);
+          return;
+        }
+        
+        try {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${selectedEvent.id}/meeting-state`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.summaryReport) {
+              setDrawerMeetingState(data);
+              clearInterval(interval);
+              setIsFetchingDrawerSummary(false);
+            }
+          }
+        } catch (err) {
+          console.error("Error polling meeting state:", err);
+        }
+      }, 5000);
+    } catch (err) {
+      console.error("Failed to trigger background summary:", err);
+      setIsFetchingDrawerSummary(false);
+    }
+  };
 
   // Calculate calendar grid days
   const getDaysInMonth = () => {
@@ -1654,6 +1778,58 @@ export default function CalendarPage() {
                       <span className="text-[10px] text-muted-foreground italic">No specific invitees set (global visibility).</span>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* AI Summary Sidebar Drawer Integration */}
+              {selectedEvent.type === "meeting" && drawerMeetingState && (
+                <div className="mt-4 p-4 rounded-2xl bg-cyan-500/5 border border-cyan-500/10 space-y-3 shadow-[0_0_20px_rgba(6,182,212,0.02)]">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-cyan-400" />
+                      <span className="text-xs font-bold text-white uppercase tracking-wider">AI Cognitive Summary</span>
+                    </div>
+                    {drawerMeetingState.summaryReport ? (
+                      <span className="text-[9px] font-black uppercase text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                        Ready
+                      </span>
+                    ) : isFetchingDrawerSummary ? (
+                      <span className="text-[9px] font-black uppercase text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20 animate-pulse">
+                        Generating...
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-black uppercase text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                        Not Generated
+                      </span>
+                    )}
+                  </div>
+                  
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Analyze the chronological conversation transcripts of this conference. Synthesize action items, agenda themes, and role contributions.
+                  </p>
+
+                  {drawerMeetingState.summaryReport ? (
+                    <button
+                      onClick={handleOpenDrawerSummary}
+                      className="w-full py-2.5 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500 hover:to-blue-500 text-cyan-300 hover:text-white font-extrabold rounded-xl text-xs uppercase tracking-widest border border-cyan-500/30 hover:border-cyan-500 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.1)]"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      View AI Meeting Summary
+                    </button>
+                  ) : isFetchingDrawerSummary ? (
+                    <div className="w-full py-2.5 bg-secondary/20 border border-border/30 text-muted-foreground font-semibold rounded-xl text-xs flex items-center justify-center gap-2 animate-pulse">
+                      <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground border-t-transparent animate-spin"></div>
+                      Generating in background...
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleTriggerSummaryFromDrawer}
+                      className="w-full py-2.5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500 hover:to-orange-500 text-amber-300 hover:text-white font-extrabold rounded-xl text-xs uppercase tracking-widest border border-amber-500/30 hover:border-amber-500 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(245,158,11,0.1)]"
+                    >
+                      <Cpu className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '6s' }} />
+                      Generate AI Meeting Summary
+                    </button>
+                  )}
                 </div>
               )}
             </div>

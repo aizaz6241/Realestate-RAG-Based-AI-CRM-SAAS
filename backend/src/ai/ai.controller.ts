@@ -311,6 +311,19 @@ export class AiController {
 
   @Post('meeting/:id/summary')
   async generateMeetingSummary(@Param('id') eventId: string) {
-    return this.aiService.generateMeetingSummary(eventId);
+    // If summary is already cached in memory, return it immediately
+    const summary = await this.aiService.generateMeetingSummary(eventId);
+    if (summary && (summary as any).agenda && (summary as any).agenda !== "No active meeting session found.") {
+      if ((summary as any).keyPoints && (summary as any).keyPoints.length > 0) {
+        return summary;
+      }
+    }
+
+    // Otherwise, trigger the generation in the background so it doesn't block the client UI
+    this.aiService.generateMeetingSummary(eventId).catch(err => {
+      // Background errors logged inside service
+    });
+
+    return { success: true, status: 'generating' };
   }
 }
