@@ -138,6 +138,7 @@ export default function CalendarPage() {
   const localVideoRef = React.useRef<HTMLVideoElement | null>(null);
   const broadcastChannelRef = React.useRef<BroadcastChannel | null>(null);
   const peerConnectionsRef = React.useRef<{ [peerId: string]: RTCPeerConnection }>({});
+  const peerStreamsRef = React.useRef<{ [peerId: string]: MediaStream }>({});
   const myPeerIdRef = React.useRef<string>("");
 
   // Synchronize Call Room Event ID with sessionStorage to survive browser reloads
@@ -378,95 +379,255 @@ export default function CalendarPage() {
     } finally {
       setIsCallActive(false);
       setCallRoomEvent(null);
+      
+      // Fully clean up and close lingering peer connections to allow seamless re-connections later
+      if (peerConnectionsRef.current) {
+        Object.keys(peerConnectionsRef.current).forEach(peerId => {
+          try {
+            peerConnectionsRef.current[peerId].close();
+          } catch (e) {
+            console.warn("Failed closing peer connection on leave:", e);
+          }
+        });
+        peerConnectionsRef.current = {};
+      }
+      if (peerStreamsRef.current) {
+        peerStreamsRef.current = {};
+      }
+      setPeerStreams({});
     }
   };
 
+  // Real-time client-side auto-translation dictionary and simulation helper
   // Real-time client-side auto-translation dictionary and simulation helper
   const translateCaption = (text: string, fromLang: string, toLang: string): string => {
     const from = (fromLang || "en-US").substring(0, 2).toLowerCase();
     const to = (toLang || "en-US").substring(0, 2).toLowerCase();
     if (from === to) return text;
 
-    const dictionary: { [key: string]: { [lang: string]: string } } = {
-      // Full Sentences
-      "how many employees do we have": { "ur": "ہمارے پاس کتنے ملازمین ہیں", "ru": "сколько у нас сотрудников", "tr": "kaç çalışanımız var" },
-      "so how many employees do we have": { "ur": "تو ہمارے پاس کتنے ملازمین ہیں", "ru": "итак сколько у нас сотрудников", "tr": "peki kaç çalışanımız var" },
-      "who is sara in our team": { "ur": "ہماری ٹیم میں سارہ کون ہے", "ru": "кто такая сара в нашей команде", "tr": "ekibimizdeki sara kim" },
-      "do you have an employee with the name sara": { "ur": "کیا سارہ نام کا کوئی ملازم ہے", "ru": "есть ли у вас сотрудник по имени сара", "tr": "sara adında bir çalışanınız var mı" },
-      "assign task to sara to verify rens property documents till sunday": { "ur": "اتوار تک رینس پراپرٹی کے دستاویزات کی تصدیق کے لیے سارہ کو ٹاسک تفویض کریں", "ru": "поручить саре проверить документы на недвижимость rens до воскресенья", "tr": "sara'ya pazar gününe kadar rens gayrimenkul belgelerini doğrulaması için görev ata" },
-      "how many meetings we have today": { "ur": "آج ہماری کتنی میٹنگز ہیں", "ru": "сколько у нас встреч сегодня", "tr": "bugün kaç toplantımız var" },
-      "any pending meetings today": { "ur": "کیا آج کوئی پینڈنگ میٹنگز ہیں", "ru": "есть ли сегодня нерешенные встречи", "tr": "bugün bekleyen toplantı var mı" },
-
-      // Individual Words / Small Phrases
-      "hello": { "ur": "ہیلو", "ru": "привет", "tr": "merhaba" },
-      "salam": { "ur": "اسلام علیکم", "ru": "привет", "tr": "merhaba" },
-      "yes": { "ur": "جی ہاں", "ru": "да", "tr": "evet" },
-      "no": { "ur": "جی نہیں", "ru": "нет", "tr": "hayır" },
-      "ok": { "ur": "ٹھیک ہے", "ru": "ок", "tr": "tamam" },
-      "perfect": { "ur": "بہترین", "ru": "отлично", "tr": "harika" },
-      "employee": { "ur": "ملازم", "ru": "сотрудник", "tr": "çalışan" },
-      "employees": { "ur": "ملازمین", "ru": "сотрудники", "tr": "çalışanlar" },
-      "meeting": { "ur": "میٹنگ", "ru": "встреча", "tr": "toplantı" },
-      "meetings": { "ur": "میٹنگز", "ru": "встречи", "tr": "toplantılar" },
-      "pending": { "ur": "زیر التواء", "ru": "в ожидании", "tr": "beklemede" },
-      "sara": { "ur": "سارہ", "ru": "сара", "tr": "sara" },
-      "task": { "ur": "ٹاسک", "ru": "задача", "tr": "görev" }
+    const dictionary: { [key: string]: { [lang: string]: string[] } } = {
+      "how are you": {
+        "en": ["how are you"],
+        "ur": ["آپ کیسے ہیں", "کیسے ہو", "آپ کیسے ہو", "کیسے ہیں"],
+        "ur-roman": ["aap kaise ho", "aap kaise hain", "ap kaise ho", "ap kaise hain", "kese ho", "kese hain", "aap kese ho", "aap kese hain"],
+        "ru": ["как дела", "как вы", "как ты"],
+        "tr": ["nasılsın", "nasılsınız"]
+      },
+      "i am fine": {
+        "en": ["i am fine", "i'm fine", "doing good", "fine"],
+        "ur": ["میں ٹھیک ہوں", "میں خیریت سے ہوں"],
+        "ur-roman": ["main theek hoon", "mein theek hoon", "main theek hu", "mein theek hu", "theek hoon", "theek hu", "main khairiyat se hoon"],
+        "ru": ["я в порядке", "хорошо", "все хорошо"],
+        "tr": ["iyiyim", "iyi ben de"]
+      },
+      "what about you": {
+        "en": ["what about you", "how about you", "and you"],
+        "ur": ["آپ کا کیا حال ہے", "آپ سنائیں", "اور آپ"],
+        "ur-roman": ["aap ka kya haal hai", "ap ka kya haal hai", "aap sunayein", "ap sunain", "aur aap", "aur ap"],
+        "ru": ["как насчет тебя", "а ты", "как у тебя дела"],
+        "tr": ["ya sen", "sen nasılsın"]
+      },
+      "how many employees do we have": {
+        "en": ["how many employees do we have", "so how many employees do we have"],
+        "ur": ["ہمارے پاس کتنے ملازمین ہیں", "تو ہمارے پاس کتنے ملازمین ہیں"],
+        "ur-roman": ["hamare pas kitne employees hain", "hamare paas kitne employees hain", "hamare pas kitne employees he", "to hamare pas kitne employees hain", "toh hamare pas kitne employees hain", "hamare pas kitne employees hai", "hamare pas kitne mulazim hain"],
+        "ru": ["сколько у нас сотрудников", "итак сколько у нас сотрудников"],
+        "tr": ["kaç çalışanımız var", "peki kaç çalışanımız var"]
+      },
+      "who is sara in our team": {
+        "en": ["who is sara in our team", "who is sara in the team"],
+        "ur": ["ہماری ٹیم میں سارہ کون ہے", "ٹیم میں سارہ کون ہے"],
+        "ur-roman": ["hamari team mein sara kaun hai", "hamari team me sara kaun he", "team mein sara kaun hai", "team me sara kaun he", "sara kaun hai team mein"],
+        "ru": ["кто такая сара в нашей команде", "кто сара в нашей команде"],
+        "tr": ["ekibimizdeki sara kim", "ekipteki sara kim"]
+      },
+      "do you have an employee with the name sara": {
+        "en": ["do you have an employee with the name sara", "is there an employee named sara"],
+        "ur": ["کیا سارہ نام کا کوئی ملازم ہے", "کیا سارہ نام کا کوئی ملازم ہے؟"],
+        "ur-roman": ["kya sara naam ka koi employee hai", "kya sara naam ka koi employee he", "kya sara naam ka koi mulazim hai", "kya koi employee hai sara naam ka"],
+        "ru": ["есть ли у вас сотрудник по имени сара", "у вас есть сотрудник по имени сара"],
+        "tr": ["sara adında bir çalışanınız var mı", "sara adında çalışan var mı"]
+      },
+      "assign task to sara to verify rens property documents till sunday": {
+        "en": ["assign task to sara to verify rens property documents till sunday", "assign task to sara to verify rens property documents by sunday"],
+        "ur": ["اتوار تک رینس پراپرٹی کے دستاویزات کی تصدیق کے لیے سارہ کو ٹاسک تفویض کریں", "اتوار تک رینس پراپرٹی کے دستاویزات کی تصدیق کے لیے سارہ کو ٹاسک دیں"],
+        "ur-roman": ["sundey tak rens property documents verify karne ke liye sara ko task assign karein", "sunday tak rens property ke documents verify karne ke liye sara ko task assign karein", "sara ko task assign karein rens property documents verify karne ke liye sunday tak"],
+        "ru": ["поручить саре проверить документы на недвижимость rens до воскресенья", "нагрузить сару верификацией документов rens до воскресенья"],
+        "tr": ["sara'ya pazar gününe kadar rens gayrimenkul belgelerini doğrulaması için görev ata", "sara'ya pazar gününe kadar rens gayrimenkul belgelerini doğrulamak için görev ver"]
+      },
+      "how many meetings we have today": {
+        "en": ["how many meetings we have today", "how many meetings do we have today"],
+        "ur": ["آج ہماری کتنی میٹنگز ہیں", "آج ہماری کتنی میٹنگیں ہیں"],
+        "ur-roman": ["aaj hamari kitni meetings hain", "aaj hamari kitni meetings he", "aaj kitni meetings hain hamari", "aaj hamari kitni meetings hai"],
+        "ru": ["сколько у нас встреч сегодня", "сколько встреч сегодня"],
+        "tr": ["bugün kaç toplantımız var", "bugün kaç toplantı var"]
+      },
+      "any pending meetings today": {
+        "en": ["any pending meetings today", "is there any pending meetings today"],
+        "ur": ["کیا آج کوئی پینڈنگ میٹنگز ہیں", "کیا آج کوئی زیر التواء میٹنگز ہیں"],
+        "ur-roman": ["kya aaj koi pending meetings hain", "kya aaj koi pending meetings he", "kya koi pending meeting hai aaj", "kya aaj koi pending meetings hai"],
+        "ru": ["есть ли сегодня нерешенные встречи", "есть ли сегодня ожидающие встречи"],
+        "tr": ["bugün bekleyen toplantı var mı", "bugün bekleyen toplantılar var mı"]
+      },
+      "hello": {
+        "en": ["hello", "hi"],
+        "ur": ["ہیلو", "اسلام علیکم", "سلام"],
+        "ur-roman": ["hello", "salam", "assalam o alaikum", "aaoa"],
+        "ru": ["привет", "здравствуйте"],
+        "tr": ["merhaba", "selam"]
+      },
+      "yes": {
+        "en": ["yes", "yeah"],
+        "ur": ["جی ہاں", "جی", "ہاں"],
+        "ur-roman": ["ji haan", "ji", "haan", "yes"],
+        "ru": ["да"],
+        "tr": ["evet"]
+      },
+      "no": {
+        "en": ["no", "nope"],
+        "ur": ["جی نہیں", "نہیں"],
+        "ur-roman": ["ji nahi", "nahi", "no"],
+        "ru": ["нет"],
+        "tr": ["hayır"]
+      },
+      "ok": {
+        "en": ["ok", "okay"],
+        "ur": ["ٹھیک ہے", "اوکے"],
+        "ur-roman": ["theek hai", "ok", "okay", "theek he"],
+        "ru": ["ок", "хорошо"],
+        "tr": ["tamam", "ok"]
+      },
+      "perfect": {
+        "en": ["perfect", "excellent"],
+        "ur": ["بہترین", "زبردست"],
+        "ur-roman": ["behtareen", "zabardast", "perfect"],
+        "ru": ["отлично", "прекрасно"],
+        "tr": ["harika", "mükemmel"]
+      },
+      "employee": {
+        "en": ["employee"],
+        "ur": ["ملازم"],
+        "ur-roman": ["employee", "mulazim"],
+        "ru": ["сотрудник"],
+        "tr": ["çalışan"]
+      },
+      "employees": {
+        "en": ["employees"],
+        "ur": ["ملازمین"],
+        "ur-roman": ["employees", "mulazmeen", "mulazim"],
+        "ru": ["сотрудники"],
+        "tr": ["çalışanlar"]
+      },
+      "meeting": {
+        "en": ["meeting"],
+        "ur": ["میٹنگ"],
+        "ur-roman": ["meeting"],
+        "ru": ["встреча"],
+        "tr": ["toplantı"]
+      },
+      "meetings": {
+        "en": ["meetings"],
+        "ur": ["میٹنگز"],
+        "ur-roman": ["meetings"],
+        "ru": ["встречи"],
+        "tr": ["toplantılar"]
+      },
+      "pending": {
+        "en": ["pending"],
+        "ur": ["زیر التواء", "پینڈنگ"],
+        "ur-roman": ["pending"],
+        "ru": ["в ожидании"],
+        "tr": ["beklemede"]
+      },
+      "sara": {
+        "en": ["sara"],
+        "ur": ["سارہ"],
+        "ur-roman": ["sara"],
+        "ru": ["сара"],
+        "tr": ["sara"]
+      },
+      "task": {
+        "en": ["task"],
+        "ur": ["ٹاسک"],
+        "ur-roman": ["task"],
+        "ru": ["задача"],
+        "tr": ["görev"]
+      }
     };
 
-    const cleanInput = text.toLowerCase().trim().replace(/[.?؟]/g, "").trim();
+    const cleanInput = text.toLowerCase().trim().replace(/[.?؟!]/g, "").trim();
 
     // Helper to find the English key for any text in any language
-    const findEnglishKey = (inputText: string, srcLang: string): string | null => {
-      const src = srcLang.substring(0, 2).toLowerCase();
-      if (src === 'en') return inputText;
-
-      // Check full sentence matches in source language values
-      for (const [engKey, translations] of Object.entries(dictionary)) {
-        const val = translations[src];
-        if (val && val.toLowerCase().trim().replace(/[.?؟]/g, "").trim() === inputText) {
+    const findEnglishKey = (inputText: string): string | null => {
+      // 1. Check direct exact match with English key first
+      for (const engKey of Object.keys(dictionary)) {
+        if (engKey === inputText) {
           return engKey;
         }
       }
 
-      // Check substring matches
-      for (const [engKey, translations] of Object.entries(dictionary)) {
-        const val = translations[src];
-        if (val && inputText.includes(val.toLowerCase().trim().replace(/[.?؟]/g, "").trim())) {
-          return engKey;
+      // 2. Search all language variants inside the dictionary values
+      for (const [engKey, langMap] of Object.entries(dictionary)) {
+        for (const [langCode, phrases] of Object.entries(langMap)) {
+          for (const phrase of phrases) {
+            const cleanPhrase = phrase.toLowerCase().trim().replace(/[.?؟!]/g, "").trim();
+            if (cleanPhrase === inputText) {
+              return engKey;
+            }
+          }
+        }
+      }
+
+      // 3. Substring check: if the input is a subset or contains a key phrase
+      for (const [engKey, langMap] of Object.entries(dictionary)) {
+        for (const [langCode, phrases] of Object.entries(langMap)) {
+          for (const phrase of phrases) {
+            const cleanPhrase = phrase.toLowerCase().trim().replace(/[.?؟!]/g, "").trim();
+            if (cleanPhrase.length > 3 && (inputText.includes(cleanPhrase) || cleanPhrase.includes(inputText))) {
+              return engKey;
+            }
+          }
         }
       }
       
       return null;
     };
 
-    // 1. Try to find a matching full-sentence English key from the source language
-    const engKey = findEnglishKey(cleanInput, fromLang);
+    // 1. Try to find a matching full-sentence English key
+    const engKey = findEnglishKey(cleanInput);
     if (engKey) {
-      if (to === "en") return engKey;
-      if (dictionary[engKey] && dictionary[engKey][to]) {
-        return dictionary[engKey][to];
+      if (to === "en") {
+        return dictionary[engKey]["en"][0];
+      }
+      if (dictionary[engKey] && dictionary[engKey][to] && dictionary[engKey][to][0]) {
+        return dictionary[engKey][to][0];
       }
     }
 
     // 2. Word-by-word fallback omnidirectional translation
     const words = text.split(" ");
     const translatedWords = words.map(w => {
-      const cleanW = w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?؟]/g,"").trim();
+      const cleanW = w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?؟!]/g,"").trim();
       if (!cleanW) return w;
 
-      if (from === "en") {
-        if (dictionary[cleanW] && dictionary[cleanW][to]) {
-          return dictionary[cleanW][to];
-        }
-        return w;
-      }
-
-      // If from other language, find if cleanW is a value in dictionary for that language
-      for (const [engKey, translations] of Object.entries(dictionary)) {
-        const srcVal = translations[from];
-        if (srcVal && srcVal.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?؟]/g,"").trim() === cleanW) {
+      // Find if cleanW matches any entry in the dictionary (keys or values)
+      for (const [engKey, langMap] of Object.entries(dictionary)) {
+        // If the word itself is the English key (e.g., "employee")
+        if (engKey === cleanW) {
           if (to === "en") return engKey;
-          if (translations[to]) return translations[to];
+          if (langMap[to] && langMap[to][0]) return langMap[to][0];
+          if (langMap["ur"] && langMap["ur"][0]) return langMap["ur"][0]; // default
+        }
+        
+        // Check all other language entries for this word
+        for (const [langCode, phrases] of Object.entries(langMap)) {
+          for (const phrase of phrases) {
+            const cleanPhrase = phrase.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?؟!]/g,"").trim();
+            if (cleanPhrase === cleanW) {
+              if (to === "en") return engKey;
+              if (langMap[to] && langMap[to][0]) return langMap[to][0];
+            }
+          }
         }
       }
 
@@ -582,7 +743,13 @@ export default function CalendarPage() {
 
       // Add local stream tracks to PC
       if (streamObj) {
-        streamObj.getTracks().forEach(track => pc.addTrack(track, streamObj));
+        streamObj.getTracks().forEach(track => {
+          try {
+            pc.addTrack(track, streamObj);
+          } catch (e) {
+            console.warn("Failed to add track inside initiatePC:", e);
+          }
+        });
       } else {
         try {
           pc.addTransceiver("audio", { direction: "recvonly" });
@@ -611,13 +778,22 @@ export default function CalendarPage() {
       };
 
       pc.ontrack = (event) => {
-        const remoteStream = event.streams[0];
-        if (remoteStream) {
-          setPeerStreams(prev => ({
-            ...prev,
-            [peerId]: remoteStream
-          }));
+        console.log(`🎥 Received remote track from peer ${peerId}:`, event.track.kind);
+        
+        if (!peerStreamsRef.current[peerId]) {
+          peerStreamsRef.current[peerId] = new MediaStream();
         }
+        
+        const stream = peerStreamsRef.current[peerId];
+        // Ensure track is not already present in remote stream before adding
+        if (!stream.getTracks().some(t => t.id === event.track.id)) {
+          stream.addTrack(event.track);
+        }
+        
+        setPeerStreams(prev => ({
+          ...prev,
+          [peerId]: stream
+        }));
       };
 
       return pc;
@@ -636,7 +812,16 @@ export default function CalendarPage() {
 
           // If peer connections are already active, add tracks to them
           Object.values(peerConnectionsRef.current).forEach(pc => {
-            stream.getTracks().forEach(track => pc.addTrack(track, stream));
+            stream.getTracks().forEach(track => {
+              try {
+                const alreadyAdded = pc.getSenders().some(sender => sender.track === track);
+                if (!alreadyAdded) {
+                  pc.addTrack(track, stream);
+                }
+              } catch (e) {
+                console.warn("Failed to add track inside getUserMedia:", e);
+              }
+            });
           });
           
           mediaInitComplete = true;
@@ -815,8 +1000,15 @@ export default function CalendarPage() {
       setPeerStreams({});
 
       // Close WebRTC peer connections
-      Object.values(peerConnectionsRef.current).forEach(pc => pc.close());
+      Object.values(peerConnectionsRef.current).forEach(pc => {
+        try {
+          pc.close();
+        } catch (e) {
+          console.warn("Failed to close peer connection on unmount:", e);
+        }
+      });
       peerConnectionsRef.current = {};
+      peerStreamsRef.current = {};
     };
   }, [isCallActive, callRoomEvent, currentUser]);
 

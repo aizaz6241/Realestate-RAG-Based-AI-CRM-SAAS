@@ -189,7 +189,8 @@ export class CalendarController {
     const now = Date.now();
 
     const targetSignals = state.signals.filter(s => s.targetId === peerId && now - s.timestamp < 15000);
-    state.signals = state.signals.filter(s => now - s.timestamp < 30000);
+    // Remove the retrieved signals and prune signals older than 30 seconds
+    state.signals = state.signals.filter(s => !(s.targetId === peerId && now - s.timestamp < 15000) && now - s.timestamp < 30000);
 
     return targetSignals;
   }
