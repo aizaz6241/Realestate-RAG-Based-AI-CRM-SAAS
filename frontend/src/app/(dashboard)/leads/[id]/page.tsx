@@ -402,9 +402,10 @@ export default function LeadDetailPage() {
                     >
                       <option value="NEW">New Leads Queue</option>
                       <option value="CONTACTED">Active Contacted</option>
+                      <option value="MEETING_SCHEDULED">Meeting Scheduled</option>
                       <option value="ENGAGED">Engaged Proposal</option>
-                      <option value="DISQUALIFIED">Disqualified Trash</option>
                       <option value="CLOSED">Closed/Won Deal</option>
+                      <option value="DISQUALIFIED">Disqualified Trash</option>
                     </select>
                   </div>
 

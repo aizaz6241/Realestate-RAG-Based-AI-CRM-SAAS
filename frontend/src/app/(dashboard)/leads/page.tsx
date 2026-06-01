@@ -23,9 +23,10 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 const COLUMNS = [
   { id: "NEW", title: "New Leads", color: "bg-cyan-500", text: "text-cyan-400", border: "border-cyan-500/20" },
   { id: "CONTACTED", title: "Contacted", color: "bg-amber-500", text: "text-amber-400", border: "border-amber-500/20" },
+  { id: "MEETING_SCHEDULED", title: "Meeting Scheduled", color: "bg-indigo-500", text: "text-indigo-400", border: "border-indigo-500/20" },
   { id: "ENGAGED", title: "Engaged", color: "bg-purple-500", text: "text-purple-400", border: "border-purple-500/20" },
-  { id: "DISQUALIFIED", title: "Disqualified", color: "bg-rose-500", text: "text-rose-400", border: "border-rose-500/20" },
   { id: "CLOSED", title: "Closed / Won", color: "bg-emerald-500", text: "text-emerald-400", border: "border-emerald-500/20" },
+  { id: "DISQUALIFIED", title: "Disqualified", color: "bg-rose-500", text: "text-rose-400", border: "border-rose-500/20" },
 ];
 
 export default function LeadsCRMPage() {
@@ -37,6 +38,33 @@ export default function LeadsCRMPage() {
   // Modals & Submitting
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Inline Notes Editing State
+  const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
+  const [editingNotesText, setEditingNotesText] = useState("");
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+
+  const handleSaveNotes = async (leadId: string) => {
+    setIsSavingNotes(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/leads/${leadId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ notes: editingNotesText })
+      });
+      if (res.ok) {
+        setLeads(leads.map(l => l.id === leadId ? { ...l, notes: editingNotesText } : l));
+      }
+    } catch (e) {
+      console.error("Failed to update notes:", e);
+    } finally {
+      setEditingLeadId(null);
+      setIsSavingNotes(false);
+    }
+  };
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -402,6 +430,68 @@ export default function LeadsCRMPage() {
                                       </div>
                                     )}
                                   </div>
+
+                                  {/* Realtor Remarks / Editable Note */}
+                                  <div className="mt-3.5 pt-3 border-t border-border/20 text-xs">
+                                    <span className="block text-[8px] font-black uppercase text-gray-500 tracking-wider mb-1 flex justify-between items-center">
+                                      Realtor Notes 📝
+                                      {editingLeadId !== lead.id && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                            setEditingLeadId(lead.id);
+                                            setEditingNotesText(lead.notes || "");
+                                          }}
+                                          className="text-primary hover:text-white hover:underline text-[7.5px] font-black uppercase tracking-widest transition-all"
+                                        >
+                                          [Edit]
+                                        </button>
+                                      )}
+                                    </span>
+                                    
+                                    {editingLeadId === lead.id ? (
+                                      <div className="space-y-1.5 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                                        <textarea
+                                          autoFocus
+                                          rows={2}
+                                          className="w-full bg-secondary/80 border border-primary/40 focus:border-primary text-gray-100 text-[10.5px] p-2 rounded-xl outline-none resize-none leading-relaxed"
+                                          value={editingNotesText}
+                                          onChange={(e) => setEditingNotesText(e.target.value)}
+                                          placeholder="Type broker notes / property viewing schedule..."
+                                        />
+                                        <div className="flex justify-end gap-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditingLeadId(null)}
+                                            className="px-2 py-0.5 text-[8.5px] font-black uppercase bg-secondary hover:bg-secondary/80 border border-border text-gray-400 rounded-md transition-colors"
+                                          >
+                                            Cancel
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSaveNotes(lead.id)}
+                                            disabled={isSavingNotes}
+                                            className="px-2.5 py-0.5 text-[8.5px] font-black uppercase bg-primary hover:bg-primary/90 text-white rounded-md transition-colors"
+                                          >
+                                            {isSavingNotes ? "Saving..." : "Save"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <p 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          e.preventDefault();
+                                          setEditingLeadId(lead.id);
+                                          setEditingNotesText(lead.notes || "");
+                                        }}
+                                        className="text-[10px] text-gray-300 italic line-clamp-2 leading-relaxed bg-white/5 border border-white/10 hover:border-primary/20 p-2 rounded-xl cursor-pointer hover:bg-white/10 transition-all"
+                                      >
+                                        {lead.notes || "Click to add broker remarks or meeting schedules..."}
+                                      </p>
+                                    )}
+                                  </div>
                                 </div>
 
                                 {/* Realtor Agent Roster Tag */}
@@ -532,9 +622,10 @@ export default function LeadsCRMPage() {
                   >
                     <option value="NEW">New Leads Queue</option>
                     <option value="CONTACTED">Active Contacted</option>
+                    <option value="MEETING_SCHEDULED">Meeting Scheduled</option>
                     <option value="ENGAGED">Engaged Proposal</option>
-                    <option value="DISQUALIFIED">Disqualified Trash</option>
                     <option value="CLOSED">Closed/Won Deal</option>
+                    <option value="DISQUALIFIED">Disqualified Trash</option>
                   </select>
                 </div>
               </div>

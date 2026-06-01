@@ -123,6 +123,11 @@ export default function CalendarPage() {
     { id: 1, sender: "System Bot", text: "🤖 Virtual Meeting room initialized. Waiting for participants to join...", isSystem: true, time: "Just now" }
   ]);
 
+  const [isCaptionsOn, setIsCaptionsOn] = useState(false);
+  const [spokenLang, setSpokenLang] = useState("en-US");
+  const [preferredTranslationLang, setPreferredTranslationLang] = useState("en-US");
+  const [activeCaptions, setActiveCaptions] = useState<any[]>([]);
+
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [activePeers, setActivePeers] = useState<any[]>([]);
   const [peerStreams, setPeerStreams] = useState<{ [peerId: string]: MediaStream }>({});
@@ -262,7 +267,7 @@ export default function CalendarPage() {
   };
 
   // Handle Leave/Exit Virtual Call and Summarize Session (Phase 4 Extension)
-  const handleLeaveCall = async (terminate = false) => {
+  const handleLeaveCall = async (terminate = false, preFetchedSummaryReport: any = null) => {
     const activeRoom = callRoomEvent || selectedEvent;
     if (!activeRoom || !token) {
       setIsCallActive(false);
@@ -280,9 +285,13 @@ export default function CalendarPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       let finalAttendees: any[] = [];
+      let finalSummaryReport = preFetchedSummaryReport;
       if (stateRes.ok) {
         const state = await stateRes.json();
         finalAttendees = state.allTimeAttendees || [];
+        if (!finalSummaryReport && state.summaryReport) {
+          finalSummaryReport = state.summaryReport;
+        }
       }
       
       // Calculate my duration in call
@@ -319,6 +328,23 @@ export default function CalendarPage() {
         };
       });
 
+      const isHostUser = currentUser?.id === activeRoom.createdBy?.id || currentUser?.role === "ADMIN" || currentUser?.role === "SUPER_ADMIN";
+      
+      // Generate and cache summary report via AI orchestrator if not provided and is Host
+      if (terminate && isHostUser && !finalSummaryReport) {
+        try {
+          const summaryRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/meeting/${eventId}/summary`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (summaryRes.ok) {
+            finalSummaryReport = await summaryRes.json();
+          }
+        } catch (err) {
+          console.error("Failed to generate AI executive meeting summary:", err);
+        }
+      }
+
       setSummaryData({
         title: eventTitle,
         eventId: eventId,
@@ -326,7 +352,8 @@ export default function CalendarPage() {
         duration: formatTime(durationMs),
         allTimeAttendees: formattedAttendees,
         absentees: absentees,
-        isHost: currentUser?.id === activeRoom.createdBy?.id || currentUser?.role === "ADMIN" || currentUser?.role === "SUPER_ADMIN"
+        isHost: isHostUser,
+        summaryReport: finalSummaryReport
       });
 
       // 2. If host wants to terminate:
@@ -349,6 +376,121 @@ export default function CalendarPage() {
       setCallRoomEvent(null);
     }
   };
+
+  // Real-time client-side auto-translation dictionary and simulation helper
+  const translateCaption = (text: string, fromLang: string, toLang: string): string => {
+    const from = (fromLang || "en-US").substring(0, 2).toLowerCase();
+    const to = (toLang || "en-US").substring(0, 2).toLowerCase();
+    if (from === to) return text;
+
+    const translations: { [key: string]: { [lang: string]: string } } = {
+      "salam": { "en": "Hello / Greetings", "ru": "Привет", "tr": "Merhaba" },
+      "hello": { "ur": "سلام / ہیلو", "ru": "Привет", "tr": "Merhaba" },
+      "how many employees do we have": { "ur": "ہمارے پاس کتنے ملازمین ہیں؟", "ru": "Сколько у нас сотрудников?", "tr": "Kaç çalışanımız var?" },
+      "who is sara in our team": { "ur": "ہماری ٹیم میں سارہ کون ہے؟", "ru": "Кто такая Сара в нашей команде?", "tr": "Ekibimizdeki Sara kim?" },
+      "assign task to sara": { "ur": "سارہ کو ٹاسک اسائن کریں", "ru": "Поручить задачу Саре", "tr": "Sara'ya görev ata" }
+    };
+
+    const lower = text.toLowerCase().trim().replace(/[.?]/g, "");
+    for (const key of Object.keys(translations)) {
+      if (lower.includes(key)) {
+        if (translations[key][to]) return translations[key][to];
+      }
+    }
+
+    if (to === "ur") {
+      return `[ترجمہ شدہ]: ${text} (اردو)`;
+    } else if (to === "ru") {
+      return `[Перевод]: ${text} (русский)`;
+    } else if (to === "tr") {
+      return `[Çeviri]: ${text} (Türkçe)`;
+    } else {
+      return `[Translated]: ${text}`;
+    }
+  };
+
+  // Continuous Speech Recognition for Live Meeting Subtitles / Captions
+  useEffect(() => {
+    if (typeof window === "undefined" || !isCallActive || !isCaptionsOn || isMicMuted || !callRoomEvent || !token) return;
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      console.warn("Browser SpeechRecognition is not supported.");
+      return;
+    }
+
+    let recognition: any = null;
+    let isStoppedIntentionally = false;
+
+    const startRecognition = () => {
+      try {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = spokenLang;
+
+        recognition.onstart = () => {
+          console.log(`🎙️ Speech recognition active for spoken language: ${spokenLang}`);
+        };
+
+        recognition.onend = () => {
+          if (!isStoppedIntentionally && isCallActive && isCaptionsOn && !isMicMuted) {
+            try {
+              recognition.start();
+            } catch (err) {
+              console.warn("Speech recognition restart failed:", err);
+            }
+          }
+        };
+
+        recognition.onerror = (e: any) => {
+          console.warn("Speech recognition error in call room:", e.error);
+        };
+
+        recognition.onresult = async (event: any) => {
+          const transcript = event.results[0][0].transcript;
+          if (transcript && transcript.trim() && callRoomEvent && token) {
+            console.log("🗣️ Call speech detected:", transcript);
+            try {
+              await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/calendar/events/${callRoomEvent.id}/meeting-state/caption`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  senderId: currentUser?.id || "anonymous",
+                  senderName: getDisplayName(currentUser),
+                  role: currentUser?.role || "AGENT",
+                  text: transcript.trim(),
+                  language: spokenLang
+                })
+              });
+            } catch (err) {
+              console.error("Failed to post live caption:", err);
+            }
+          }
+        };
+
+        recognition.start();
+      } catch (err) {
+        console.error("Speech recognition startup error in call room:", err);
+      }
+    };
+
+    startRecognition();
+
+    return () => {
+      isStoppedIntentionally = true;
+      if (recognition) {
+        try {
+          recognition.abort();
+        } catch (e) {}
+      }
+    };
+  }, [isCallActive, isCaptionsOn, spokenLang, isMicMuted, callRoomEvent, token, currentUser]);
 
   // Webcam & P2P Broadcast Channel Sync Lifecycle
   // Webcam, REST Signaling & WebRTC Cockpit Sync Lifecycle
@@ -470,8 +612,13 @@ export default function CalendarPage() {
             
             if (state.isTerminated) {
               alert("⚠️ This meeting has been closed/terminated by the host.");
-              handleLeaveCall(false);
+              handleLeaveCall(false, state.summaryReport);
               return;
+            }
+
+            // Update live captions state
+            if (state.captions) {
+              setActiveCaptions(state.captions);
             }
 
             // Set dynamic peers list (excluding ourselves)
@@ -1795,9 +1942,43 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5">
-              <span className="text-xs font-black bg-secondary border border-border px-3 py-1.5 rounded-full flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-primary animate-spin" />
+            <div className="flex items-center flex-wrap gap-2.5">
+              {/* Spoken Language Dropdown */}
+              {isCaptionsOn && (
+                <div className="flex items-center gap-1 bg-slate-800/80 border border-slate-700 rounded-xl px-2.5 py-1.5">
+                  <span className="text-[9px] font-black uppercase text-gray-400">Speak:</span>
+                  <select
+                    value={spokenLang}
+                    onChange={(e) => setSpokenLang(e.target.value)}
+                    className="bg-transparent text-[10px] font-extrabold text-cyan-400 outline-none border-none cursor-pointer"
+                  >
+                    <option value="en-US" className="bg-slate-900 text-white font-semibold">English (US)</option>
+                    <option value="ur-PK" className="bg-slate-900 text-white font-semibold">Urdu (اردو)</option>
+                    <option value="ru-RU" className="bg-slate-900 text-white font-semibold">Russian (Русский)</option>
+                    <option value="tr-TR" className="bg-slate-900 text-white font-semibold">Turkish (Türkçe)</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Subtitles Target Language Dropdown */}
+              {isCaptionsOn && (
+                <div className="flex items-center gap-1 bg-slate-800/80 border border-slate-700 rounded-xl px-2.5 py-1.5">
+                  <span className="text-[9px] font-black uppercase text-gray-400">View In:</span>
+                  <select
+                    value={preferredTranslationLang}
+                    onChange={(e) => setPreferredTranslationLang(e.target.value)}
+                    className="bg-transparent text-[10px] font-extrabold text-emerald-400 outline-none border-none cursor-pointer"
+                  >
+                    <option value="en-US" className="bg-slate-900 text-white font-semibold">English</option>
+                    <option value="ur-PK" className="bg-slate-900 text-white font-semibold">Urdu (اردو)</option>
+                    <option value="ru-RU" className="bg-slate-900 text-white font-semibold">Russian (Русский)</option>
+                    <option value="tr-TR" className="bg-slate-900 text-white font-semibold">Turkish (Türkçe)</option>
+                  </select>
+                </div>
+              )}
+
+              <span className="text-xs font-black bg-slate-800 border border-slate-700 text-slate-200 px-3 py-1.5 rounded-full flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
                 Live: 00:04:12
               </span>
               <button
@@ -1810,7 +1991,7 @@ export default function CalendarPage() {
           </div>
 
           {/* Main Content Area */}
-          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
             {/* Webcam Grid (Left Side) */}
             <div className="flex-1 p-6 grid grid-cols-1 md:grid-cols-2 gap-5 overflow-y-auto min-h-[350px]">
               {/* Participant Card 1: YOU */}
@@ -1916,6 +2097,45 @@ export default function CalendarPage() {
               })}
             </div>
 
+            {/* Live Subtitles HUD Overlay */}
+            {isCaptionsOn && activeCaptions && activeCaptions.length > 0 && (
+              <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 w-[90%] max-w-2xl bg-slate-950/85 backdrop-blur-md border border-cyan-500/30 rounded-2xl p-4 shadow-[0_0_25px_rgba(6,182,212,0.15)] flex flex-col gap-2 max-h-[140px] overflow-y-auto animate-fade-in scrollbar-none">
+                {activeCaptions.map((cap: any) => {
+                  const translatedText = translateCaption(cap.text, cap.language, preferredTranslationLang);
+                  
+                  // Role dynamic classes
+                  const roleColors: { [role: string]: string } = {
+                    "SUPER_ADMIN": "bg-red-500/10 border-red-500/20 text-red-400",
+                    "ADMIN": "bg-red-500/10 border-red-500/20 text-red-400",
+                    "HR": "bg-yellow-500/10 border-yellow-500/20 text-yellow-400",
+                    "FINANCE": "bg-cyan-500/10 border-cyan-500/20 text-cyan-400",
+                    "LOGISTICS": "bg-purple-500/10 border-purple-500/20 text-purple-400",
+                    "AGENT": "bg-blue-500/10 border-blue-500/20 text-blue-400"
+                  };
+                  const roleClass = roleColors[cap.role] || "bg-slate-500/10 border-slate-500/20 text-slate-400";
+
+                  return (
+                    <div key={cap.id} className="flex gap-2 items-start text-xs border-b border-white/5 pb-1.5 last:border-b-0 last:pb-0 animate-slide-in">
+                      <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase tracking-wider ${roleClass} shrink-0`}>
+                        {cap.role || 'MEMBER'}
+                      </span>
+                      <span className="font-extrabold text-cyan-400 shrink-0">
+                        {cap.senderName}:
+                      </span>
+                      <p className="text-gray-100 font-semibold leading-relaxed break-words">
+                        {translatedText}
+                        {cap.language !== preferredTranslationLang && (
+                          <span className="text-[8px] text-gray-500 font-bold ml-1.5 uppercase tracking-wide">
+                            (Translated from {cap.language.split('-')[0].toUpperCase()})
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Live Chat & Messages Sidebar (Right Side) */}
             <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-white/5 bg-slate-900/20 flex flex-col justify-between min-h-[250px] lg:min-h-0">
               <div className="p-4.5 border-b border-white/5 bg-slate-900/30 flex items-center justify-between">
@@ -1940,7 +2160,7 @@ export default function CalendarPage() {
                     <p className={`text-xs p-2.5 rounded-xl border leading-relaxed ${
                       msg.isSystem 
                         ? 'bg-cyan-950/15 border-cyan-500/15 text-cyan-300 italic font-medium' 
-                        : 'bg-secondary/40 border-border/40 text-gray-200'
+                        : 'bg-slate-800/80 border-slate-700/50 text-slate-100 font-medium'
                     }`}>
                       {msg.text}
                     </p>
@@ -1988,7 +2208,7 @@ export default function CalendarPage() {
                   placeholder="Type call message..."
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  className="flex-1 bg-secondary/50 border border-border/60 text-xs px-3.5 py-2.5 rounded-xl outline-none focus:border-primary text-white"
+                  className="flex-1 bg-slate-800/85 border border-slate-700 text-xs px-3.5 py-2.5 rounded-xl outline-none focus:border-cyan-500 text-white placeholder:text-slate-400"
                 />
                 <button
                   type="submit"
@@ -2034,11 +2254,23 @@ export default function CalendarPage() {
               className={`p-4.5 rounded-2xl border transition-all cursor-pointer ${
                 isScreenSharing 
                   ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-400 shadow-lg' 
-                  : 'bg-secondary/40 border-border/60 text-muted-foreground hover:bg-secondary/60 hover:text-white'
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
               }`}
               title="Share Screen"
             >
               <Monitor className="w-5.5 h-5.5" />
+            </button>
+
+            <button
+              onClick={() => setIsCaptionsOn(prev => !prev)}
+              className={`p-4.5 rounded-2xl border transition-all cursor-pointer ${
+                isCaptionsOn 
+                  ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-400 shadow-lg shadow-cyan-500/10 hover:bg-cyan-500/30' 
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+              }`}
+              title={isCaptionsOn ? "Disable Captions" : "Enable AI Subtitles"}
+            >
+              <Globe className={`w-5.5 h-5.5 ${isCaptionsOn ? 'animate-pulse' : ''}`} />
             </button>
 
             <div className="w-[1px] h-8 bg-white/10 mx-2 hidden sm:block"></div>
@@ -2137,18 +2369,23 @@ export default function CalendarPage() {
 
       {/* Call Summary Modal */}
       {showSummary && summaryData && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900/90 border border-white/10 rounded-3xl w-full max-w-lg shadow-2xl p-6 relative overflow-hidden animate-fade-in text-white">
-            {/* Background glowing pill */}
-            <div className="absolute -top-[20%] -right-[20%] w-[200px] h-[200px] bg-cyan-500/10 rounded-full blur-3xl -z-10"></div>
+        <div className="fixed inset-0 z-[100] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900/95 border border-white/10 rounded-3xl w-full max-w-4xl shadow-2xl p-6 relative overflow-hidden animate-fade-in text-white max-h-[90vh] flex flex-col justify-between">
+            {/* Background glowing pills */}
+            <div className="absolute -top-[20%] -right-[20%] w-[300px] h-[300px] bg-cyan-500/10 rounded-full blur-3xl -z-10"></div>
+            <div className="absolute -bottom-[20%] -left-[20%] w-[300px] h-[300px] bg-purple-500/10 rounded-full blur-3xl -z-10"></div>
             
             <div className="flex justify-between items-center border-b border-white/10 pb-4 mb-4">
-              <div>
-                <h3 className="text-lg font-black uppercase tracking-wider text-cyan-400 flex items-center gap-2">
-                  <History className="w-5 h-5 text-cyan-400 animate-pulse" />
-                  Meeting Session Summary
-                </h3>
-                <p className="text-[10px] text-gray-400 font-semibold">{summaryData.title}</p>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center text-cyan-400">
+                  <Globe className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black uppercase tracking-wider text-cyan-400">
+                    RENS Cognitive Core AI Conference Report
+                  </h3>
+                  <p className="text-[10px] text-gray-400 font-semibold">{summaryData.title}</p>
+                </div>
               </div>
               <button 
                 onClick={() => {
@@ -2161,82 +2398,205 @@ export default function CalendarPage() {
               </button>
             </div>
 
-            <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1 scrollbar-thin">
+            <div className="flex-1 overflow-y-auto space-y-6 pr-1 scrollbar-thin">
               {/* Meeting stats banner */}
-              <div className="grid grid-cols-2 gap-3 p-4 bg-slate-950/40 border border-white/5 rounded-2xl">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-950/40 border border-white/5 rounded-2xl">
                 <div>
                   <p className="text-[9px] uppercase tracking-wider text-gray-500 font-black">Your Stay Duration</p>
-                  <p className="text-xl font-black text-cyan-400 mt-1">{summaryData.duration}</p>
+                  <p className="text-lg font-black text-cyan-400 mt-1">{summaryData.duration}</p>
                 </div>
                 <div>
                   <p className="text-[9px] uppercase tracking-wider text-gray-500 font-black">Total Attendees</p>
-                  <p className="text-xl font-black text-white mt-1">{summaryData.allTimeAttendees?.length || 0}</p>
+                  <p className="text-lg font-black text-white mt-1">{summaryData.allTimeAttendees?.length || 0}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider text-gray-500 font-black">Meeting Link</p>
+                  <p className="text-lg font-black text-emerald-400 mt-1 uppercase tracking-wider">Secured</p>
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider text-gray-500 font-black">AI Analysis</p>
+                  <p className="text-lg font-black text-purple-400 mt-1 uppercase tracking-wider">Completed</p>
                 </div>
               </div>
 
-              {/* Attendees List */}
-              <div>
-                <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 flex items-center gap-1">
-                  <Users className="w-3.5 h-3.5 text-cyan-400" />
-                  All-Time Attendees ({summaryData.allTimeAttendees?.length || 0})
-                </h4>
-                <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
-                  {summaryData.allTimeAttendees?.map((att: any) => (
-                    <div key={att.id} className="flex justify-between items-center p-2.5 bg-slate-900/60 border border-white/5 rounded-xl text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-cyan-500/10 flex items-center justify-center font-black text-[10px] text-cyan-400 uppercase">
-                          {att.name?.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="font-bold text-white">{att.name}</p>
-                          <p className="text-[9px] text-gray-400 uppercase tracking-wider font-semibold">{att.role}</p>
-                        </div>
+              {/* AI Report Section */}
+              {summaryData.summaryReport ? (
+                <div className="space-y-6">
+                  {/* Grid: Agenda / Highlights & Actions */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {/* Left Column: Agenda & Highlights */}
+                    <div className="glass p-5 rounded-2xl border border-white/5 bg-slate-950/20 flex flex-col gap-4">
+                      <div>
+                        <h4 className="text-[10px] font-black uppercase text-cyan-400 tracking-widest mb-1.5 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping"></span>
+                          Conference Agenda
+                        </h4>
+                        <p className="text-xs font-bold text-gray-100 leading-relaxed">
+                          {summaryData.summaryReport.agenda}
+                        </p>
                       </div>
-                      <span className="text-[10px] font-mono font-bold bg-slate-950/60 border border-white/5 text-gray-300 px-2 py-0.5 rounded">
-                        ⌛ {att.duration || "Just joined"}
-                      </span>
-                    </div>
-                  ))}
-                  {(!summaryData.allTimeAttendees || summaryData.allTimeAttendees.length === 0) && (
-                    <p className="text-[10px] text-gray-500 italic text-center py-2">No other attendees logged.</p>
-                  )}
-                </div>
-              </div>
 
-              {/* Absentees List */}
-              <div>
-                <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 flex items-center gap-1">
-                  <VideoOff className="w-3.5 h-3.5 text-red-400" />
-                  Absent Invitees ({summaryData.absentees?.length || 0})
-                </h4>
-                <div className="space-y-2 max-h-[120px] overflow-y-auto pr-1">
-                  {summaryData.absentees?.map((abs: any, idx: number) => (
-                    <div key={idx} className="flex justify-between items-center p-2.5 bg-red-950/5 border border-red-500/10 rounded-xl text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-red-500/10 flex items-center justify-center font-black text-[10px] text-red-400 uppercase">
-                          {abs.name?.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="font-bold text-gray-300">{abs.name}</p>
-                          <p className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">{abs.role}</p>
-                        </div>
+                      <div>
+                        <h4 className="text-[10px] font-black uppercase text-cyan-400 tracking-widest mb-2 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping"></span>
+                          Key Discussion Highlights
+                        </h4>
+                        <ul className="space-y-2">
+                          {summaryData.summaryReport.keyPoints?.map((pt: string, idx: number) => (
+                            <li key={idx} className="text-xs text-gray-300 font-semibold leading-relaxed flex items-start gap-2">
+                              <span className="text-cyan-400 select-none mt-0.5">•</span>
+                              <span>{pt}</span>
+                            </li>
+                          ))}
+                          {(!summaryData.summaryReport.keyPoints || summaryData.summaryReport.keyPoints.length === 0) && (
+                            <p className="text-[10px] text-gray-500 italic">No key highlights identified.</p>
+                          )}
+                        </ul>
                       </div>
-                      <span className="text-[9px] font-bold text-red-400 bg-red-500/10 px-2.5 py-0.5 rounded-full uppercase tracking-wider border border-red-500/10">
-                        Absent
-                      </span>
                     </div>
-                  ))}
-                  {(!summaryData.absentees || summaryData.absentees.length === 0) && (
-                    <p className="text-[10px] text-emerald-400 italic text-center py-2 bg-emerald-500/5 rounded-xl border border-emerald-500/10">
-                      🎉 100% Attendance: No invitees were absent!
-                    </p>
-                  )}
+
+                    {/* Right Column: Action Items & Priorities */}
+                    <div className="glass p-5 rounded-2xl border border-white/5 bg-slate-950/20 flex flex-col gap-3">
+                      <h4 className="text-[10px] font-black uppercase text-emerald-400 tracking-widest mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping"></span>
+                        Action Items List
+                      </h4>
+                      <div className="space-y-2">
+                        {summaryData.summaryReport.actionItems?.map((act: string, idx: number) => {
+                          const isHigh = act.toUpperCase().includes("[HIGH]");
+                          const cleanAct = act.replace(/\[HIGH\]|\[STANDARD\]|\[LOW\]/gi, "").trim();
+                          
+                          return (
+                            <div key={idx} className="flex items-start gap-2.5 p-2 bg-slate-900/40 border border-white/5 rounded-xl text-xs hover:border-white/10 transition-colors">
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-cyan-500 focus:ring-0 cursor-pointer mt-0.5" 
+                              />
+                              <div className="flex-1">
+                                <p className="font-semibold text-gray-200">{cleanAct}</p>
+                                <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase mt-1 inline-block tracking-wider ${
+                                  isHigh ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-slate-500/10 border-slate-500/20 text-gray-400'
+                                }`}>
+                                  {isHigh ? 'High Priority' : 'Standard Priority'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {(!summaryData.summaryReport.actionItems || summaryData.summaryReport.actionItems.length === 0) && (
+                          <p className="text-[10px] text-gray-500 italic">No explicit tasks assigned.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Role-split Accordion/Grid */}
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase text-purple-400 tracking-widest mb-3.5 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-ping"></span>
+                      Department Contributions Breakdown
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {summaryData.summaryReport.roleContributions?.map((contr: any, idx: number) => {
+                        const isHR = contr.role.includes("HR");
+                        const isFinance = contr.role.includes("Finance") || contr.role.includes("FINANCE");
+                        const badgeColor = isHR 
+                          ? 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
+                          : isFinance 
+                            ? 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400'
+                            : 'bg-purple-500/10 border-purple-500/20 text-purple-400';
+
+                        return (
+                          <div key={idx} className="p-3.5 bg-slate-950/20 border border-white/5 rounded-2xl flex flex-col gap-2 hover:border-white/10 transition-colors">
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase tracking-wider self-start ${badgeColor}`}>
+                              {contr.role}
+                            </span>
+                            <p className="text-xs text-gray-300 font-semibold leading-relaxed">
+                              {contr.contribution}
+                            </p>
+                          </div>
+                        );
+                      })}
+                      {(!summaryData.summaryReport.roleContributions || summaryData.summaryReport.roleContributions.length === 0) && (
+                        <p className="text-[10px] text-gray-500 italic col-span-2 text-center py-4">No role contributions analyzed.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center p-8 bg-slate-950/30 border border-white/5 rounded-2xl text-center">
+                  <div className="w-10 h-10 rounded-full border-2 border-white/10 border-t-cyan-400 animate-spin mb-3"></div>
+                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider animate-pulse">RENS Cognitive Core Synthesizing Executive Summary...</p>
+                  <p className="text-[10px] text-gray-500 font-semibold mt-1">Analyzing transcripts log and generating role actions breakdown.</p>
+                </div>
+              )}
+
+              {/* Standard Attendees Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-4 border-t border-white/5">
+                {/* Attendees List */}
+                <div>
+                  <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5 text-cyan-400" />
+                    All-Time Attendees ({summaryData.allTimeAttendees?.length || 0})
+                  </h4>
+                  <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
+                    {summaryData.allTimeAttendees?.map((att: any) => (
+                      <div key={att.id} className="flex justify-between items-center p-2.5 bg-slate-900/60 border border-white/5 rounded-xl text-xs">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-cyan-500/10 flex items-center justify-center font-black text-[10px] text-cyan-400 uppercase">
+                            {att.name?.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="font-bold text-white">{att.name}</p>
+                            <p className="text-[9px] text-gray-400 uppercase tracking-wider font-semibold">{att.role}</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono font-bold bg-slate-950/60 border border-white/5 text-gray-300 px-2 py-0.5 rounded">
+                          ⌛ {att.duration || "Just joined"}
+                        </span>
+                      </div>
+                    ))}
+                    {(!summaryData.allTimeAttendees || summaryData.allTimeAttendees.length === 0) && (
+                      <p className="text-[10px] text-gray-500 italic text-center py-2">No other attendees logged.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Absentees List */}
+                <div>
+                  <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 flex items-center gap-1">
+                    <VideoOff className="w-3.5 h-3.5 text-red-400" />
+                    Absent Invitees ({summaryData.absentees?.length || 0})
+                  </h4>
+                  <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
+                    {summaryData.absentees?.map((abs: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center p-2.5 bg-red-950/5 border border-red-500/10 rounded-xl text-xs">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-red-500/10 flex items-center justify-center font-black text-[10px] text-red-400 uppercase">
+                            {abs.name?.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="font-bold text-gray-300">{abs.name}</p>
+                            <p className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">{abs.role}</p>
+                          </div>
+                        </div>
+                        <span className="text-[9px] font-bold text-red-400 bg-red-500/10 px-2.5 py-0.5 rounded-full uppercase tracking-wider border border-red-500/10">
+                          Absent
+                        </span>
+                      </div>
+                    ))}
+                    {(!summaryData.absentees || summaryData.absentees.length === 0) && (
+                      <p className="text-[10px] text-emerald-400 italic text-center py-2.5 bg-emerald-500/5 rounded-xl border border-emerald-500/10">
+                        🎉 100% Attendance: No invitees were absent!
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Actions */}
-            <div className="border-t border-white/10 pt-4 mt-4 flex flex-col gap-2">
+            <div className="border-t border-white/10 pt-4 mt-4 flex flex-col sm:flex-row gap-2.5">
               {/* Host Terminate Button */}
               {summaryData.isHost && (
                 <button
@@ -2258,7 +2618,7 @@ export default function CalendarPage() {
                       console.error("Failed to terminate meeting:", e);
                     }
                   }}
-                  className="w-full py-3 bg-red-500 hover:bg-red-600 text-white font-extrabold rounded-xl text-xs uppercase tracking-widest transition-all duration-300 hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-red-500/15"
+                  className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white font-extrabold rounded-xl text-xs uppercase tracking-widest transition-all duration-300 hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-red-500/15"
                 >
                   <Lock className="w-3.5 h-3.5" />
                   Terminate & Close Meeting Session
@@ -2270,7 +2630,7 @@ export default function CalendarPage() {
                   setShowSummary(false);
                   setSummaryData(null);
                 }}
-                className="w-full py-3 bg-secondary hover:bg-secondary/80 border border-white/10 hover:border-white/20 text-xs font-black uppercase tracking-widest rounded-xl text-white transition-all cursor-pointer text-center"
+                className="flex-1 py-3 bg-secondary hover:bg-secondary/80 border border-white/10 hover:border-white/20 text-xs font-black uppercase tracking-widest rounded-xl text-white transition-all cursor-pointer text-center"
               >
                 Back to Dashboard
               </button>

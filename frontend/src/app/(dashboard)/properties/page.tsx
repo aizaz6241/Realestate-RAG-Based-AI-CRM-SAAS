@@ -4,9 +4,11 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Plus, Filter, MapPin, BedDouble, Bath, Square, X, Loader2, Building, Heart } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useCurrency } from "@/context/CurrencyContext";
 
 export default function PropertiesPage() {
   const { token } = useAuth();
+  const { formatAmount } = useCurrency();
   const router = useRouter();
   const [properties, setProperties] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -185,7 +187,7 @@ export default function PropertiesPage() {
                       <MapPin className="w-3.5 h-3.5 text-primary" /> {property.location}
                     </div>
                     <div className="text-xl font-extrabold text-primary pt-2">
-                      PKR {property.price?.toLocaleString()}
+                      {formatAmount(property.price)}
                     </div>
                   </div>
                 </div>

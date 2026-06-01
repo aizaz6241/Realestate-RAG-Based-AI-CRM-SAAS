@@ -37,7 +37,7 @@ export class CalendarController {
   @Get('events/:id/meeting-state')
   getMeetingState(@Param('id') eventId: string) {
     if (!this.meetingStates.has(eventId)) {
-      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [] });
+      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [], captions: [], allTimeCaptions: [], summaryReport: null });
     }
     const state = this.meetingStates.get(eventId)!;
 
@@ -62,7 +62,9 @@ export class CalendarController {
       participants: state.participants,
       messages: state.messages,
       isTerminated: state.isTerminated,
-      allTimeAttendees: state.allTimeAttendees
+      allTimeAttendees: state.allTimeAttendees,
+      captions: state.captions || [],
+      summaryReport: state.summaryReport || null
     };
   }
 
@@ -73,7 +75,7 @@ export class CalendarController {
     @Body() body: { id: string; name: string; role: string; isMicMuted: boolean; isCamMuted: boolean }
   ) {
     if (!this.meetingStates.has(eventId)) {
-      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [] });
+      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [], captions: [], allTimeCaptions: [], summaryReport: null });
     }
     const state = this.meetingStates.get(eventId)!;
     const now = Date.now();
@@ -130,7 +132,7 @@ export class CalendarController {
     @Body() body: { sender: string; text: string }
   ) {
     if (!this.meetingStates.has(eventId)) {
-      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [] });
+      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [], captions: [], allTimeCaptions: [], summaryReport: null });
     }
     const state = this.meetingStates.get(eventId)!;
     
@@ -156,7 +158,7 @@ export class CalendarController {
     @Body() body: { type: string; senderId: string; targetId: string; payload: any }
   ) {
     if (!this.meetingStates.has(eventId)) {
-      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [] });
+      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [], captions: [], allTimeCaptions: [], summaryReport: null });
     }
     const state = this.meetingStates.get(eventId)!;
     
@@ -196,7 +198,7 @@ export class CalendarController {
   @Post('events/:id/meeting-state/terminate')
   terminateMeeting(@Param('id') eventId: string) {
     if (!this.meetingStates.has(eventId)) {
-      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [] });
+      this.meetingStates.set(eventId, { participants: [], messages: [], signals: [], isTerminated: false, allTimeAttendees: [], captions: [], allTimeCaptions: [], summaryReport: null });
     }
     const state = this.meetingStates.get(eventId)!;
     state.isTerminated = true;
@@ -210,5 +212,57 @@ export class CalendarController {
       time: 'Just now'
     });
     return { success: true, isTerminated: true };
+  }
+
+  // 7. Post Live Subtitle Caption
+  @Post('events/:id/meeting-state/caption')
+  postCaption(
+    @Param('id') eventId: string,
+    @Body() body: { senderId: string; senderName: string; role: string; text: string; language: string }
+  ) {
+    if (!this.meetingStates.has(eventId)) {
+      this.meetingStates.set(eventId, {
+        participants: [],
+        messages: [],
+        signals: [],
+        isTerminated: false,
+        allTimeAttendees: [],
+        captions: [],
+        allTimeCaptions: [],
+        summaryReport: null
+      });
+    }
+    const state = this.meetingStates.get(eventId)!;
+
+    if (state.isTerminated) {
+      return { success: false, isTerminated: true };
+    }
+
+    const caption = {
+      id: 'cap-' + Math.random(),
+      senderId: body.senderId,
+      senderName: body.senderName,
+      role: body.role,
+      text: body.text,
+      language: body.language || 'en-US',
+      timestamp: Date.now()
+    };
+
+    if (!state.captions) state.captions = [];
+    state.captions.push(caption);
+
+    // Keep only last 15 captions for polling payload size efficiency
+    if (state.captions.length > 15) {
+      state.captions = state.captions.slice(-15);
+    }
+
+    if (!state.allTimeCaptions) state.allTimeCaptions = [];
+    state.allTimeCaptions.push({
+      senderName: body.senderName,
+      role: body.role,
+      text: body.text
+    });
+
+    return { success: true, caption };
   }
 }

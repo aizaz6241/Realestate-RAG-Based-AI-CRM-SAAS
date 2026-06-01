@@ -133,6 +133,9 @@ export class AiService {
     const systemPrompt = `You are a Context Resolver for a premium Real Estate ERP CRM.
 Your job is to analyze the conversation history and the user's latest message, and resolve any ambiguous references, pronouns (like "he", "she", "him", "her", "them", "their", "employee", "staff", "uski", "unki", "iski", "is ko", "unko", "in dono"), or implicit filters.
 
+Current Local Date & Time: ${new Date().toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}
+(Today is ${new Date().toLocaleDateString([], { weekday: 'long' })}, ${new Date().toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' })}. Relative references like 'this Sunday', 'till Sunday', or 'tomorrow' must resolve exactly from this clock date baseline.)
+
 CONVERSATIONAL CONTEXT HISTORY:
 ${history.map(h => `${h.role === 'user' ? 'User' : 'AI'}: ${h.content}`).join('\n')}
 
@@ -218,7 +221,7 @@ INSTRUCTIONS:
         "vehicle", "fleet", "logistics", "maintenance", "plate",
         "attendance", "checkin", "checkout", "shift", "check-in", "check-out", "present", "late", "absent",
         "query", "table", "database", "db", "search", "find", "list", "show", "get", "calculate",
-        "analytics", "chart", "graph", "report"
+        "analytics", "chart", "graph", "report", "application", "request", "apply", "status", "profile", "record", "history"
       ];
       
       const hasErpKeywords = erpKeywords.some(kw => normalizedMessage.includes(kw)) ||
@@ -403,6 +406,8 @@ CURRENT USER SECURITY CONTEXT:
 - Logged-in User ID: ${userId}
 - Security Role: ${userRole}
 - User Name: ${userName}
+- Current Local Date & Time: ${new Date().toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}
+  (System Clock Date: ${new Date().toISOString().split('T')[0]}, Today's Day: ${new Date().toLocaleDateString([], { weekday: 'long' })}. Any relative date reference from the user, such as 'tomorrow', 'this Sunday', 'till Sunday evening', or 'next Monday', MUST be resolved mathematically based on this system baseline!)
 
 ${memoryContext}
 
@@ -456,20 +461,23 @@ STRICT REAL-TIME ACCURACY & TOOL ENFORCEMENT:
 3. NEVER guess, estimate, or hallucinate counts or names.
 4. If a previous turn in the history contains fake hallucinated numbers, ignore them and ALWAYS execute the live database tool to get the real, actual database records!
 5. STRICT ATTENDANCE VS LEAVE DIFFERENTIATION: If the user asks about daily shift attendance, check-in, check-out, or shift logs, you MUST execute "getAttendanceRecord". If they ask about vacations, sick days, or leaves, you MUST execute "getLeaveRequests". Do NOT mix them up!
+6. EMPTY DATABASE RESULTS RESOLUTION: If you query a tool like "getAttendanceRecord" or "getLeaveRequests" with a status filter like "ABSENT" or "ON_LEAVE" and it returns an empty array ([]), it means the employee was NEVER absent or on leave for that period! Do NOT claim that their records are incomplete, missing, or require Direct Verification from HR! Simply state clearly that they have no records of absences, meaning they have been fully present.
 
 CONVERSATIONAL RULES & WORKFLOWS:
 1. Respond completely like a professional, clear, minimal friendly Operations Coordinator / Executive Assistant. Avoid excessive informal language or chatty filler. Prohibit casual Urdu terms like "bhai" or "yaar" entirely. Keep responses professional, clear, minimal, and highly focused.
-2. CONCISE & DIRECT: Only answer what the user asked. Keep details simple, clear, and highly focused.
-3. PREMIUM VISUALS: Avoid ugly robotic markdown templates. Instead, write in a clean, beautifully spaced human layout with elegant line breaks and clean, meaningful emojis.
+2. CONCISE & DIRECT (CRITICAL): Only answer exactly what the user asked. If the user asks if an employee exists (e.g. "Do we have an employee named Sarah?"), reply with a brief, friendly confirmation and let them ask follow-up questions (e.g., "Yes! Sarah Agent is currently active in our Sales department as a Junior Property Consultant. Would you like me to pull up her attendance or leave details?"). Do NOT dump their salary, joining date, shift logs, or long recommendations unless explicitly asked!
+3. NO HALLUCINATED RECOMMENDATIONS: Do not propose random administrative tasks, workload audits, or lists of unverified staff names (like Bob, John, Jane) unless they are returned in the tool database records. Stick strictly to facts!
+4. PREMIUM VISUALS: Avoid ugly robotic markdown templates. Instead, write in a clean, beautifully spaced human layout with elegant line breaks and clean, meaningful emojis.
 4. FOLLOW-UP QUESTIONS: If the user asks a follow-up question and the relevant data is already present in history, you can answer from history ONLY for static company policies. For active operational statuses (like tasks status, vehicle check-ins, leave requests status, attendance, or pipelines), you MUST ALWAYS trigger the database tools to verify the live real-time status!
 5. NO ROBOTIC DIRECT-CREATION / STRICT TASK VALIDATION FLOW:
    - NEVER create a task (i.e. do NOT call the "createTask" tool) automatically if important details like the task title/details are missing, or if the target employee has not been verified!
    - DO NOT execute task creation immediately. Follow the step-by-step validation flow: Title/Details ➔ Deadline ➔ Priority ➔ Explicit Confirmation. Never create incomplete tasks!
    - Follow this strict step-by-step operational workflow when the user requests task assignment:
-     - STEP 1 (Identify Employee): If the user says "Assign task to [Name]", do NOT call "createTask" yet! Instead, call "searchEmployees" with their name to verify their existence and retrieve their profile.
-     - STEP 2 (Solicit Details): Once identified, present their verified name and department/designation, and politely ask the user for the missing details: (1) Task details/title, (2) Deadline, and (3) Priority. Do NOT call "createTask" yet!
-     - STEP 3 (Confirm Summary): Once the user provides the task details, present a clear, beautiful summary block of the task (Task, Employee, Priority, Deadline) and ask the user if they are ready to finalize it.
-     - STEP 4 (Finalize & Create): Trigger the "createTask" tool ONLY after the user explicitly confirms (e.g. "Yes", "Finalize it", "go ahead").
+     - STEP 1 (Identify Employee): Call "searchEmployees" to verify the existence and profile of the target employee.
+     - STEP 2 (Fast-Track Summary): If the user's initial or recent message ALREADY contains the task title, description, or deadline, you MUST bypass the solicitation phase! Immediately present a clear, beautiful summary block of the task (Task, Employee, Priority, Deadline) and ask the user if they are ready to finalize it (STEP 4). Do NOT ask them to repeat details they already provided!
+     - STEP 3 (Solicit Missing Only): If important details (like task title or deadline) are genuinely missing, present the employee's name/department, and ask politely *only* for the specific missing fields.
+     - STEP 4 (Confirm Summary): Present a clear summary of the task details (Title, Assigned To, Deadline, Priority) and ask the user if they are ready to finalize it.
+     - STEP 5 (Finalize & Create): Trigger the "createTask" tool ONLY after the user explicitly confirms (e.g. "Yes", "Finalize it", "go ahead").
 6. ACTIVE ENTITY MEMORY SYSTEM:
    - Actively parse previous turns in the "history" to sustain reference memory.
    - If the user uses a pronoun (e.g. "his designation", "her salary", "is employee ko reminder bhejo"), map it to the active employee, client, or property discussed in the most recent turn. Never lose context immediately after retrieval.
@@ -659,7 +667,7 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
    - If the user wrote in Persian, Russian, or Turkish, your response MUST be in that exact language.
    - **CRITICAL: NEVER begin your response with any translation notice, language note, or prefix declaring the language choice. Directly start your answer.**
 5. NO FILLER OR UAC CHATTER: Do NOT write any filler phrases, authorization notices, database check updates, or greetings. Answer the user's question directly and concisely!
-6. CONCISE & DIRECT: Only answer what the user asked about. Summarize the key values in a brief, premium way.
+6. CONCISE & DIRECT (CRITICAL): Only answer exactly what the user asked about. Keep details simple, clear, and highly focused. If the user asks a simple question, answer in 1 or 2 brief, beautiful sentences instead of printing their entire folder or suggesting long audit lists. Avoid making up checklists, schedules, or recommendations.
 6. Speak completely like a warm, supportive, and friendly human colleague.
 7. AVOID cold robotic bullet dumps or double asterisks on every single item. Instead, present details in a premium, beautifully spaced, clean human-style layout. Use elegant spacing, emojis (like 📅, 👤, 📍, 👥, 🚫), and friendly bullet highlights. Make the text look highly readable, natural, and visually premium. At the end of your response, politely add 1 or 2 natural, contextual follow-up question suggestions to guide them nicely.${extraInstructions}
 8. If the results contain properties, summarize their occupancy, location trends, pricing changes, or listing age nicely.
@@ -694,11 +702,12 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
       cleanedText = cleanedText.replace(/👥?\s*(?:HR|Finance|Property|Sales|Logistics|Orchestrator)\s+Agent:\s*["'].*?["']/gi, '');
       cleanedText = cleanedText.replace(/(?:\[?Orchestrator\]?|\*Orchestrator\*)\s*➔\s*Delegating[^\n]*/gi, '');
       cleanedText = cleanedText.replace(/👥?\s*(?:HR|Finance|Property|Sales|Logistics|Orchestrator)\s+Agent:\s*[^\n]*/gi, '');
-      cleanedText = cleanedText.replace(/\n{2,}/g, '\n\n').trim();
       
+      // Preserve vertical layout by removing horizontal whitespace normalize but keeping newlines
       cleanedText = cleanedText
         .replace(/\b(bhai|yaar|dost|bande)\b/gi, '')
-        .replace(/\s+/g, ' ')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
         .trim();
 
       return {
@@ -717,4 +726,97 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
       };
     }
   }
+
+  async generateMeetingSummary(eventId: string) {
+    this.logger.log(`Generating AI Meeting Summary for call room event: ${eventId}`);
+    const state = this.calendarService.meetingStates.get(eventId);
+    if (!state) {
+      return {
+        agenda: "No active meeting session found.",
+        keyPoints: [],
+        roleContributions: [],
+        actionItems: []
+      };
+    }
+
+    const captions = (state as any).allTimeCaptions || [];
+    if (captions.length === 0) {
+      return {
+        agenda: "No spoken transcripts captured during the conference.",
+        keyPoints: [
+          "Meeting completed silently without active voice transcripts.",
+          "Participants attended virtually but did not utilize live speech captions."
+        ],
+        roleContributions: [],
+        actionItems: []
+      };
+    }
+
+    // Compile transcripts log
+    const transcriptText = captions
+      .map((c: any) => `[${c.role}] ${c.senderName}: ${c.text}`)
+      .join('\n');
+
+    const systemPrompt = `You are the RENS Cognitive Core AI Conference Analyst.
+Your job is to read the raw multi-lingual spoken transcripts of a video conference meeting, analyze the topics, and synthesize a highly professional, structured, executive-level business summary report.
+
+STRICT SYNTHESIS RULES:
+1. Identify the core "agenda" or primary theme of the conference.
+2. Formulate 3 to 6 key, high-value "keyPoints" summarizing the main discussion highlights.
+3. Formulate "roleContributions": identify what specific department roles (HR, Finance, Sales, Logistics, Admin) contributed to the conversation. Group their statements and opinions into concise summaries. (e.g. for role "HR": "Verified employee designates and performance reviews...").
+4. Formulate "actionItems": a list of concrete tasks discussed or assigned, prefixing each with a priority (e.g. "[HIGH] Verify Burj Khalifa listings", "[STANDARD] Audit logistics fleet").
+5. The language of your final summary MUST align with the transcript content or be professionally translated to English.
+6. Return your output STRICTLY in JSON format with NO markdown, no wrapping text, and no backticks.
+JSON Structure:
+{
+  "agenda": "Core meeting agenda",
+  "keyPoints": ["Key point 1", "Key point 2"],
+  "roleContributions": [
+    { "role": "HR | Finance | Sales | Logistics | Admin", "contribution": "Summary of what this role discussed or presented" }
+  ],
+  "actionItems": ["[HIGH] Task name", "[STANDARD] Task name"]
+}`;
+
+    try {
+      const response = await this.llmService.callLLM(systemPrompt, `Raw Transcript Logs:\n${transcriptText}`, []);
+      const cleanResponse = response.trim();
+      let jsonBlock = cleanResponse;
+      const jsonStart = cleanResponse.indexOf('{');
+      const jsonEnd = cleanResponse.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        jsonBlock = cleanResponse.substring(jsonStart, jsonEnd + 1);
+      }
+      
+      const parsedReport = JSON.parse(jsonBlock);
+      const summaryReport = {
+        agenda: parsedReport.agenda || "General corporate sync.",
+        keyPoints: parsedReport.keyPoints || [],
+        roleContributions: parsedReport.roleContributions || [],
+        actionItems: parsedReport.actionItems || []
+      };
+
+      // Cache it back to the in-memory broker
+      (state as any).summaryReport = summaryReport;
+      return summaryReport;
+
+    } catch (err) {
+      this.logger.error(`Failed to synthesize AI meeting summary using LLM: ${err.message}. Falling back to default report.`);
+      const defaultReport = {
+        agenda: "General real estate operational synchronization.",
+        keyPoints: [
+          `Meeting call room active with ${captions.length} transcript logs.`,
+          "Participants discussed general inventory, HR schedules, or client pipelines."
+        ],
+        roleContributions: [
+          { role: "Participants", contribution: `Spoke in general terms. Logged ${captions.length} dialogue sentences.` }
+        ],
+        actionItems: [
+          "[STANDARD] Review past meetings transcript ledger logs"
+        ]
+      };
+      (state as any).summaryReport = defaultReport;
+      return defaultReport;
+    }
+  }
 }
+

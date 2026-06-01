@@ -308,4 +308,9 @@ export class AiController {
       message: `Document "${doc.name}" and its vector indices deleted successfully.`,
     };
   }
+
+  @Post('meeting/:id/summary')
+  async generateMeetingSummary(@Param('id') eventId: string) {
+    return this.aiService.generateMeetingSummary(eventId);
+  }
 }

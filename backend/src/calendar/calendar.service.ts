@@ -39,6 +39,26 @@ export class CalendarService implements OnModuleInit {
       timestamp: number;
     }>;
     isTerminated: boolean;
+    captions?: Array<{
+      id: string;
+      senderId: string;
+      senderName: string;
+      role: string;
+      text: string;
+      language: string;
+      timestamp: number;
+    }>;
+    allTimeCaptions?: Array<{
+      senderName: string;
+      role: string;
+      text: string;
+    }>;
+    summaryReport?: {
+      agenda: string;
+      keyPoints: string[];
+      roleContributions: Array<{ role: string; contribution: string }>;
+      actionItems: string[];
+    } | null;
   }>();
 
   constructor(private prisma: PrismaService) {}

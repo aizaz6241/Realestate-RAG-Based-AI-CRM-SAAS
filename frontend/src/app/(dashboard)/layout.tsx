@@ -30,10 +30,12 @@ import {
   MicOff,
   Sun,
   Moon,
-  Cable
+  Cable,
+  Coins
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useCurrency } from "@/context/CurrencyContext";
 import { useEffect } from "react";
 import { io } from "socket.io-client";
 
@@ -96,9 +98,11 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isCurrencyOpen, setIsCurrencyOpen] = useState(false);
   const pathname = usePathname();
   const { user, token, isLoading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { currency, setCurrency } = useCurrency();
   const router = useRouter();
 
   // Collapsible category groups state for premium navigation
@@ -934,6 +938,47 @@ export default function DashboardLayout({
                         Open Chat Drawer
                       </Link>
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Premium Currency Selector Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setIsCurrencyOpen(!isCurrencyOpen)}
+                  className="px-3.5 py-2 text-xs font-black uppercase text-gray-400 hover:text-white bg-secondary/20 hover:bg-secondary/40 border border-border/40 hover:border-primary/20 rounded-xl transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-[0_0_15px_rgba(6,182,212,0.05)]"
+                  title="Change Currency Configuration"
+                >
+                  <Coins className="w-3.5 h-3.5 text-primary animate-pulse" />
+                  <span>{currency}</span>
+                </button>
+
+                {isCurrencyOpen && (
+                  <div className="absolute right-0 mt-2.5 w-36 glass rounded-2xl border border-border/80 shadow-2xl p-2 z-50 text-left bg-card/95 backdrop-blur-2xl animate-slide-in">
+                    <span className="block text-[8px] font-black uppercase text-gray-500 tracking-wider px-2 py-1 border-b border-border/20 mb-1">
+                      System Currency
+                    </span>
+                    {[
+                      { code: "AED", name: "AED (Dirhams)", symbol: "د.إ" },
+                      { code: "USD", name: "USD (Dollars)", symbol: "$" },
+                      { code: "PKR", name: "PKR (Rupees)", symbol: "Rs" }
+                    ].map((cur) => (
+                      <button
+                        key={cur.code}
+                        onClick={() => {
+                          setCurrency(cur.code as any);
+                          setIsCurrencyOpen(false);
+                        }}
+                        className={`w-full text-left px-2.5 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-between cursor-pointer ${
+                          currency === cur.code 
+                            ? "bg-primary/10 text-primary border border-primary/20" 
+                            : "text-gray-300 hover:bg-secondary/30 hover:text-white"
+                        }`}
+                      >
+                        <span>{cur.name}</span>
+                        <span className="text-[10px] opacity-70 font-semibold">{cur.symbol}</span>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>

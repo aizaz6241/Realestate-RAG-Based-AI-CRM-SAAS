@@ -71,6 +71,7 @@ export default function AssistantPage() {
   const [voiceRate, setVoiceRate] = useState(1.0);
   const [voicePitch, setVoicePitch] = useState(1.0);
   const voiceRecognitionRef = useRef<any>(null);
+  const lastAiResponseRef = useRef<string>("");
 
   // Voice Mute & Active States orchestrators (Rule 1 & 6)
   const [isMuted, setIsMuted] = useState(false);
@@ -89,6 +90,16 @@ export default function AssistantPage() {
   useEffect(() => {
     voiceAgentStateRef.current = voiceAgentState;
   }, [voiceAgentState]);
+
+  // Pre-load Web Speech API voice dictionary on page mount to resolve production asynchronous delay
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+  }, []);
 
   // Web Speech API: Toggle Listening for Speech Input
   const toggleListening = () => {
@@ -172,6 +183,8 @@ export default function AssistantPage() {
       return;
     }
 
+    lastAiResponseRef.current = cleanText;
+
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.rate = voiceRate;
     utterance.pitch = voicePitch;
@@ -186,14 +199,26 @@ export default function AssistantPage() {
     if (isUrduOrHindi) {
       // Find Urdu/Hindi or Indian accented English voice
       selectedVoice = voices.find(v => v.lang.startsWith("ur") || v.lang.startsWith("hi")) ||
-                      voices.find(v => v.lang.startsWith("en-IN")) ||
+                      voices.find(v => v.lang.includes("IN")) ||
                       voices.find(v => v.lang.startsWith("en-GB")) ||
                       voices[0];
     } else {
+      const filtered = voices.filter(v => v.lang.toLowerCase().startsWith("en"));
       if (voiceGender === "female") {
-        selectedVoice = voices.find(v => v.lang.startsWith("en") && (v.name.toLowerCase().includes("zira") || v.name.toLowerCase().includes("google us english") || v.name.toLowerCase().includes("female") || v.name.toLowerCase().includes("samantha"))) || voices[0];
+        const femaleKeywords = ["zira", "samantha", "female", "karen", "siri", "google us english", "hazel", "microsoft", "natural", "premium"];
+        for (const kw of femaleKeywords) {
+          selectedVoice = filtered.find(v => v.name.toLowerCase().includes(kw));
+          if (selectedVoice) break;
+        }
       } else {
-        selectedVoice = voices.find(v => v.lang.startsWith("en") && (v.name.toLowerCase().includes("david") || v.name.toLowerCase().includes("male") || v.name.toLowerCase().includes("google uk english"))) || voices[0];
+        const maleKeywords = ["david", "male", "daniel", "google uk english", "premium", "microsoft"];
+        for (const kw of maleKeywords) {
+          selectedVoice = filtered.find(v => v.name.toLowerCase().includes(kw));
+          if (selectedVoice) break;
+        }
+      }
+      if (!selectedVoice) {
+        selectedVoice = voices.find(v => v.lang.startsWith("en")) || voices[0];
       }
     }
 
@@ -209,7 +234,11 @@ export default function AssistantPage() {
     };
 
     utterance.onerror = (e) => {
-      console.error("SpeechSynthesis error:", e);
+      if (e.error !== "interrupted" && e.error !== "canceled" && e.error !== "interrupted-by-cancel") {
+        console.error("SpeechSynthesis error:", e);
+      } else {
+        console.warn("SpeechSynthesis interrupted by barge-in or cancel.");
+      }
       setVoiceAgentState("LISTENING");
       onEndCallback?.();
     };
@@ -217,7 +246,7 @@ export default function AssistantPage() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // RENS Voice Live Speech-to-Text Orchestrator Effect (Rule 1 & 6 - continuous auto-listen loop)
+  // RENS Voice Live Speech-to-Text Orchestrator Effect (Rule 1 & 6 - continuous auto-listen loop with barge-in support)
   useEffect(() => {
     if (typeof window === "undefined" || !isVoiceModeActive) return;
     
@@ -228,7 +257,7 @@ export default function AssistantPage() {
 
     let recognition: any = null;
 
-    if (voiceAgentState === "LISTENING" && !isMuted) {
+    if ((voiceAgentState === "LISTENING" || voiceAgentState === "SPEAKING") && !isMuted) {
       recognition = new SpeechRecognition();
       recognition.continuous = false;
       recognition.interimResults = false;
@@ -239,8 +268,8 @@ export default function AssistantPage() {
       };
 
       recognition.onend = () => {
-        // Auto-restart loop if still active, listening, and not muted (solves stale closures via Refs)
-        if (isVoiceModeActiveRef.current && voiceAgentStateRef.current === "LISTENING" && !isMutedRef.current) {
+        // Auto-restart loop if still active, listening or speaking, and not muted (solves stale closures via Refs)
+        if (isVoiceModeActiveRef.current && (voiceAgentStateRef.current === "LISTENING" || voiceAgentStateRef.current === "SPEAKING") && !isMutedRef.current) {
           try {
             recognition.start();
           } catch (e) {
@@ -261,6 +290,19 @@ export default function AssistantPage() {
           if (/exit voice mode|goodbye|allah hafiz|band karo/i.test(transcript)) {
             handleExitVoiceMode();
             return;
+          }
+
+          // BARGE-IN INTERRUPTION logic:
+          if (voiceAgentStateRef.current === "SPEAKING") {
+            const cleanAiResponse = lastAiResponseRef.current?.toLowerCase() || "";
+            if (cleanAiResponse.includes(transcript.toLowerCase()) || transcript.length < 3) {
+              console.log("🤫 Echo of AI response detected, ignoring barge-in...");
+              return;
+            }
+            console.log("🤫 User interrupted AI! Cancelling speaking...");
+            if (typeof window !== "undefined" && window.speechSynthesis) {
+              window.speechSynthesis.cancel();
+            }
           }
 
           setVoiceAgentState("THINKING");
@@ -1184,7 +1226,7 @@ export default function AssistantPage() {
                                         </div>
 
                                         {/* Action buttons (Join Link) */}
-                                        {isVirtual && meeting.location && (
+                                        {isVirtual && meeting.location && !meeting.isTerminated && meeting.status !== 'COMPLETED' && (
                                           <div className="pt-3">
                                             <a 
                                               href={meeting.location.includes("http") ? meeting.location : "#"}
@@ -2468,8 +2510,8 @@ export default function AssistantPage() {
 
       {/* RENS VOICE LIVE SYSTEM OVERLAY */}
       {isVoiceModeActive && (
-        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/85 backdrop-blur-[20px] animate-fade-in transition-all">
-          <div className="max-w-md w-full p-8 rounded-3xl glass border border-primary/20 bg-card/65 flex flex-col items-center text-center shadow-[0_0_50px_rgba(var(--color-primary),0.15)] relative overflow-hidden">
+        <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-center justify-center animate-fade-in transition-all">
+          <div className="w-80 p-5 rounded-3xl glass border border-primary/20 bg-card/90 flex flex-col items-center text-center shadow-[0_10px_50px_rgba(0,0,0,0.45)] relative overflow-hidden backdrop-blur-xl">
             {/* Background glowing gradients */}
             <div className="absolute -top-24 -left-24 w-48 h-48 rounded-full bg-primary/20 blur-[60px]" />
             <div className="absolute -bottom-24 -right-24 w-48 h-48 rounded-full bg-secondary/20 blur-[60px]" />
@@ -2488,22 +2530,22 @@ export default function AssistantPage() {
             {/* Header branding */}
             <div className="space-y-1 mt-4">
               <span className="text-[10px] font-black uppercase text-primary tracking-widest animate-pulse">RENS Voice Live Mode</span>
-              <h3 className="text-lg font-extrabold text-white">Operational AI Assistant</h3>
+              <h3 className="text-sm font-extrabold text-white">Operational AI Assistant</h3>
             </div>
 
             {/* Main Control Panel (Rule 6 - Mute & Refresh controls) */}
-            <div className="flex items-center gap-6 mt-8 relative justify-center">
+            <div className="flex items-center gap-6 mt-6 relative justify-center">
               {/* Mute/Unmute Mic Button */}
               <button
                 onClick={() => setIsMuted(prev => !prev)}
-                className={`p-4 rounded-full border transition-all duration-300 active:scale-95 cursor-pointer ${
+                className={`p-3 rounded-full border transition-all duration-300 active:scale-95 cursor-pointer ${
                   isMuted 
                     ? "bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse" 
                     : "bg-secondary/35 border-border/20 text-gray-400 hover:text-white hover:border-border/40"
                 }`}
                 title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
               >
-                {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
 
               {/* Main Glowing Orb */}
@@ -2516,7 +2558,7 @@ export default function AssistantPage() {
                     setVoiceAgentState("LISTENING");
                   }
                 }}
-                className={`w-36 h-36 rounded-full flex flex-col items-center justify-center relative cursor-pointer group transition-all duration-500 ${
+                className={`w-28 h-28 rounded-full flex flex-col items-center justify-center relative cursor-pointer group transition-all duration-500 ${
                   isMuted
                     ? "bg-red-500/10 border-2 border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.1)]"
                     : voiceAgentState === 'LISTENING' 
@@ -2530,13 +2572,13 @@ export default function AssistantPage() {
               >
                 <div className="absolute inset-2 rounded-full border border-white/5 bg-black/35 flex items-center justify-center">
                   {isMuted ? (
-                    <MicOff className="w-8 h-8 text-red-400 glow-red animate-pulse" />
+                    <MicOff className="w-6 h-6 text-red-400 glow-red animate-pulse" />
                   ) : voiceAgentState === 'THINKING' ? (
-                    <Loader2 className="w-8 h-8 text-emerald-400 animate-spin glow-emerald" />
+                    <Loader2 className="w-6 h-6 text-emerald-400 animate-spin glow-emerald" />
                   ) : voiceAgentState === 'SPEAKING' ? (
-                    <Volume2 className="w-8 h-8 text-purple-400 glow-purple animate-bounce" />
+                    <Volume2 className="w-6 h-6 text-purple-400 glow-purple animate-bounce" />
                   ) : (
-                    <Mic className={`w-8 h-8 text-primary glow-primary ${voiceAgentState === 'LISTENING' ? "scale-110" : ""}`} />
+                    <Mic className={`w-6 h-6 text-primary glow-primary ${voiceAgentState === 'LISTENING' ? "scale-110" : ""}`} />
                   )}
                 </div>
                 

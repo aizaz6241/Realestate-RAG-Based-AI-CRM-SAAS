@@ -333,12 +333,27 @@ export class AiDatabaseToolsService {
         }
 
         case 'getTasksBoard': {
-          const { status } = params || {};
+          const { status, name, employeeName } = params || {};
+          const filterName = name || employeeName;
+
+          const whereClause: any = {
+            organizationId,
+            status: status && ['PENDING', 'IN_PROGRESS', 'COMPLETED'].includes(status.toUpperCase()) 
+              ? (status.toUpperCase() as any) 
+              : undefined,
+          };
+
+          if (filterName) {
+            const matches = await this.findEmployeeFuzzy(filterName, organizationId);
+            if (matches.length > 0) {
+              whereClause.assignedToId = { in: matches.map(m => m.id) };
+            } else {
+              whereClause.assignedToId = "NON_EXISTENT_ID";
+            }
+          }
+
           return this.prisma.task.findMany({
-            where: {
-              organizationId,
-              status: status || undefined,
-            },
+            where: whereClause,
             include: {
               assignedTo: {
                 select: { firstName: true, email: true },
@@ -406,6 +421,38 @@ export class AiDatabaseToolsService {
               select: { id: true, firstName: true, lastName: true, role: true }
             });
 
+            // Reconstruct the full pool of expected or participating users to fix the 200% Present / Attendance bug
+            const expectedUsersMap = new Map<string, { id: string, name: string, role: string }>();
+
+            // Add the host/creator if they exist
+            if (event.createdBy) {
+              expectedUsersMap.set(event.createdById, {
+                id: event.createdBy.id,
+                name: `${event.createdBy.firstName} ${event.createdBy.lastName || ''}`.trim(),
+                role: event.createdBy.role
+              });
+            }
+
+            // Add all formal invitees
+            for (const inv of invitees) {
+              expectedUsersMap.set(inv.id, {
+                id: inv.id,
+                name: `${inv.firstName} ${inv.lastName || ''}`.trim(),
+                role: inv.role
+              });
+            }
+
+            // Dynamically add anyone who actually attended to the pool, so they are not treated as excess attendees (200% rate)
+            for (const att of state.allTimeAttendees) {
+              if (!expectedUsersMap.has(att.id)) {
+                expectedUsersMap.set(att.id, {
+                  id: att.id,
+                  name: att.name,
+                  role: att.role
+                });
+              }
+            }
+
             const present = state.allTimeAttendees.map(a => ({
               id: a.id,
               name: a.name,
@@ -413,13 +460,19 @@ export class AiDatabaseToolsService {
               joinedAt: new Date(a.joinedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             }));
 
-            const absent = invitees
-              .filter(inv => !state.allTimeAttendees.some(a => a.id === inv.id))
-              .map(inv => ({
-                id: inv.id,
-                name: `${inv.firstName} ${inv.lastName || ''}`.trim(),
-                role: inv.role
-              }));
+            // Absent participants are those who were expected (host or invitee) but did not show up
+            const absent: any[] = [];
+            for (const [userId, user] of expectedUsersMap.entries()) {
+              if (!state.allTimeAttendees.some(a => a.id === userId)) {
+                absent.push(user);
+              }
+            }
+
+            const now = new Date();
+            const start = new Date(event.startTime);
+            const end = new Date(event.endTime);
+            const isTerminated = state.isTerminated || now > end;
+            const status = isTerminated ? 'COMPLETED' : (now >= start ? 'ACTIVE' : 'UPCOMING');
 
             analyzedMeetings.push({
               id: event.id,
@@ -430,9 +483,10 @@ export class AiDatabaseToolsService {
               location: event.location,
               organizer: `${event.createdBy?.firstName || ''} ${event.createdBy?.lastName || ''}`.trim(),
               organizerRole: event.createdBy?.role,
-              isTerminated: state.isTerminated,
+              isTerminated,
+              status,
               attendanceSummary: {
-                totalInvited: invitees.length,
+                totalInvited: expectedUsersMap.size,
                 totalAttended: present.length,
                 totalAbsent: absent.length
               },

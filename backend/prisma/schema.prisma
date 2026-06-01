@@ -233,6 +233,7 @@ model Lead {
   score          Int          @default(0)
   isDuplicate    Boolean      @default(false)
   duplicateOfId  String?
+  notes          String?
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])

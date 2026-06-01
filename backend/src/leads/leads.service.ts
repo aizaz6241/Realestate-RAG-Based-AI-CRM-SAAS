@@ -6,7 +6,7 @@ export class LeadsService {
   constructor(private prisma: PrismaService) {}
 
   async create(data: any, organizationId: string, assignedToId?: string) {
-    const { name, email, phone, source, description, status } = data;
+    const { name, email, phone, source, description, status, notes } = data;
 
     // 1. DUPLICATE DETECTION CHECK
     let isDuplicate = false;
@@ -52,7 +52,7 @@ export class LeadsService {
     } else if (src === 'WEBSITE' || src === 'REFERRAL') {
       score += 15;
     }
-
+ 
     if (description && description.length > 20) {
       score += 20; // Detailed request profile
     }
@@ -96,6 +96,7 @@ export class LeadsService {
         duplicateOfId,
         organizationId,
         assignedToId: targetAgentId || null,
+        notes: notes || description || null,
       },
     });
 
@@ -151,6 +152,7 @@ export class LeadsService {
         status: data.status,
         score: data.score !== undefined ? parseInt(data.score) : undefined,
         assignedToId: data.assignedToId,
+        notes: data.notes,
       },
     });
 
