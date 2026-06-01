@@ -233,7 +233,7 @@ export default function AssistantPage() {
       onEndCallback?.();
     };
 
-    utterance.onerror = (e) => {
+    utterance.onerror = (e: any) => {
       if (e.error !== "interrupted" && e.error !== "canceled" && e.error !== "interrupted-by-cancel") {
         console.error("SpeechSynthesis error:", e);
       } else {
