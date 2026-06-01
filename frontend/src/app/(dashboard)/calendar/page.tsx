@@ -427,6 +427,69 @@ export default function CalendarPage() {
         "ru": ["как насчет тебя", "а ты", "как у тебя дела"],
         "tr": ["ya sen", "sen nasılsın"]
       },
+      "thank you": {
+        "en": ["thank you", "thanks", "thank you very much"],
+        "ur": ["شکریہ", "بہت بہت شکریہ"],
+        "ur-roman": ["shukriya", "shukria", "bohot shukriya", "bohat shukriya", "thanks"],
+        "ru": ["спасибо", "большое спасибо"],
+        "tr": ["teşekkür ederim", "tesekkur ederim", "sağol", "sagol"]
+      },
+      "goodbye": {
+        "en": ["goodbye", "bye", "bye bye"],
+        "ur": ["اللہ حافظ", "خدا حافظ"],
+        "ur-roman": ["allah hafiz", "khuda hafiz", "bye", "bye bye"],
+        "ru": ["до свидания", "пока"],
+        "tr": ["güle güle", "gule gule", "hoşça kal", "hosca kal", "görüşürüz"]
+      },
+      "nice to meet you": {
+        "en": ["nice to meet you", "pleasure meeting you", "glad to meet you"],
+        "ur": ["آپ سے مل کر خوشی ہوئی", "مل کر خوشی ہوئی"],
+        "ur-roman": ["ap se mil kar khushi hui", "aap se mil kar khushi hui", "mil kar khushi hui", "milkar khushi hui"],
+        "ru": ["приятно познакомиться", "очень приятно"],
+        "tr": ["tanıştığıma memnun oldum", "tanistigima memnun oldum", "memnun oldum"]
+      },
+      "where are you from": {
+        "en": ["where are you from", "where do you live"],
+        "ur": ["آپ کہاں سے ہیں", "آپ کہاں رہتے ہیں"],
+        "ur-roman": ["ap kahan se hain", "aap kahan se hain", "ap kahan se ho", "aap kahan se ho", "ap kidhar se ho", "aap kidhar se ho"],
+        "ru": ["откуда ты", "откуда вы", "где ты живешь"],
+        "tr": ["nerelisin", "nerelisiniz", "nereden geliyorsun"]
+      },
+      "what is your name": {
+        "en": ["what is your name", "your name please"],
+        "ur": ["آپ کا نام کیا ہے", "آپ کا نام"],
+        "ur-roman": ["apka naam kya hai", "aapka naam kya hai", "apka nam kya hai", "aapka nam kya hai", "apka kya naam hai", "aapka kya naam hai"],
+        "ru": ["как тебя зовут", "как вас зовут", "ваше имя"],
+        "tr": ["adın ne", "adiniz ne", "isminiz nedir"]
+      },
+      "who is sara": {
+        "en": ["who is sara"],
+        "ur": ["سارہ کون ہے", "سارہ کون ہے؟"],
+        "ur-roman": ["sara kaun hai", "sara kaun he", "sara kon hai", "sara kon he"],
+        "ru": ["кто такая сара", "кто сара"],
+        "tr": ["sara kim", "sara kimdir"]
+      },
+      "what are you doing": {
+        "en": ["what are you doing"],
+        "ur": ["آپ کیا کر رہے ہیں", "تم کیا کر رہے ہو", "کیا کر رہے ہو"],
+        "ur-roman": ["ap kya kar rahe ho", "aap kya kar rahe ho", "ap kya kar rahe hain", "aap kya kar rahe hain", "kya kar rahe ho"],
+        "ru": ["что ты делаешь", "что вы делаете"],
+        "tr": ["ne yapıyorsun", "ne yapiyorsun"]
+      },
+      "can you hear me": {
+        "en": ["can you hear me", "am i audible"],
+        "ur": ["کیا آپ مجھے سن سکتے ہیں", "کیا میری آواز آ رہی ہے", "میری آواز آ رہی ہے؟"],
+        "ur-roman": ["kya aap mujhe sun sakte hain", "kya meri awaz aa rahi hai", "kya meri awaz aa rahi he", "meri awaz aa rahi hai", "awaz aa rahi hai"],
+        "ru": ["ты меня слышишь", "вы меня слышите", "меня слышно"],
+        "tr": ["beni duyabiliyor musun", "sesim geliyor mu", "duyuyor musun"]
+      },
+      "yes i can hear you": {
+        "en": ["yes i can hear you", "i can hear you", "yes audible"],
+        "ur": ["جی ہاں میں سن سکتا ہوں", "جی آواز آ رہی ہے", "میں سن سکتا ہوں"],
+        "ur-roman": ["haan main sun sakta hoon", "ji awaz aa rahi hai", "haan awaz aa rahi he", "ji main sun sakta hu", "awaz aa rahi hai haan"],
+        "ru": ["да я слышу тебя", "да слышно", "я слышу вас"],
+        "tr": ["evet duyabiliyorum", "evet sesin geliyor", "duyuyorum"]
+      },
       "how many employees do we have": {
         "en": ["how many employees do we have", "so how many employees do we have"],
         "ur": ["ہمارے پاس کتنے ملازمین ہیں", "تو ہمارے پاس کتنے ملازمین ہیں"],
