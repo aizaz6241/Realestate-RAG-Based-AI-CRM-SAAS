@@ -11,6 +11,10 @@
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
     "@tailwindcss/postcss": "^4",
+    "@types/js-cookie": "^3.0.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "axios": "^1.16.1",
     "clsx": "^2.1.1",
     "js-cookie": "^3.0.7",
@@ -24,10 +28,6 @@
     "typescript": "^5"
   },
   "devDependencies": {
-    "@types/js-cookie": "^3.0.6",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6"
   }
