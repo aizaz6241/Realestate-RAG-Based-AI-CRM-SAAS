@@ -10,6 +10,15 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
+  try {
+    // Test connection first to verify database reachability (bypasses isolated build-time network blocks)
+    await prisma.$connect();
+  } catch (err) {
+    console.warn("⚠️ [RENS Deploy Alert] Database server is unreachable at this stage (possibly build-time isolated network on Render).");
+    console.warn("⚠️ Gracefully skipping database seeding to allow the build compilation to succeed.");
+    return;
+  }
+
   console.log("🚀 Starting extensive ERP database clean-up...");
 
   // 1. Delete all existing records using robust PostgreSQL TRUNCATE CASCADE
