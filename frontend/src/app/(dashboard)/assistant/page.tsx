@@ -62,10 +62,140 @@ const SPEECH_LANGUAGES = [
   { code: "en-NG", name: "English (Nigeria)", flag: "🇳🇬", label: "NG" }
 ];
 
+// Urdu-to-Roman Transliteration Dictionary & Edit Distance algorithm for acoustic echo loop protection
+const URDU_TO_ROMAN_DICT: Record<string, string[]> = {
+  "سلام": ["salam", "slm", "shalam"],
+  "میں": ["main", "mein", "me", "men", "mai"],
+  "آپ": ["aap", "ap", "aapka", "aapki", "aapke"],
+  "کا": ["ka"],
+  "کی": ["ki"],
+  "کے": ["ke", "kay"],
+  "کو": ["ko"],
+  "ہوں": ["hoon", "hun", "ho"],
+  "ہے": ["hai", "he", "hye"],
+  "ہیں": ["hain", "hein", "he"],
+  "اور": ["aur", "or"],
+  "اسسٹنٹ": ["assistant", "asistant"],
+  "جی": ["jee", "ji"],
+  "ہاں": ["haan", "han"],
+  "ٹھیک": ["theek", "thik", "tk"],
+  "کیا": ["kya", "kiya"],
+  "کرنا": ["karna"],
+  "کرنے": ["karne"],
+  "بند": ["band", "bund"],
+  "برو": ["bro"],
+  "بھائی": ["bhai"],
+  "شکریہ": ["shukriya"],
+  "کرو": ["karo"],
+  "اللہ": ["allah"],
+  "حافظ": ["hafiz"],
+  "کام": ["kaam", "kam"],
+  "پراپرٹی": ["property", "properties"],
+  "پراپرٹیز": ["properties", "property"],
+  "میرا": ["mera"],
+  "مجھے": ["mujhe", "mjhe"],
+  "سن": ["sun", "soan"],
+  "رہا": ["raha"],
+  "رہی": ["rahi"],
+  "رہے": ["rahe"],
+  "تھا": ["tha"],
+  "تھی": ["thi"],
+  "تھے": ["the"],
+  "تم": ["tum", "tm"],
+  "تو": ["to", "tu"],
+  "وہ": ["wo", "woh"],
+  "ہم": ["hum", "hm"],
+  "مجھ": ["mujh"],
+  "اس": ["is", "us"],
+  "ان": ["in", "un"],
+  "یہ": ["yeh", "ye"],
+  "سے": ["se", "say"],
+  "پر": ["par", "per"],
+  "تک": ["tak"],
+  "نہ": ["na"],
+  "نہیں": ["nahin", "nahi", "nae"]
+};
+
+const transliterateUrduToRoman = (word: string): string => {
+  if (!/[\u0600-\u06FF\u0750-\u077F]/.test(word)) return word.toLowerCase();
+  
+  const map: Record<string, string> = {
+    "ا": "a", "آ": "aa", "ب": "b", "پ": "p", "ت": "t", "ٹ": "t", "ث": "s",
+    "ج": "j", "چ": "ch", "ح": "h", "خ": "kh", "د": "d", "ڈ": "d", "ذ": "z",
+    "ر": "r", "ڑ": "r", "ز": "z", "ژ": "z", "س": "s", "ش": "sh", "ص": "s",
+    "ض": "z", "ط": "t", "ظ": "z", "ع": "a", "غ": "gh", "ف": "f", "ق": "q",
+    "ک": "k", "گ": "g", "ل": "l", "م": "m", "ن": "n", "ں": "n", "و": "o",
+    "ہ": "h", "ھ": "h", "ء": "", "ی": "y", "ے": "e"
+  };
+  let res = "";
+  for (const char of word) {
+    res += map[char] || char;
+  }
+  return res;
+};
+
+const getEditDistance = (a: string, b: string): number => {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+};
+
+const isWordSimilar = (w1: string, w2: string): boolean => {
+  const clean1 = w1.toLowerCase().trim();
+  const clean2 = w2.toLowerCase().trim();
+  if (clean1 === clean2) return true;
+  if (clean1.includes(clean2) || clean2.includes(clean1)) return true;
+
+  // Dictionary check
+  const dict1 = URDU_TO_ROMAN_DICT[clean1];
+  if (dict1 && dict1.includes(clean2)) return true;
+  const dict2 = URDU_TO_ROMAN_DICT[clean2];
+  if (dict2 && dict2.includes(clean1)) return true;
+
+  // Phonetic transliteration comparison
+  const t1 = transliterateUrduToRoman(clean1);
+  const t2 = transliterateUrduToRoman(clean2);
+  if (t1 === t2) return true;
+  if (t1.includes(t2) || t2.includes(t1)) return true;
+
+  const dist = getEditDistance(t1, t2);
+  const maxLen = Math.max(t1.length, t2.length);
+  if (maxLen <= 4) return dist <= 1;
+  if (maxLen <= 7) return dist <= 2;
+  return dist <= 3;
+};
+
 export default function AssistantPage() {
   const router = useRouter();
   const { token, user: currentUser } = useAuth();
   const [activeMobileTab, setActiveMobileTab] = useState<'chat' | 'sessions' | 'knowledge'>('chat');
+
+  // Microphone amplitude visualizer states
+  const [amplitude, setAmplitude] = useState<number>(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   // Voice Input Speech Recognition States
   const [isListening, setIsListening] = useState(false);
@@ -90,6 +220,8 @@ export default function AssistantPage() {
   const isMutedRef = useRef(isMuted);
   const isVoiceModeActiveRef = useRef(isVoiceModeActive);
   const voiceAgentStateRef = useRef(voiceAgentState);
+  
+  const lastChimeTimeRef = useRef<number>(0);
 
   useEffect(() => {
     isMutedRef.current = isMuted;
@@ -112,6 +244,167 @@ export default function AssistantPage() {
       };
     }
   }, []);
+
+  // Echo protection overlap algorithm
+  const isEchoOfAiResponse = (transcript: string, aiResponse: string): boolean => {
+    if (!aiResponse) return false;
+    const cleanStr = (s: string) => s.toLowerCase().replace(/[^\w\s\u0600-\u06FF\u0900-\u097F]/g, "").replace(/\s+/g, " ").trim();
+    const tClean = cleanStr(transcript);
+    const aClean = cleanStr(aiResponse);
+    if (!tClean) return true;
+    if (aClean.includes(tClean) || tClean.includes(aClean)) return true;
+
+    // Word-by-word cross-lingual overlap count
+    const tWords = tClean.split(" ");
+    const aWords = aClean.split(" ");
+    let matchCount = 0;
+    
+    for (const w of tWords) {
+      const matched = aWords.some(aWord => isWordSimilar(w, aWord));
+      if (matched) {
+        matchCount++;
+      }
+    }
+    
+    const overlapRatio = matchCount / tWords.length;
+    console.log(`🤖 Echo check - Transcript: "${transcript}" | AI Response: "${aiResponse.substring(0, 30)}..." | Match Ratio: ${overlapRatio.toFixed(2)}`);
+    return overlapRatio > 0.60;
+  };
+
+  const getWaveBarStyles = (index: number) => {
+    const baseHeight = 8;
+    if (isMuted) {
+      const sinusVal = Math.sin((Date.now() / 650) + index * 0.4) * 2 + 6;
+      return { 
+        height: `${sinusVal}px`, 
+        transition: 'height 0.3s ease-in-out', 
+        opacity: 0.2 
+      };
+    }
+
+    if (voiceAgentState === 'LISTENING') {
+      const isSpeaking = amplitude > 5;
+      
+      if (isSpeaking) {
+        const speed = Date.now() / 120;
+        const offset = Math.sin(index * 0.6) * 3;
+        const jitter = Math.sin(speed + index * 1.2) * 4 + Math.cos(Date.now() / 60 - index) * 1.5;
+        const height = Math.max(baseHeight, (amplitude * 1.1) + offset + jitter);
+        
+        return { 
+          height: `${Math.min(45, height)}px`, 
+          transition: 'height 0.05s cubic-bezier(0.1, 0.8, 0.3, 1)',
+          boxShadow: '0 0 10px rgba(6, 182, 212, 0.5)',
+          transform: `translateY(${Math.sin(Date.now() / 50 + index) * 0.8}px)`,
+          opacity: 1
+        };
+      } else {
+        const speed = Date.now() / 800;
+        const sinusVal = Math.sin(speed + index * 0.3) * 2.5 + baseHeight + 1;
+        
+        return { 
+          height: `${sinusVal}px`, 
+          transition: 'height 0.3s ease-in-out',
+          boxShadow: 'none',
+          transform: 'translateY(0px)',
+          opacity: 0.4
+        };
+      }
+    }
+
+    if (voiceAgentState === 'SPEAKING') {
+      const speed = Date.now() / 320;
+      const sinusVal = Math.sin(speed + index * 0.5) * 8 + 14;
+      return { 
+        height: `${sinusVal}px`, 
+        transition: 'height 0.12s ease-in-out',
+        boxShadow: '0 0 8px rgba(168, 85, 247, 0.35)',
+        opacity: 0.85
+      };
+    }
+
+    if (voiceAgentState === 'THINKING') {
+      const sinusVal = Math.sin((Date.now() / 500) + index * 0.4) * 3 + 8;
+      return { 
+        height: `${sinusVal}px`, 
+        transition: 'height 0.2s ease-in-out',
+        boxShadow: '0 0 6px rgba(16, 185, 129, 0.25)',
+        opacity: 0.6
+      };
+    }
+
+    const sinusVal = Math.sin((Date.now() / 600) + index * 0.4) * 2 + 6;
+    return { height: `${sinusVal}px`, opacity: 0.4 };
+  };
+
+  // Real-time mic volume tracking when active and not muted in Voice Mode
+  useEffect(() => {
+    const startMicTracking = async () => {
+      if (!isVoiceModeActive || voiceAgentState !== 'LISTENING' || isMuted) {
+        stopMicTracking();
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStreamRef.current = stream;
+
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const ctx = new AudioContextClass();
+        audioContextRef.current = ctx;
+
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 32;
+        source.connect(analyser);
+        analyserRef.current = analyser;
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const trackVolume = () => {
+          if (!analyserRef.current) return;
+          analyserRef.current.getByteFrequencyData(dataArray);
+
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            sum += dataArray[i];
+          }
+          const average = sum / bufferLength;
+          setAmplitude(average);
+
+          animationFrameRef.current = requestAnimationFrame(trackVolume);
+        };
+
+        trackVolume();
+      } catch (err) {
+        console.warn("⚠️ Microphone volume visualizer access blocked or unavailable:", err);
+      }
+    };
+
+    startMicTracking();
+
+    return () => {
+      stopMicTracking();
+    };
+  }, [isVoiceModeActive, voiceAgentState, isMuted]);
+
+  const stopMicTracking = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop());
+      micStreamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    setAmplitude(0);
+  };
 
   // Web Speech API: Toggle Listening for Speech Input
   const toggleListening = () => {
@@ -241,7 +534,9 @@ export default function AssistantPage() {
     setVoiceAgentState("SPEAKING");
 
     utterance.onend = () => {
-      setVoiceAgentState("LISTENING");
+      if (voiceAgentStateRef.current === "SPEAKING") {
+        setVoiceAgentState("LISTENING");
+      }
       onEndCallback?.();
     };
 
@@ -251,7 +546,9 @@ export default function AssistantPage() {
       } else {
         console.warn("SpeechSynthesis interrupted by barge-in or cancel.");
       }
-      setVoiceAgentState("LISTENING");
+      if (voiceAgentStateRef.current === "SPEAKING") {
+        setVoiceAgentState("LISTENING");
+      }
       onEndCallback?.();
     };
 
@@ -261,6 +558,15 @@ export default function AssistantPage() {
   // RENS Voice Live Speech-to-Text Orchestrator Effect (Continuous single-instance loop with instant interim barge-in support)
   useEffect(() => {
     if (typeof window === "undefined" || !isVoiceModeActive) return;
+
+    if (isMuted || voiceAgentState === "IDLE" || voiceAgentState === "THINKING") {
+      if (voiceRecognitionRef.current) {
+        try {
+          voiceRecognitionRef.current.stop();
+        } catch (e) {}
+      }
+      return;
+    }
     
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -278,8 +584,9 @@ export default function AssistantPage() {
     };
 
     recognition.onend = () => {
-      // Auto-restart loop if still active, regardless of state, to keep mic hot and reduce cold-start delay
-      if (isVoiceModeActiveRef.current) {
+      // Auto-restart loop if still active, not muted, and in listening states
+      if (isVoiceModeActiveRef.current && !isMutedRef.current && 
+          (voiceAgentStateRef.current === "LISTENING" || voiceAgentStateRef.current === "SPEAKING")) {
         try {
           recognition.start();
         } catch (e) {
@@ -296,7 +603,13 @@ export default function AssistantPage() {
 
     recognition.onresult = async (event: any) => {
       if (isMutedRef.current) return;
-      if (voiceAgentStateRef.current === "THINKING") return;
+      if (voiceAgentStateRef.current === "THINKING" || voiceAgentStateRef.current === "IDLE") return;
+
+      // Connection chime guard: ignore all mic inputs within 2.5s of the chime to avoid chime feedback loops
+      if (Date.now() - lastChimeTimeRef.current < 2500) {
+        console.log("🤫 Chime guard active: ignoring speech during dial chimes.");
+        return;
+      }
 
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         const transcript = event.results[i][0].transcript;
@@ -310,11 +623,11 @@ export default function AssistantPage() {
             return;
           }
 
-          // BARGE-IN INTERRUPTION logic (if user keeps speaking after final capture):
+          // BARGE-IN INTERRUPTION logic & ECHO PROTECTION:
           if (voiceAgentStateRef.current === "SPEAKING") {
-            const cleanAiResponse = lastAiResponseRef.current?.toLowerCase() || "";
-            if (cleanAiResponse.includes(transcript.toLowerCase()) || transcript.length < 3) {
-              console.log("🤫 Echo of AI response detected, ignoring final barge-in...");
+            const aiResponse = lastAiResponseRef.current || "";
+            if (isEchoOfAiResponse(transcript, aiResponse) || transcript.length < 3) {
+              console.log("🤫 Echo of AI response detected, ignoring final transcript...");
               continue;
             }
             console.log("🤫 User interrupted AI! Cancelling speaking...");
@@ -374,8 +687,8 @@ export default function AssistantPage() {
         } else {
           // Interim Result: perfect for fast barge-in detection
           if (voiceAgentStateRef.current === "SPEAKING") {
-            const cleanAiResponse = lastAiResponseRef.current?.toLowerCase() || "";
-            if (cleanAiResponse.includes(transcript.toLowerCase()) || transcript.length < 3) {
+            const aiResponse = lastAiResponseRef.current || "";
+            if (isEchoOfAiResponse(transcript, aiResponse) || transcript.length < 3) {
               // Ignore AI's own echo
               continue;
             }
@@ -405,7 +718,7 @@ export default function AssistantPage() {
         recognition.stop();
       } catch (e) {}
     };
-  }, [isVoiceModeActive, speechLang]);
+  }, [isVoiceModeActive, speechLang, voiceAgentState, isMuted]);
 
   const handleToggleVoiceMode = () => {
     if (isVoiceModeActive) {
@@ -427,6 +740,7 @@ export default function AssistantPage() {
       setTimeout(() => {
         if (isVoiceModeActiveRef.current) {
           AudioSynthesizer.playConnectionChime();
+          lastChimeTimeRef.current = Date.now();
           setVoiceAgentState("LISTENING");
           setSubtitleFeedUser("");
           setSubtitleFeedAi("RENS Operational Intelligence System is connected and ready. Speak now!");
@@ -911,32 +1225,8 @@ export default function AssistantPage() {
           />
         </div>
 
-        {isVoiceModeActive ? (
-          <VoiceCallingConsole
-            isMuted={isMuted}
-            onToggleMute={() => setIsMuted(prev => !prev)}
-            voiceAgentState={voiceAgentState}
-            onExitVoiceMode={handleExitVoiceMode}
-            onResetListening={() => {
-              if (typeof window !== "undefined" && window.speechSynthesis) {
-                window.speechSynthesis.cancel();
-              }
-              setVoiceAgentState("LISTENING");
-            }}
-            subtitleFeedUser={subtitleFeedUser}
-            subtitleFeedAi={subtitleFeedAi}
-            activeCallPersona={activeCallPersona}
-            voiceGender={voiceGender}
-            onVoiceGenderChange={setVoiceGender}
-            voiceRate={voiceRate}
-            onVoiceRateChange={setVoiceRate}
-            voicePitch={voicePitch}
-            onVoicePitchChange={setVoicePitch}
-          />
-        ) : (
-          <>
-            {/* MIDDLE PANEL: Chat Dialogue Feed (50%) */}
-            <div className={`${activeMobileTab === 'chat' ? 'flex' : 'hidden'} lg:flex lg:col-span-5 glass rounded-3xl border border-border/60 overflow-hidden flex flex-col bg-card/10 shadow-2xl h-full`}>
+        {/* MIDDLE PANEL: Chat Dialogue Feed (50%) */}
+        <div className={`${activeMobileTab === 'chat' ? 'flex' : 'hidden'} lg:flex lg:col-span-5 glass rounded-3xl border border-border/60 overflow-hidden flex flex-col bg-card/10 shadow-2xl h-full`}>
           
           {/* Scrollable conversation logs */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
@@ -1011,6 +1301,24 @@ export default function AssistantPage() {
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Real-time Voice Mode Subtitles Feed */}
+          {isVoiceModeActive && (subtitleFeedUser || subtitleFeedAi) && (
+            <div className="mx-6 mb-3 p-3.5 rounded-2xl border border-border/30 bg-slate-950/90 flex flex-col gap-2 shadow-2xl animate-fade-in text-left">
+              {subtitleFeedUser && (
+                <div className="flex gap-2.5 items-start text-xs">
+                  <span className="text-[8px] font-black uppercase bg-slate-800 text-white px-2 py-0.5 rounded-md border border-white/5 flex-shrink-0 mt-0.5 select-none">YOU</span>
+                  <p className="font-semibold text-gray-300 leading-relaxed">{subtitleFeedUser}</p>
+                </div>
+              )}
+              {subtitleFeedAi && (
+                <div className="flex gap-2.5 items-start text-xs border-t border-border/35 pt-2">
+                  <span className="text-[8px] font-black uppercase bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-md border border-cyan-500/30 flex-shrink-0 mt-0.5 select-none">AI</span>
+                  <p className="font-semibold text-cyan-300 leading-relaxed drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">{subtitleFeedAi}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Scrolling Loading Indicator */}
           {isLoadingChat && (
             <div className="p-4 flex items-center justify-start gap-2.5 pl-6 border-t border-border/30 bg-secondary/5 text-xs text-muted-foreground select-none">
@@ -1041,79 +1349,124 @@ export default function AssistantPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              if (isVoiceModeActive) return;
               executeChatQuery(userInput);
             }}
-            className="p-4 border-t border-border/40 bg-secondary/20 flex gap-3.5 items-center flex-shrink-0"
+            className="p-4 border-t border-border/40 bg-secondary/20 flex gap-3.5 items-center flex-shrink-0 relative overflow-hidden"
           >
-            {/* Language Switcher Dropdown */}
-            <select
-              disabled={isLoadingChat || isListening}
-              value={speechLang}
-              onChange={(e) => setSpeechLang(e.target.value)}
-              className="px-2 py-2.5 bg-secondary/60 hover:bg-secondary border border-border/60 rounded-xl text-[10px] font-bold text-gray-200 outline-none transition-all cursor-pointer disabled:opacity-50 flex-shrink-0 appearance-none text-center"
-              style={{ minWidth: "75px" }}
-              title="Select Speech Input Language"
-            >
-              {SPEECH_LANGUAGES.map((lang) => (
-                <option key={lang.code} value={lang.code} className="bg-card text-gray-200">
-                  {lang.flag} {lang.label}
-                </option>
-              ))}
-            </select>
+            {isVoiceModeActive ? (
+              <>
+                {/* Mute Mic Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsMuted(prev => !prev)}
+                  className={`p-3.5 rounded-2xl border transition-all duration-300 active:scale-95 cursor-pointer flex items-center justify-center ${
+                    isMuted 
+                      ? "bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse" 
+                      : "bg-secondary/40 border-border/60 text-gray-400 hover:text-white"
+                  }`}
+                  title={isMuted ? "Unmute Mic" : "Mute Mic"}
+                >
+                  {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                </button>
+ 
+                {/* Dynamic Waveform Visualizer - Slower and smooth oscillations */}
+                <div className="flex-1 flex items-center justify-center gap-1.5 h-12 overflow-hidden px-4">
+                  {[...Array(10)].map((_, i) => {
+                    const barStyle = getWaveBarStyles(i);
+                    const colorClass = isMuted ? "bg-red-500/30" :
+                      voiceAgentState === 'LISTENING' ? "bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.5)]" :
+                      voiceAgentState === 'THINKING' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
+                      voiceAgentState === 'SPEAKING' ? "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" : "bg-cyan-500/40";
+                    return (
+                      <div 
+                        key={i} 
+                        className={`w-2 rounded-full ${colorClass} transition-all duration-[40ms]`} 
+                        style={barStyle} 
+                      />
+                    );
+                  })}
+                </div>
+ 
+                {/* Call End / Disconnect Button (X layout) */}
+                <button
+                  type="button"
+                  onClick={handleExitVoiceMode}
+                  className="bg-red-600 hover:bg-red-500 border border-red-500/30 text-white p-3.5 rounded-2xl shadow-[0_0_15px_rgba(220,38,38,0.3)] flex items-center justify-center flex-shrink-0 transition-all duration-300 active:scale-95 cursor-pointer"
+                  title="End Call"
+                >
+                  <X className="w-5 h-5 animate-pulse" />
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Language Switcher Dropdown */}
+                <select
+                  disabled={isLoadingChat || isListening}
+                  value={speechLang}
+                  onChange={(e) => setSpeechLang(e.target.value)}
+                  className="px-2 py-2.5 bg-secondary/60 hover:bg-secondary border border-border/60 rounded-xl text-[10px] font-bold text-gray-200 outline-none transition-all cursor-pointer disabled:opacity-50 flex-shrink-0 appearance-none text-center"
+                  style={{ minWidth: "75px" }}
+                  title="Select Speech Input Language"
+                >
+                  {SPEECH_LANGUAGES.map((lang) => (
+                    <option key={lang.code} value={lang.code} className="bg-card text-gray-200">
+                      {lang.flag} {lang.label}
+                    </option>
+                  ))}
+                </select>
 
-            <input
-              type="text"
-              required
-              disabled={isLoadingChat}
-              placeholder={
-                isListening
-                  ? `Listening in ${
-                      SPEECH_LANGUAGES.find((l) => l.code === speechLang)?.name || "selected language"
-                    }... Speak now!`
-                  : "Ask documents (RAG) or query live ERP Postgres tables..."
-              }
-              className="flex-1 glass-input pl-4.5 pr-4.5 py-3.5 rounded-2xl text-xs bg-secondary border border-border/60 outline-none text-white focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/45"
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-            />
+                <input
+                  type="text"
+                  required
+                  disabled={isLoadingChat}
+                  placeholder={
+                    isListening
+                      ? `Listening in ${
+                          SPEECH_LANGUAGES.find((l) => l.code === speechLang)?.name || "selected language"
+                        }... Speak now!`
+                      : "Ask documents (RAG) or query live ERP Postgres tables..."
+                  }
+                  className="flex-1 glass-input pl-4.5 pr-4.5 py-3.5 rounded-2xl text-xs bg-secondary border border-border/60 outline-none text-white focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/45"
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                />
 
-            {/* RENS Voice Live Toggle Button */}
-            <button
-              type="button"
-              disabled={isLoadingChat}
-              onClick={handleToggleVoiceMode}
-              className={`p-3.5 rounded-2xl border flex items-center justify-center flex-shrink-0 transition-all duration-300 active:scale-95 cursor-pointer bg-gradient-to-br hover:border-primary/50 ${
-                isVoiceModeActive
-                  ? "from-primary to-secondary border-primary/80 text-white animate-pulse shadow-[0_0_20px_rgba(var(--color-primary),0.6)]"
-                  : "bg-secondary/40 border-border/60 text-gray-400 hover:text-white hover:border-border/80"
-              }`}
-              title="RENS Voice Live Mode"
-            >
-              <Volume2 className={`w-5 h-5 ${isVoiceModeActive ? "animate-bounce" : ""}`} />
-            </button>
+                {/* RENS Voice Live Toggle Button */}
+                <button
+                  type="button"
+                  disabled={isLoadingChat}
+                  onClick={handleToggleVoiceMode}
+                  className="p-3.5 rounded-2xl border flex items-center justify-center flex-shrink-0 transition-all duration-300 active:scale-95 cursor-pointer bg-secondary/40 border-border/60 text-gray-400 hover:text-white hover:border-border/80"
+                  title="RENS Voice Live Mode"
+                >
+                  <Volume2 className="w-5 h-5 text-gray-400 hover:text-primary" />
+                </button>
 
-            {/* Microphone Button */}
-            <button
-              type="button"
-              disabled={isLoadingChat}
-              onClick={toggleListening}
-              className={`p-3.5 rounded-2xl border flex items-center justify-center flex-shrink-0 transition-all duration-300 active:scale-95 cursor-pointer ${
-                isListening
-                  ? "bg-red-500/20 border-red-500/60 text-red-400 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)]"
-                  : "bg-secondary/40 border-border/60 text-gray-400 hover:text-white hover:border-border/80"
-              }`}
-              title={isListening ? "Stop listening" : "Start voice input"}
-            >
-              {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-            </button>
+                {/* Mic dictation button */}
+                <button
+                  type="button"
+                  disabled={isLoadingChat}
+                  onClick={toggleListening}
+                  className={`p-3.5 rounded-2xl border flex items-center justify-center flex-shrink-0 transition-all active:scale-95 cursor-pointer ${
+                    isListening
+                      ? "bg-red-500/20 border-red-500/80 text-red-400 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.25)]"
+                      : "bg-secondary/40 border-border/60 text-gray-400 hover:text-white"
+                  }`}
+                  title={isListening ? "Stop dictation" : "Voice dictation"}
+                >
+                  {isListening ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                </button>
 
-            <button
-              type="submit"
-              disabled={isLoadingChat || !userInput.trim()}
-              className="bg-primary hover:bg-primary/95 text-white p-3.5 rounded-2xl glow-primary flex items-center justify-center flex-shrink-0 transition-transform active:scale-95 disabled:opacity-50 disabled:scale-100 cursor-pointer"
-            >
-              <Send className="w-5 h-5" />
-            </button>
+                <button
+                  type="submit"
+                  disabled={isLoadingChat || !userInput.trim()}
+                  className="bg-primary hover:bg-primary/95 text-white p-3.5 rounded-2xl glow-primary flex items-center justify-center flex-shrink-0 transition-transform active:scale-95 disabled:opacity-50 disabled:scale-100 cursor-pointer"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </>
+            )}
           </form>
 
         </div>
@@ -1259,8 +1612,6 @@ export default function AssistantPage() {
           </div>
 
         </div>
-      </>
-    )}
 
       </div>
 
