@@ -762,6 +762,56 @@ export class AiDatabaseToolsService {
             virtualizedQuery = virtualizedQuery.replace(tblRegex, `"${tbl}"`);
           }
 
+          // Anti-composite selection safeguard: Detect and rewrite selecting bare table aliases (e.g. SELECT u, ep FROM "User" u)
+          // which PostgreSQL returns as composite records and causes Prisma deserialization errors.
+          try {
+            const selectIndex = virtualizedQuery.toLowerCase().indexOf('select');
+            const fromIndex = virtualizedQuery.toLowerCase().indexOf('from');
+            if (selectIndex !== -1 && fromIndex !== -1 && fromIndex > selectIndex) {
+              const selectClause = virtualizedQuery.substring(selectIndex + 6, fromIndex).trim();
+              const targets = selectClause.split(',').map(t => t.trim());
+              
+              // Seed with common defaults
+              const aliases = new Set<string>(['u', 'ep', 'p', 'c', 'l', 't', 'lr', 'a', 'pr', 'o', 'v', 'ls', 'pay']);
+              
+              // Add database table names (both in camelCase and lowercase)
+              const tableNames = [
+                'organization', 'user', 'employeeprofile', 'employeedocument', 'attendance', 'leaverequest',
+                'activitylog', 'performancereview', 'property', 'lead', 'client', 'task', 'owner', 'vehicle',
+                'logisticsschedule', 'payroll', 'calendarevent'
+              ];
+              tableNames.forEach(t => aliases.add(t));
+              
+              // Dynamically extract aliases from FROM and JOIN clauses
+              const fromMatches = virtualizedQuery.matchAll(/(?:from|join)\s+["']?([a-z0-9_]+)["']?(?:\s+as)?\s+["']?([a-z0-9_]+)["']?/gi);
+              for (const match of fromMatches) {
+                const table = match[1].toLowerCase();
+                const alias = match[2].toLowerCase();
+                const sqlKeywords = ['where', 'on', 'inner', 'left', 'right', 'cross', 'and', 'or', 'limit', 'order', 'group', 'having'];
+                if (alias && !sqlKeywords.includes(alias) && alias !== table) {
+                  aliases.add(alias);
+                }
+              }
+
+              let modified = false;
+              const cleanedTargets = targets.map(target => {
+                const cleanTarget = target.replace(/["'`]/g, '').trim().toLowerCase();
+                if (aliases.has(cleanTarget)) {
+                  modified = true;
+                  return `${target}.*`;
+                }
+                return target;
+              });
+
+              if (modified) {
+                virtualizedQuery = virtualizedQuery.substring(0, selectIndex + 6) + ' ' + cleanedTargets.join(', ') + ' ' + virtualizedQuery.substring(fromIndex);
+                this.logger.log(`Safeguard Auto-Expanded Composite SQL selection. Rewritten query: ${virtualizedQuery}`);
+              }
+            }
+          } catch (rewriteErr) {
+            this.logger.warn(`Anti-composite SQL rewriter failed: ${rewriteErr.message}`);
+          }
+
           try {
             return await this.prisma.$queryRawUnsafe(virtualizedQuery);
           } catch (e) {

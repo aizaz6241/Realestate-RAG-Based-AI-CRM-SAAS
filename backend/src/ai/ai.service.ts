@@ -446,6 +446,7 @@ You have access ONLY to the following 12 database tools:
       * Table "Payroll" columns: "id", "month" (YYYY-MM), "baseSalary", "allowances", "deductions", "netSalary", "status" (UNPAID|PAID), "paidAt", "employeeProfileId"
       * Table "CalendarEvent" columns: "id", "title", "description", "startTime", "endTime", "location", "isPrivate", "targetRoles" (text array), "targetUserIds" (text array), "createdById"
     - HIGH COGNITION JOIN/AGGREGATE RULE: If the user asks about complex aggregates, joins, department checks, rankings, or parameters (e.g. "who is our oldest employee", "who is our top performing agent", "are there any payroll discrepancies", "owner property counts", "HR team task completion"), you MUST write a single raw SELECT query using "runDatabaseQuery"! This ensures maximum real-time precision and high cognitive enterprise intelligence.
+    - **CRITICAL POSTGRESQL SYNTAX SECURITY RULE**: When writing SELECT queries, you MUST select specific individual columns (e.g. u."firstName", ep.salary) or aggregated fields. **NEVER select raw whole table records or relation rows (e.g. SELECT u FROM "User" u, SELECT ep FROM "EmployeeProfile" ep)**, as this returns anonymous composite row types which are unsupported by Prisma and throw a fatal SQL exception! All columns from joined tables must be queried individually.
     - SQL REFERENCE EXAMPLES FOR HIGH COGNITION QUERIES (CRITICAL):
       * Oldest Employee (Minimum joining date):
         SELECT u."firstName", u."lastName", ep."joiningDate", ep."designation" FROM "EmployeeProfile" ep JOIN "User" u ON ep."userId" = u.id WHERE ep."joiningDate" IS NOT NULL ORDER BY ep."joiningDate" ASC LIMIT 1
@@ -794,7 +795,8 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
 10. If the results contain meetings or attendees, summarize who hosted them, who was present, who was absent, and lists of participants nicely.
 11. If the results contain attendance records, summarize their daily statuses, check-in/check-out logs, and total worked hours timeline nicely.
 12. If the results contain generic SQL rows from "runDatabaseQuery", analyze and present the joins, aggregates, rankings, or trends dynamically, and describe the dynamic visualization chart plotted below nicely.
-13. If no records are found, inform the user politely.`;
+13. If no records are found, inform the user politely.
+14. **CRITICAL ERROR HANDLER RULE**: If the database results (toolData) contain a query syntax error ("QUERY_ERROR" or "Database query syntax error"), you MUST NOT hallucinate that "there are no employees" or "the database is empty/incomplete"! Instead, politely inform the user in their matching language that there was a temporary system lookup bottleneck, and suggest they retry their question or ask in a simpler way.`;
 
               finalResponseText = await this.llmService.callLLM(systemPrompt, databaseFeedPrompt, history);
             }

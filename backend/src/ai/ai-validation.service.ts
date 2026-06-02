@@ -32,72 +32,89 @@ export class AiValidationService {
     const records = Array.isArray(data) ? data : [data];
 
     for (const record of records) {
+      if (!record || typeof record !== 'object') continue;
+
       if (domain === 'HR') {
-        if (!record.designation) {
-          missingFields.push('designation');
-          completenessScore -= 0.1;
-        }
-        if (!record.department) {
-          missingFields.push('department');
-          completenessScore -= 0.1;
-        }
-        if (record.status === 'ON_LEAVE' && record.assignedTasks && Array.isArray(record.assignedTasks)) {
-          const activeTasks = record.assignedTasks.filter((t: any) => t.status !== 'COMPLETED');
-          if (activeTasks.length > 0) {
-            inconsistencies.push(`Employee profile is ON_LEAVE but has ${activeTasks.length} active tasks assigned.`);
-            consistencyScore -= 0.25;
+        const isActualEmployee = record.id !== undefined || record.userId !== undefined || record.firstName !== undefined || record.designation !== undefined || record.department !== undefined;
+        if (isActualEmployee) {
+          if (!record.designation) {
+            missingFields.push('designation');
+            completenessScore -= 0.1;
+          }
+          if (!record.department) {
+            missingFields.push('department');
+            completenessScore -= 0.1;
+          }
+          if (record.status === 'ON_LEAVE' && record.assignedTasks && Array.isArray(record.assignedTasks)) {
+            const activeTasks = record.assignedTasks.filter((t: any) => t.status !== 'COMPLETED');
+            if (activeTasks.length > 0) {
+              inconsistencies.push(`Employee profile is ON_LEAVE but has ${activeTasks.length} active tasks assigned.`);
+              consistencyScore -= 0.25;
+            }
           }
         }
       } else if (domain === 'Finance') {
-        if (record.baseSalary === null || record.baseSalary === undefined) {
-          missingFields.push('baseSalary');
-          completenessScore -= 0.2;
-        }
-        if (record.netSalary === null || record.netSalary === undefined) {
-          missingFields.push('netSalary');
-          completenessScore -= 0.2;
-        }
-        if (record.baseSalary !== undefined && record.allowances !== undefined && record.deductions !== undefined && record.netSalary !== undefined) {
-          const expectedNet = record.baseSalary + record.allowances - record.deductions;
-          if (Math.abs(expectedNet - record.netSalary) > 0.01) {
-            inconsistencies.push(`Payroll net salary (${record.netSalary}) does not match formula: base (${record.baseSalary}) + allowances (${record.allowances}) - deductions (${record.deductions}).`);
-            consistencyScore -= 0.3;
+        const isActualFinance = record.id !== undefined || record.baseSalary !== undefined || record.netSalary !== undefined || record.month !== undefined || record.salary !== undefined;
+        if (isActualFinance) {
+          if (record.baseSalary === null || record.baseSalary === undefined) {
+            missingFields.push('baseSalary');
+            completenessScore -= 0.2;
+          }
+          if (record.netSalary === null || record.netSalary === undefined) {
+            missingFields.push('netSalary');
+            completenessScore -= 0.2;
+          }
+          if (record.baseSalary !== undefined && record.allowances !== undefined && record.deductions !== undefined && record.netSalary !== undefined) {
+            const expectedNet = record.baseSalary + record.allowances - record.deductions;
+            if (Math.abs(expectedNet - record.netSalary) > 0.01) {
+              inconsistencies.push(`Payroll net salary (${record.netSalary}) does not match formula: base (${record.baseSalary}) + allowances (${record.allowances}) - deductions (${record.deductions}).`);
+              consistencyScore -= 0.3;
+            }
+          }
+          if (record.salary === 0) {
+            anomaliesDetected.push(`Active staff profile registers base salary of 0.`);
           }
         }
-        if (record.salary === 0) {
-          anomaliesDetected.push(`Active staff profile registers base salary of 0.`);
-        }
       } else if (domain === 'Property') {
-        if (!record.price) {
-          missingFields.push('price');
-          completenessScore -= 0.2;
-        }
-        if (!record.location) {
-          missingFields.push('location');
-          completenessScore -= 0.2;
-        }
-        if (record.price <= 0) {
-          anomaliesDetected.push(`Property listed with invalid price: ${record.price}`);
-          consistencyScore -= 0.2;
+        const isActualProperty = record.id !== undefined || record.title !== undefined || record.price !== undefined || record.location !== undefined;
+        if (isActualProperty) {
+          if (!record.price) {
+            missingFields.push('price');
+            completenessScore -= 0.2;
+          }
+          if (!record.location) {
+            missingFields.push('location');
+            completenessScore -= 0.2;
+          }
+          if (record.price <= 0) {
+            anomaliesDetected.push(`Property listed with invalid price: ${record.price}`);
+            consistencyScore -= 0.2;
+          }
         }
       } else if (domain === 'Sales') {
-        if (record.budget !== undefined && record.budget <= 0) {
-          anomaliesDetected.push(`CRM client registers a budget of 0 or negative.`);
-          consistencyScore -= 0.1;
-        }
-        if (record.status === 'CLOSED' && record.score < 50) {
-          anomaliesDetected.push(`Lead is closed but qualification rating score is low (${record.score}).`);
+        const isActualSales = record.id !== undefined || record.name !== undefined || record.budget !== undefined || record.status !== undefined;
+        if (isActualSales) {
+          if (record.budget !== undefined && record.budget <= 0) {
+            anomaliesDetected.push(`CRM client registers a budget of 0 or negative.`);
+            consistencyScore -= 0.1;
+          }
+          if (record.status === 'CLOSED' && record.score < 50) {
+            anomaliesDetected.push(`Lead is closed but qualification rating score is low (${record.score}).`);
+          }
         }
       } else if (domain === 'Logistics') {
-        if (!record.plateNumber) {
-          missingFields.push('plateNumber');
-          completenessScore -= 0.2;
-        }
-        if (record.status === 'MAINTENANCE' && record.schedules && Array.isArray(record.schedules)) {
-          const activeScheds = record.schedules.filter((s: any) => s.status === 'SCHEDULED' || s.status === 'IN_TRANSIT');
-          if (activeScheds.length > 0) {
-            inconsistencies.push(`Vehicle ${record.plateNumber} is in MAINTENANCE but has ${activeScheds.length} active delivery/viewing schedules.`);
-            consistencyScore -= 0.4;
+        const isActualLogistics = record.id !== undefined || record.plateNumber !== undefined || record.modelName !== undefined || record.status !== undefined;
+        if (isActualLogistics) {
+          if (!record.plateNumber) {
+            missingFields.push('plateNumber');
+            completenessScore -= 0.2;
+          }
+          if (record.status === 'MAINTENANCE' && record.schedules && Array.isArray(record.schedules)) {
+            const activeScheds = record.schedules.filter((s: any) => s.status === 'SCHEDULED' || s.status === 'IN_TRANSIT');
+            if (activeScheds.length > 0) {
+              inconsistencies.push(`Vehicle ${record.plateNumber} is in MAINTENANCE but has ${activeScheds.length} active delivery/viewing schedules.`);
+              consistencyScore -= 0.4;
+            }
           }
         }
       }
