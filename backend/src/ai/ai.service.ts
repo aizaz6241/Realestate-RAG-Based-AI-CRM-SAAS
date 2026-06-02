@@ -262,6 +262,82 @@ export class AiService {
     return this.extractJsonBlock(text.substring(startIdx));
   }
 
+  private extractFieldsFromCallJson(text: string): { writtenResponse?: string; spokenResponse?: string } {
+    let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    try {
+      const parsed = JSON.parse(cleanText);
+      if (parsed.writtenResponse || parsed.spokenResponse) {
+        return {
+          writtenResponse: parsed.writtenResponse,
+          spokenResponse: parsed.spokenResponse
+        };
+      }
+    } catch (e) {}
+
+    let jsonStart = cleanText.indexOf('{');
+    let jsonEnd = cleanText.lastIndexOf('}');
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      const slice = cleanText.substring(jsonStart, jsonEnd + 1);
+      try {
+        const parsed = JSON.parse(slice);
+        if (parsed.writtenResponse || parsed.spokenResponse) {
+          return {
+            writtenResponse: parsed.writtenResponse,
+            spokenResponse: parsed.spokenResponse
+          };
+        }
+      } catch (e) {}
+    }
+
+    const extractField = (key: string): string | undefined => {
+      let keyIdx = cleanText.indexOf(`"${key}"`);
+      if (keyIdx === -1) keyIdx = cleanText.indexOf(`'${key}'`);
+      if (keyIdx === -1) keyIdx = cleanText.indexOf(key);
+      if (keyIdx === -1) return undefined;
+
+      const colonIdx = cleanText.indexOf(':', keyIdx);
+      if (colonIdx === -1) return undefined;
+
+      let startQuoteIdx = -1;
+      let quoteChar = '';
+      for (let i = colonIdx + 1; i < cleanText.length; i++) {
+        const char = cleanText[i];
+        if (char === '"' || char === "'") {
+          startQuoteIdx = i;
+          quoteChar = char;
+          break;
+        }
+      }
+
+      if (startQuoteIdx === -1) return undefined;
+
+      let value = '';
+      let escape = false;
+      for (let i = startQuoteIdx + 1; i < cleanText.length; i++) {
+        const char = cleanText[i];
+        if (escape) {
+          if (char === 'n') value += '\n';
+          else if (char === 't') value += '\t';
+          else value += char;
+          escape = false;
+        } else if (char === '\\') {
+          escape = true;
+        } else if (char === quoteChar) {
+          return value;
+        } else {
+          value += char;
+        }
+      }
+      return value;
+    };
+
+    return {
+      writtenResponse: extractField('writtenResponse'),
+      spokenResponse: extractField('spokenResponse')
+    };
+  }
+
   // -----------------------------------------------------------------------------
   // Context-Aware Query Refiner (Pronoun & Reference Resolution)
   // -----------------------------------------------------------------------------
@@ -380,12 +456,12 @@ INSTRUCTIONS:
         "leave", "vacation", "sick", "annual",
         "vehicle", "fleet", "logistics", "maintenance", "plate",
         "attendance", "checkin", "checkout", "shift", "check-in", "check-out", "present", "late", "absent",
-        "query", "table", "database", "db", "search", "find", "list", "show", "get", "calculate",
+        "query", "table", "database", "db", "search", "find", "list", "show", "get", "calculate", "how many", "how much", "total", "count", "number of",
         "analytics", "chart", "graph", "report", "application", "request", "apply", "status", "profile", "record", "history"
       ];
       
       const hasErpKeywords = erpKeywords.some(kw => normalizedMessage.includes(kw)) ||
-        /kiraya|bechna|kharidna|daftar|mulazim|tankhaw|paisa|chutti|ghari|gari|haazri|hazri|kam/i.test(normalizedMessage);
+        /kiraya|bechna|kharidna|daftar|mulazim|tankhaw|paisa|chutti|ghari|gari|haazri|hazri|kam|kitne|kitni|kitna|total/i.test(normalizedMessage);
 
       const isTaskAssignmentFlow = /assign|task|zimadari|kaam|duty|create task|task assign/i.test(normalizedMessage);
 
@@ -679,6 +755,7 @@ STRICT INTENT ROUTING & REAL ESTATE INTELLIGENCE LAYER:
 3. MULTI-TABLE REASONING: You are allowed and expected to perform joins, aggregates, rankings, and trend analysis across multiple tables (using "runDatabaseQuery" SELECT queries or structured API results) to answer complex business questions (e.g., Owner + Property aggregation).
 4. NEVER mix intents. Do NOT execute a workflow action (like createTask) if the user is asking a database query (like searching employees).
 5. RESPONSE CONSISTENCY: Only respond based on user intent. Do NOT randomly show analytics, dashboards, or employee cards unless explicitly aligned to their intent!
+6. OUT-OF-SCOPE / UNRELATED QUERY PROTOCOL: If the user asks about concepts, sports players (e.g. 'how many players do we have'), gaming, movies, or entities not managed by the ERP system, you MUST NOT execute any database search tools. Answer directly in their language, politely clarifying that you are the RENS ERP AI assistant managing properties, CRM clients, employees, tasks, finances, and logistics fleet. Ask if they meant to inquire about one of these instead. E.g. "We do not track players in our ERP database. I only manage properties, CRM clients, employees, finances, tasks, and vehicle fleet. Did you mean employees?" (Translate this politely to match the user's input language, e.g., Roman Urdu or Urdu script).
 
 RENS COGNITIVE CORE DYNAMIC REASONING ENGINE RULES:
 - CORE PRINCIPLE: All business logic must be derived dynamically from data distribution, time context, user intent semantics, comparative analysis, and statistical baselines. You are a reasoning analyst, not a rule-based system.
@@ -1040,16 +1117,13 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
       let finalSpoken: string | undefined = undefined;
 
       if (callPersona) {
-        const jsonBlock = this.extractCallResponseJson(finalWritten);
-        if (jsonBlock) {
-          try {
-            const parsed = JSON.parse(jsonBlock);
-            if (parsed.writtenResponse && parsed.spokenResponse) {
-              finalWritten = parsed.writtenResponse;
-              finalSpoken = parsed.spokenResponse;
-            }
-          } catch (e) {
-            this.logger.warn(`Failed to parse call JSON response: ${e.message}`);
+        const extracted = this.extractFieldsFromCallJson(finalWritten);
+        if (extracted.writtenResponse || extracted.spokenResponse) {
+          if (extracted.writtenResponse) {
+            finalWritten = extracted.writtenResponse;
+          }
+          if (extracted.spokenResponse) {
+            finalSpoken = extracted.spokenResponse;
           }
         }
       }

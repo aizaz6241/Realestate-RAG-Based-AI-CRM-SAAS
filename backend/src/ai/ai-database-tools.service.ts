@@ -181,13 +181,21 @@ export class AiDatabaseToolsService {
       switch (toolName) {
         case 'searchProperties': {
           const { location, minPrice, maxPrice, bedrooms, bathrooms, type, listingType, status } = params || {};
+          let searchLocation = location;
+          if (searchLocation) {
+            const cleanLoc = searchLocation.trim().toLowerCase();
+            const genericKeywords = ['property', 'properties', 'apartment', 'apartments', 'villa', 'villas', 'all', 'any', 'where', 'show', 'list', 'find', 'get', 'search'];
+            if (genericKeywords.includes(cleanLoc)) {
+              searchLocation = undefined;
+            }
+          }
           return this.prisma.property.findMany({
             where: {
               organizationId,
               status: status || undefined,
               type: type || undefined,
               listingType: listingType || undefined,
-              location: location ? { contains: location, mode: 'insensitive' } : undefined,
+              location: searchLocation ? { contains: searchLocation, mode: 'insensitive' } : undefined,
               price: (minPrice || maxPrice) ? {
                 gte: minPrice ? parseFloat(minPrice) : undefined,
                 lte: maxPrice ? parseFloat(maxPrice) : undefined,
@@ -207,11 +215,19 @@ export class AiDatabaseToolsService {
 
         case 'searchClients': {
           const { name, budget, preferences, type } = params || {};
+          let searchName = name;
+          if (searchName) {
+            const cleanName = searchName.trim().toLowerCase();
+            const genericKeywords = ['client', 'clients', 'buyer', 'buyers', 'seller', 'sellers', 'investor', 'investors', 'lead', 'leads', 'all', 'everyone', 'people', 'contacts', 'contact', 'show', 'list', 'find', 'get', 'search'];
+            if (genericKeywords.includes(cleanName)) {
+              searchName = undefined;
+            }
+          }
           return this.prisma.client.findMany({
             where: {
               organizationId,
               type: type || undefined,
-              name: name ? { contains: name, mode: 'insensitive' } : undefined,
+              name: searchName ? { contains: searchName, mode: 'insensitive' } : undefined,
               budget: budget ? { lte: parseFloat(budget) } : undefined,
               preferences: preferences ? { contains: preferences, mode: 'insensitive' } : undefined,
             },
@@ -224,8 +240,17 @@ export class AiDatabaseToolsService {
           const { name, designation, department } = params || {};
           const canViewSalaries = ['SUPER_ADMIN', 'ADMIN', 'HR', 'FINANCE'].includes(userRole);
 
-          if (name) {
-            const matches = await this.findEmployeeFuzzy(name, organizationId);
+          let searchName = name;
+          if (searchName) {
+            const cleanName = searchName.trim().toLowerCase();
+            const genericKeywords = ['employee', 'employees', 'staff', 'we', 'all', 'everyone', 'people', 'team', 'members', 'member', 'active', 'list', 'who', 'show', 'find', 'get', 'search', 'us'];
+            if (genericKeywords.includes(cleanName)) {
+              searchName = undefined;
+            }
+          }
+
+          if (searchName) {
+            const matches = await this.findEmployeeFuzzy(searchName, organizationId);
             
             let filteredMatches = matches;
             if (department) {

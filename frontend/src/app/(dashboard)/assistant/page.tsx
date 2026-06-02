@@ -185,20 +185,95 @@ const isWordSimilar = (w1: string, w2: string): boolean => {
   return dist <= 3;
 };
 
+const extractFieldsFromCallJson = (text: string): { writtenResponse?: string; spokenResponse?: string } => {
+  let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+  try {
+    const parsed = JSON.parse(cleanText);
+    if (parsed.writtenResponse || parsed.spokenResponse) {
+      return {
+        writtenResponse: parsed.writtenResponse,
+        spokenResponse: parsed.spokenResponse
+      };
+    }
+  } catch (e) {}
+
+  let jsonStart = cleanText.indexOf('{');
+  let jsonEnd = cleanText.lastIndexOf('}');
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    const slice = cleanText.substring(jsonStart, jsonEnd + 1);
+    try {
+      const parsed = JSON.parse(slice);
+      if (parsed.writtenResponse || parsed.spokenResponse) {
+        return {
+          writtenResponse: parsed.writtenResponse,
+          spokenResponse: parsed.spokenResponse
+        };
+      }
+    } catch (e) {}
+  }
+
+  const extractField = (key: string): string | undefined => {
+    let keyIdx = cleanText.indexOf(`"${key}"`);
+    if (keyIdx === -1) keyIdx = cleanText.indexOf(`'${key}'`);
+    if (keyIdx === -1) keyIdx = cleanText.indexOf(key);
+    if (keyIdx === -1) return undefined;
+
+    const colonIdx = cleanText.indexOf(':', keyIdx);
+    if (colonIdx === -1) return undefined;
+
+    let startQuoteIdx = -1;
+    let quoteChar = '';
+    for (let i = colonIdx + 1; i < cleanText.length; i++) {
+      const char = cleanText[i];
+      if (char === '"' || char === "'") {
+        startQuoteIdx = i;
+        quoteChar = char;
+        break;
+      }
+    }
+
+    if (startQuoteIdx === -1) return undefined;
+
+    let value = '';
+    let escape = false;
+    for (let i = startQuoteIdx + 1; i < cleanText.length; i++) {
+      const char = cleanText[i];
+      if (escape) {
+        if (char === 'n') value += '\n';
+        else if (char === 't') value += '\t';
+        else value += char;
+        escape = false;
+      } else if (char === '\\') {
+        escape = true;
+      } else if (char === quoteChar) {
+        return value;
+      } else {
+        value += char;
+      }
+    }
+    return value;
+  };
+
+  return {
+    writtenResponse: extractField('writtenResponse'),
+    spokenResponse: extractField('spokenResponse')
+  };
+};
+
 const summarizeForSpeech = (text: string): string => {
   if (!text) return "";
 
   // 1. If it's a JSON block, parse it and extract spokenResponse if present
-  if (text.trim().startsWith("{")) {
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed.spokenResponse) {
-        return summarizeForSpeech(parsed.spokenResponse);
-      }
-      if (parsed.writtenResponse) {
-        text = parsed.writtenResponse;
-      }
-    } catch (e) {}
+  const containsJson = text.includes('"writtenResponse"') || text.includes('"spokenResponse"') || text.trim().startsWith("{");
+  if (containsJson) {
+    const extracted = extractFieldsFromCallJson(text);
+    if (extracted.spokenResponse) {
+      return summarizeForSpeech(extracted.spokenResponse);
+    }
+    if (extracted.writtenResponse) {
+      text = extracted.writtenResponse;
+    }
   }
 
   // 2. Clean formatting and markdown symbols
