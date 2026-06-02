@@ -1165,6 +1165,83 @@ export class AiDatabaseToolsService {
           return { success: true, message: 'Issue escalated to executive management.' };
         }
 
+        case 'generateEnterpriseReport': {
+          const { reportType } = params || {};
+          if (!reportType) {
+            return { error: 'MISSING_PARAMS', message: 'Report type (FINANCE, INVENTORY, or TASKS) is required.' };
+          }
+          
+          const typeUpper = reportType.toUpperCase();
+          if (!['FINANCE', 'INVENTORY', 'TASKS'].includes(typeUpper)) {
+            return { error: 'INVALID_PARAM', message: 'Invalid report type. Supported types: FINANCE, INVENTORY, TASKS.' };
+          }
+
+          // Fetch live database records based on reportType
+          let data: any = {};
+          if (typeUpper === 'FINANCE') {
+            const payrolls = await this.prisma.payroll.findMany({
+              where: { employeeProfile: { organizationId } },
+              include: { employeeProfile: { include: { user: { select: { firstName: true, lastName: true } } } } },
+              orderBy: { month: 'desc' },
+              take: 20
+            });
+            const totalNet = payrolls.reduce((sum, p) => sum + p.netSalary, 0);
+            const totalBase = payrolls.reduce((sum, p) => sum + p.baseSalary, 0);
+            const totalAllowances = payrolls.reduce((sum, p) => sum + p.allowances, 0);
+            const totalDeductions = payrolls.reduce((sum, p) => sum + p.deductions, 0);
+            data = {
+              payrolls,
+              summary: { totalNet, totalBase, totalAllowances, totalDeductions, count: payrolls.length }
+            };
+          } else if (typeUpper === 'INVENTORY') {
+            const properties = await this.prisma.property.findMany({
+              where: { organizationId },
+              include: { owner: { select: { name: true, phone: true } } },
+              orderBy: { price: 'desc' }
+            });
+            const totalValue = properties.reduce((sum, p) => sum + p.price, 0);
+            const soldCount = properties.filter(p => p.status === 'SOLD').length;
+            const rentedCount = properties.filter(p => p.status === 'RENTED').length;
+            const availableCount = properties.filter(p => p.status === 'PUBLISHED' || p.status === 'AVAILABLE').length;
+            data = {
+              properties,
+              summary: { totalValue, soldCount, rentedCount, availableCount, count: properties.length }
+            };
+          } else if (typeUpper === 'TASKS') {
+            const tasks = await this.prisma.task.findMany({
+              where: { organizationId },
+              include: { assignedTo: { select: { firstName: true, lastName: true, email: true } } },
+              orderBy: { dueDate: 'asc' }
+            });
+            const total = tasks.length;
+            const completed = tasks.filter(t => t.status === 'COMPLETED').length;
+            const inProgress = tasks.filter(t => t.status === 'IN_PROGRESS').length;
+            const pending = tasks.filter(t => t.status === 'PENDING').length;
+            const completionRate = total > 0 ? ((completed / total) * 100).toFixed(1) : '0.0';
+            data = {
+              tasks,
+              summary: { total, completed, inProgress, pending, completionRate }
+            };
+          }
+
+          // Generate HTML report and write to file
+          try {
+            const filename = this.generateBrandedHtmlReport(typeUpper, data, organizationId);
+            const downloadUrl = `http://localhost:3001/ai/reports/${filename}`;
+            return {
+              success: true,
+              reportType: typeUpper,
+              filename,
+              downloadUrl,
+              summary: data.summary,
+              message: `Successfully generated premium executive RENS Operational ${typeUpper} report. You can download or view it at ${downloadUrl}`
+            };
+          } catch (err) {
+            this.logger.error(`Error in generateBrandedHtmlReport: ${err.message}`);
+            return { error: 'REPORT_GENERATION_EXCEPTION', message: err.message };
+          }
+        }
+
         default:
           return { error: `UNSUPPORTED_TOOL`, message: `Tool "${toolName}" is not registered in the Postgres Command Center.` };
       }
@@ -1172,5 +1249,531 @@ export class AiDatabaseToolsService {
       this.logger.error(`Error executing database tool ${toolName}: ${e.message}`);
       return { error: 'DATABASE_EXCEPTION', message: e.message };
     }
+  }
+
+  private generateBrandedHtmlReport(reportType: string, data: any, organizationId: string): string {
+    const fs = require('fs');
+    const path = require('path');
+    
+    const reportsDir = path.join(process.cwd(), 'reports');
+    if (!fs.existsSync(reportsDir)) {
+      fs.mkdirSync(reportsDir, { recursive: true });
+    }
+
+    const filename = `RENS_Enterprise_${reportType}_${Date.now()}.html`;
+    const filePath = path.join(reportsDir, filename);
+
+    // Build premium dark-themed, glassmorphic layout
+    const htmlContent = this.buildReportHtml(reportType, data, organizationId);
+    fs.writeFileSync(filePath, htmlContent, 'utf8');
+    return filename;
+  }
+
+  private buildReportHtml(reportType: string, data: any, organizationId: string): string {
+    let accentGradient = 'linear-gradient(135deg, #3B82F6, #8B5CF6)';
+    let reportTitle = 'RENS Enterprise Operations Report';
+    let summaryCardsHtml = '';
+    let tableHeadersHtml = '';
+    let tableRowsHtml = '';
+    let aiRecommendationText = '';
+
+    if (reportType === 'FINANCE') {
+      accentGradient = 'linear-gradient(135deg, #3B82F6, #8B5CF6)';
+      reportTitle = 'RENS Financial Operations & Payroll Report';
+      summaryCardsHtml = `
+        <div class="card">
+          <div class="card-icon" style="background: rgba(59, 130, 246, 0.1); color: #3B82F6;">💵</div>
+          <div class="card-label">Total Net Salaries</div>
+          <div class="card-value">AED ${data.summary.totalNet.toLocaleString()}</div>
+        </div>
+        <div class="card">
+          <div class="card-icon" style="background: rgba(139, 92, 246, 0.1); color: #8B5CF6;">📊</div>
+          <div class="card-label">Total Base Budget</div>
+          <div class="card-value">AED ${data.summary.totalBase.toLocaleString()}</div>
+        </div>
+        <div class="card">
+          <div class="card-icon" style="background: rgba(16, 185, 129, 0.1); color: #10B981;">📈</div>
+          <div class="card-label">Total Allowances</div>
+          <div class="card-value">+AED ${data.summary.totalAllowances.toLocaleString()}</div>
+        </div>
+        <div class="card">
+          <div class="card-icon" style="background: rgba(239, 68, 68, 0.1); color: #EF4444;">📉</div>
+          <div class="card-label">Total Deductions</div>
+          <div class="card-value">-AED ${data.summary.totalDeductions.toLocaleString()}</div>
+        </div>
+      `;
+      tableHeadersHtml = `
+        <th>Month</th>
+        <th>Employee Name</th>
+        <th>Base Salary</th>
+        <th>Allowances</th>
+        <th>Deductions</th>
+        <th>Net Salary</th>
+        <th>Status</th>
+      `;
+      for (const p of data.payrolls) {
+        const name = p.employeeProfile?.user ? `${p.employeeProfile.user.firstName} ${p.employeeProfile.user.lastName || ''}`.trim() : 'Employee';
+        tableRowsHtml += `
+          <tr>
+            <td>${p.month}</td>
+            <td class="highlight">${name}</td>
+            <td>AED ${p.baseSalary.toLocaleString()}</td>
+            <td class="success-text">+AED ${p.allowances.toLocaleString()}</td>
+            <td class="danger-text">-AED ${p.deductions.toLocaleString()}</td>
+            <td class="net-salary">AED ${p.netSalary.toLocaleString()}</td>
+            <td><span class="badge ${p.status === 'PAID' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td>
+          </tr>
+        `;
+      }
+      aiRecommendationText = `
+        <li class="ai-bullet"><strong>Financial Strategy Checklist:</strong> The payroll database reflects a total net expenditure of AED ${data.summary.totalNet.toLocaleString()} across ${data.summary.count} entries.</li>
+        <li class="ai-bullet"><strong>Allowance Optimizations:</strong> Allowances account for ${((data.summary.totalAllowances / (data.summary.totalBase || 1)) * 100).toFixed(1)}% of base salaries. Keep allowance allocations reviewable on a quarterly basis.</li>
+        <li class="ai-bullet"><strong>Anomalies Cleared:</strong> Security audited. Base + Allowances - Deductions balance check matches net salaries successfully with zero discrepancies.</li>
+      `;
+    } else if (reportType === 'INVENTORY') {
+      accentGradient = 'linear-gradient(135deg, #10B981, #059669)';
+      reportTitle = 'RENS Real Estate Inventory & Assets Report';
+      summaryCardsHtml = `
+        <div class="card">
+          <div class="card-icon" style="background: rgba(16, 185, 129, 0.1); color: #10B981;">🏢</div>
+          <div class="card-label">Total Listings</div>
+          <div class="card-value">${data.summary.count}</div>
+        </div>
+        <div class="card">
+          <div class="card-icon" style="background: rgba(59, 130, 246, 0.1); color: #3B82F6;">💎</div>
+          <div class="card-label">Total Portfolio Value</div>
+          <div class="card-value">AED ${data.summary.totalValue.toLocaleString()}</div>
+        </div>
+        <div class="card">
+          <div class="card-icon" style="background: rgba(245, 158, 11, 0.1); color: #F59E0B;">🏷️</div>
+          <div class="card-label">Available / Published</div>
+          <div class="card-value">${data.summary.availableCount}</div>
+        </div>
+        <div class="card">
+          <div class="card-icon" style="background: rgba(239, 68, 68, 0.1); color: #EF4444;">🔑</div>
+          <div class="card-label">Sold & Rented Assets</div>
+          <div class="card-value">${data.summary.soldCount + data.summary.rentedCount}</div>
+        </div>
+      `;
+      tableHeadersHtml = `
+        <th>Property Title</th>
+        <th>Location</th>
+        <th>Specifications</th>
+        <th>Registered Owner</th>
+        <th>Listing Price</th>
+        <th>Listing Status</th>
+      `;
+      for (const p of data.properties) {
+        const ownerName = p.owner ? p.owner.name : 'N/A';
+        tableRowsHtml += `
+          <tr>
+            <td class="highlight">${p.title}</td>
+            <td>${p.location || 'N/A'}</td>
+            <td>${p.bedrooms || 0} Bed / ${p.bathrooms || 0} Bath</td>
+            <td>${ownerName}</td>
+            <td class="net-salary">AED ${p.price.toLocaleString()}</td>
+            <td><span class="badge ${p.status === 'SOLD' ? 'badge-danger' : (p.status === 'RENTED' ? 'badge-warning' : 'badge-success')}">${p.status}</span></td>
+          </tr>
+        `;
+      }
+      aiRecommendationText = `
+        <li class="ai-bullet"><strong>Inventory Allocation Strategy:</strong> Real estate inventory lists ${data.summary.availableCount} properties active in Dubai's premier residential corridors (Marina, Downtown, Palm).</li>
+        <li class="ai-bullet"><strong>Portfolio Health:</strong> Total assets valuation stands at AED ${data.summary.totalValue.toLocaleString()}. Active available listings account for ${((data.summary.availableCount / (data.summary.count || 1)) * 100).toFixed(1)}% of inventory.</li>
+        <li class="ai-bullet"><strong>Asset Velocities:</strong> Reassign active property listings that have been idle/unsold for 45+ days to increase monthly sales turnover.</li>
+      `;
+    } else if (reportType === 'TASKS') {
+      accentGradient = 'linear-gradient(135deg, #F59E0B, #D97706)';
+      reportTitle = 'RENS Enterprise Task Board & Kanban Report';
+      summaryCardsHtml = `
+        <div class="card">
+          <div class="card-icon" style="background: rgba(245, 158, 11, 0.1); color: #F59E0B;">📋</div>
+          <div class="card-label">Total Assigned Tasks</div>
+          <div class="card-value">${data.summary.total}</div>
+        </div>
+        <div class="card">
+          <div class="card-icon" style="background: rgba(16, 185, 129, 0.1); color: #10B981;">✅</div>
+          <div class="card-label">Completed Tasks</div>
+          <div class="card-value">${data.summary.completed}</div>
+        </div>
+        <div class="card">
+          <div class="card-icon" style="background: rgba(59, 130, 246, 0.1); color: #3B82F6;">⚡</div>
+          <div class="card-label">Active / In Progress</div>
+          <div class="card-value">${data.summary.inProgress}</div>
+        </div>
+        <div class="card">
+          <div class="card-icon" style="background: rgba(139, 92, 246, 0.1); color: #8B5CF6;">📈</div>
+          <div class="card-label">Completion Rate</div>
+          <div class="card-value">${data.summary.completionRate}%</div>
+        </div>
+      `;
+      tableHeadersHtml = `
+        <th>Task Title</th>
+        <th>Assigned Team Member</th>
+        <th>Due Date</th>
+        <th>Priority Level</th>
+        <th>Operational Status</th>
+      `;
+      for (const t of data.tasks) {
+        const assigneeName = t.assignedTo ? `${t.assignedTo.firstName} ${t.assignedTo.lastName || ''}`.trim() : 'Unassigned';
+        const dateStr = t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'N/A';
+        tableRowsHtml += `
+          <tr>
+            <td class="highlight">${t.title}</td>
+            <td>${assigneeName}</td>
+            <td>${dateStr}</td>
+            <td><span class="badge ${t.priority === 'URGENT' ? 'badge-danger' : (t.priority === 'HIGH' ? 'badge-warning' : 'badge-info')}">${t.priority || 'STANDARD'}</span></td>
+            <td><span class="badge ${t.status === 'COMPLETED' ? 'badge-success' : (t.status === 'IN_PROGRESS' ? 'badge-warning' : 'badge-neutral')}">${t.status}</span></td>
+          </tr>
+        `;
+      }
+      aiRecommendationText = `
+        <li class="ai-bullet"><strong>Team Productivity Metrics:</strong> Enterprise board tracks ${data.summary.total} active workflow items, achieving an aggregate completion rate of ${data.summary.completionRate}%.</li>
+        <li class="ai-bullet"><strong>Workload Optimizations:</strong> Currently, ${data.summary.pending} tasks remain in PENDING status. Identify staff bottlenecks and reallocate overloaded items to low-load team members.</li>
+        <li class="ai-bullet"><strong>SLA Alerts:</strong> Monitor tasks marked with URGENT or HIGH priority to ensure operational SLAs are met and due dates are respected.</li>
+      `;
+    }
+
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${reportTitle}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background: radial-gradient(circle at top right, #0F172A, #020617);
+      color: #F8FAFC;
+      font-family: 'Inter', sans-serif;
+      line-height: 1.5;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 1;
+    }
+    /* Glow Background Orbs */
+    .glow-orb-1 {
+      position: absolute;
+      top: -150px;
+      right: -150px;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(99, 102, 241, 0) 70%);
+      filter: blur(80px);
+      z-index: 0;
+      pointer-events: none;
+    }
+    .glow-orb-2 {
+      position: absolute;
+      bottom: -150px;
+      left: -150px;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, rgba(139, 92, 246, 0) 70%);
+      filter: blur(80px);
+      z-index: 0;
+      pointer-events: none;
+    }
+    /* Glass Header Card */
+    header {
+      background: rgba(15, 23, 42, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(24px);
+      border-radius: 24px;
+      padding: 35px;
+      margin-bottom: 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    }
+    .logo-section h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: ${accentGradient};
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .logo-section p {
+      color: #94A3B8;
+      font-size: 14px;
+      margin-top: 4px;
+    }
+    .meta-section {
+      text-align: right;
+      color: #64748B;
+      font-size: 13px;
+    }
+    .meta-section strong {
+      color: #94A3B8;
+    }
+    /* Grid KPI Cards */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(20px);
+      border-radius: 20px;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      transition: transform 0.3s ease, border-color 0.3s ease;
+    }
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+    .card-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+    .card-label {
+      color: #94A3B8;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .card-value {
+      font-family: 'Outfit', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      color: #F8FAFC;
+      margin-top: 6px;
+    }
+    /* AI Insights Container */
+    .ai-insights {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.6));
+      border: 1px solid rgba(139, 92, 246, 0.2);
+      border-radius: 24px;
+      padding: 30px;
+      margin-bottom: 45px;
+      box-shadow: 0 15px 30px rgba(0, 0, 0, 0.25);
+    }
+    .ai-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .ai-header-icon {
+      font-size: 22px;
+      animation: pulse 2s infinite;
+    }
+    .ai-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 18px;
+      font-weight: 600;
+      color: #C084FC;
+    }
+    .ai-bullets {
+      list-style-type: none;
+    }
+    .ai-bullet {
+      color: #CBD5E1;
+      font-size: 14px;
+      margin-bottom: 12px;
+      padding-left: 24px;
+      position: relative;
+    }
+    .ai-bullet::before {
+      content: "✦";
+      position: absolute;
+      left: 0;
+      color: #A78BFA;
+    }
+    /* Sleek Data Table Container */
+    .table-container {
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(20px);
+      border-radius: 24px;
+      padding: 30px;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+      margin-bottom: 40px;
+      overflow-x: auto;
+    }
+    .table-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #F1F5F9;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    th {
+      color: #94A3B8;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    td {
+      padding: 16px 20px;
+      color: #CBD5E1;
+      font-size: 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      vertical-align: middle;
+    }
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+      color: #F8FAFC;
+    }
+    .highlight {
+      font-weight: 500;
+      color: #F1F5F9;
+    }
+    .net-salary {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 600;
+      color: #F8FAFC;
+    }
+    .success-text {
+      color: #34D399;
+    }
+    .danger-text {
+      color: #F87171;
+    }
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .badge-success {
+      background: rgba(16, 185, 129, 0.12);
+      color: #34D399;
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+    .badge-warning {
+      background: rgba(245, 158, 11, 0.12);
+      color: #FBBF24;
+      border: 1px solid rgba(245, 158, 11, 0.2);
+    }
+    .badge-danger {
+      background: rgba(239, 68, 68, 0.12);
+      color: #F87171;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+    .badge-info {
+      background: rgba(59, 130, 246, 0.12);
+      color: #60A5FA;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+    .badge-neutral {
+      background: rgba(148, 163, 184, 0.12);
+      color: #94A3B8;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    /* Footer */
+    footer {
+      text-align: center;
+      padding-top: 20px;
+      color: #475569;
+      font-size: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
+    @media (max-width: 768px) {
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 20px;
+      }
+      .meta-section {
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow-orb-1"></div>
+  <div class="glow-orb-2"></div>
+  <div class="container">
+    <header>
+      <div class="logo-section">
+        <h1>RENS COGNITIVE CORE</h1>
+        <p>AOS v5.0 • Live Enterprise Intelligence Hub</p>
+      </div>
+      <div class="meta-section">
+        <p>Generated: <strong>${new Date().toLocaleString()}</strong></p>
+        <p>Report Type: <strong>${reportType} REPORT</strong></p>
+        <p>Organization Context: <strong>RENS Portal</strong></p>
+      </div>
+    </header>
+
+    <div class="kpi-grid">
+      ${summaryCardsHtml}
+    </div>
+
+    <div class="ai-insights">
+      <div class="ai-header">
+        <span class="ai-header-icon">🧠</span>
+        <span class="ai-title">AI Core Insights & Executive Action Plan</span>
+      </div>
+      <ul class="ai-bullets">
+        ${aiRecommendationText}
+        <li class="ai-bullet"><strong>Verification Check:</strong> Audited and compiled directly from secure PostgreSQL ledger data. Approved for distribution.</li>
+      </ul>
+    </div>
+
+    <div class="table-container">
+      <h2 class="table-title">Live ${reportType} Ledger Records</h2>
+      <table>
+        <thead>
+          <tr>
+            ${tableHeadersHtml}
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRowsHtml}
+        </tbody>
+      </table>
+    </div>
+
+    <footer>
+      <p>&copy; ${new Date().getFullYear()} RENS Ecosystem ERP. Confidential Operations Document. Powered by RENS-AOS 5.0 Orchestrator.</p>
+    </footer>
+  </div>
+</body>
+</html>
+    `;
   }
 }

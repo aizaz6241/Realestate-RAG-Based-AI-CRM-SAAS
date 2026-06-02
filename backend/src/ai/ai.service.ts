@@ -10,6 +10,7 @@ import { AiDatabaseToolsService } from './ai-database-tools.service';
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
+  private activeDrafts = new Map<string, any>();
   
   constructor(
     private prisma: PrismaService,
@@ -265,14 +266,21 @@ INSTRUCTIONS:
       let lastResolvedEmployee: any = null;
       let lastResolvedClient: any = null;
       let lastResolvedTask: any = null;
-      let activeTaskDraft: any = {
-        employeeName: null,
-        employeeId: null,
-        title: null,
-        dueDate: null,
-        priority: null
-      };
 
+      // Retrieve stateful task draft from singleton Map
+      let activeTaskDraft = this.activeDrafts.get(userId);
+      if (!activeTaskDraft) {
+        activeTaskDraft = {
+          employeeName: null,
+          employeeId: null,
+          title: null,
+          dueDate: null,
+          priority: null
+        };
+        this.activeDrafts.set(userId, activeTaskDraft);
+      }
+
+      // 1. Scan conversational history to resolve entities and options
       for (let i = history.length - 1; i >= 0; i--) {
         const msg = history[i] as any;
         if (msg.role === 'model') {
@@ -331,8 +339,41 @@ INSTRUCTIONS:
               activeTaskDraft.priority = "STANDARD";
             }
           }
+          const titleMatch = msg.content.match(/(?:title|title is|kaam hai|task is)\s+["']?([^"'\n]+)["']?/i);
+          if (titleMatch && !activeTaskDraft.title) {
+            activeTaskDraft.title = titleMatch[1].trim();
+          }
         }
       }
+
+      // 2. Parse potential properties from the latest user message to update draft
+      const textLower = userMessage.toLowerCase();
+      if (!activeTaskDraft.dueDate) {
+        const dateMatch = textLower.match(/\b\d{4}-\d{2}-\d{2}\b/);
+        if (dateMatch) {
+          activeTaskDraft.dueDate = dateMatch[0];
+        } else if (textLower.includes("tomorrow") || textLower.includes("kal")) {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          activeTaskDraft.dueDate = tomorrow.toISOString().split('T')[0];
+        }
+      }
+      if (!activeTaskDraft.priority) {
+        if (textLower.includes("urgent") || textLower.includes("fori") || textLower.includes("zaroori")) {
+          activeTaskDraft.priority = "URGENT";
+        } else if (textLower.includes("high") || textLower.includes("ahmiyat")) {
+          activeTaskDraft.priority = "HIGH";
+        } else if (textLower.includes("standard") || textLower.includes("normal") || textLower.includes("aam")) {
+          activeTaskDraft.priority = "STANDARD";
+        }
+      }
+      const currentTitleMatch = userMessage.match(/(?:title|title is|kaam hai|task is)\s+["']?([^"'\n]+)["']?/i);
+      if (currentTitleMatch && !activeTaskDraft.title) {
+        activeTaskDraft.title = currentTitleMatch[1].trim();
+      }
+
+      // Save the updated stateful task draft
+      this.activeDrafts.set(userId, activeTaskDraft);
 
       const memoryContext = `
 ACTIVE CONVERSATIONAL REFERENCE MEMORY (Rule 7):
@@ -365,7 +406,7 @@ If you need to retrieve or write any operational data, employee information, att
   "params": { ... }
 }
 
-You have access ONLY to the following 11 database tools:
+You have access ONLY to the following 12 database tools:
 1. "searchEmployees": Search for employee names, profiles, department, or designation.
    - Params: { "name": "Fuzzy employee name", "designation": "Designation", "department": "Department" }
    - Example (Find 'Sara'): {"tool": "searchEmployees", "params": {"name": "Sara"}}
@@ -416,6 +457,9 @@ You have access ONLY to the following 11 database tools:
     - Example (Total Employee Count): {"tool": "runDatabaseQuery", "params": {"query": "SELECT COUNT(*) as count FROM \"User\""}}
 11. "createTask": Create a new task. (Always follow the strict validation flow first!).
     - Params: { "title": "Task title", "employeeName": "Target employee name", "description": "Details", "dueDate": "YYYY-MM-DD", "priority": "STANDARD | HIGH | URGENT" }
+12. "generateEnterpriseReport": Generate a premium, dark-themed, glassmorphic styled executive HTML report of operational metrics.
+    - Params: { "reportType": "FINANCE | INVENTORY | TASKS" }
+    - Example (Generate payroll/salary report): {"tool": "generateEnterpriseReport", "params": {"reportType": "FINANCE"}}
 
 MULTI-AGENT ARCHITECTURE BEHAVIOR:
 1. THE ORCHESTRATOR AI (Main Brain):
@@ -590,6 +634,17 @@ ${documentContext}`;
               agents.push(primaryAgentOutput);
               toolData = primaryAgentOutput.records;
 
+              // Stateful draft integration: lock in resolved employee details
+              if (parsed.tool === 'searchEmployees' && Array.isArray(toolData) && toolData.length > 0) {
+                const emp = toolData[0];
+                const activeTaskDraft = this.activeDrafts.get(userId);
+                if (activeTaskDraft) {
+                  activeTaskDraft.employeeName = emp.user ? `${emp.user.firstName} ${emp.user.lastName || ''}`.trim() : 'Employee';
+                  activeTaskDraft.employeeId = emp.id;
+                  this.activeDrafts.set(userId, activeTaskDraft);
+                }
+              }
+
               // 3. Proactive Cross-Department Intelligence check (Rule 7 & 8)
               const msgLower = (userMessage + ' ' + refinedMessage).toLowerCase();
               if (domain === 'HR' && (msgLower.includes('salary') || msgLower.includes('payroll') || msgLower.includes('paisa') || msgLower.includes('tankhaw') || msgLower.includes('finance'))) {
@@ -638,6 +693,9 @@ ${documentContext}`;
                     toolData: toolData || { error: 'DATABASE_SYNC_FAILURE' },
                     citations: [],
                   };
+                } else if (toolExecuted === 'createTask') {
+                  this.activeDrafts.delete(userId);
+                  this.logger.log(`Task created successfully in database. Stateful draft buffer cleared for user ${userId}.`);
                 }
               }
 
@@ -675,6 +733,9 @@ CRITICAL CORE WORKFLOW INSTRUCTION:
               const databaseFeedPrompt = `The user asked: "${userMessage}" (Context resolved: "${refinedMessage}")
 You triggered the tool "${parsed.tool}" and retrieved the following live real-time records from Postgres:
 ${JSON.stringify(toolData, null, 2)}
+
+UNSTRUCTURED BUSINESS CONTEXT & REGULATORY POLICIES (RAG):
+${documentContext}
 
 MULTI-AGENT CONSENSUS & VALIDATION LAYER DETAILS (Rule 3, 4 & 6):
 - Combined System Confidence Rating: ${consensusReport.overallConfidence * 100}%
