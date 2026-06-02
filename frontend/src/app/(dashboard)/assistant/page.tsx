@@ -185,6 +185,77 @@ const isWordSimilar = (w1: string, w2: string): boolean => {
   return dist <= 3;
 };
 
+const summarizeForSpeech = (text: string): string => {
+  if (!text) return "";
+
+  // 1. If it's a JSON block, parse it and extract spokenResponse if present
+  if (text.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.spokenResponse) {
+        return summarizeForSpeech(parsed.spokenResponse);
+      }
+      if (parsed.writtenResponse) {
+        text = parsed.writtenResponse;
+      }
+    } catch (e) {}
+  }
+
+  // 2. Clean formatting and markdown symbols
+  let clean = text
+    .replace(/```[\s\S]*?```/g, "") // remove code
+    .replace(/\[?Execute\]?/gi, "")  // remove Execute buttons
+    .replace(/🟢|🔍|💡|🎯|⚡|📧|📅|💰|👥|🤖|⭐|❌|✔️/g, "") // remove emojis
+    .replace(/\*\*|__/g, ""); // remove bold
+
+  // 3. Extract the "Direct Answer" section
+  const sectionSplit = clean.split(/(?:\d\.\s*[A-Z\s]{4,}|[A-Z\s]{4,}\s*Layer|[A-Z\s]{4,}\s*Mode|Analytical\s*Insight|Observations|Insights|Recommendations|Execution\s*Options|Dynamic\s*Interpretation|Suggested\s*Action)/i);
+  
+  if (sectionSplit.length > 1) {
+    clean = sectionSplit[1];
+  } else {
+    const fallbackSplit = clean.split(/(?:Observations|Analytical\s*Insight|Insights|Recommendations|Dynamic\s*Interpretation|Suggested\s*Action)/i);
+    if (fallbackSplit.length > 0) {
+      clean = fallbackSplit[0];
+    }
+  }
+
+  // Clean leading headers, colons, spaces
+  clean = clean
+    .replace(/^(Direct\s*Answer|Direct\s*Response|Answer|Response|Assistant\s*Mode)[:\-\s\(\)]*/i, "")
+    .trim();
+
+  // 4. Handle lists and summarize
+  const lines = clean.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  
+  // Find list items (lines starting with bullets)
+  const listItems = lines.filter(l => /^[\s•\-*]/.test(l) || l.startsWith("•") || l.startsWith("-") || l.startsWith("*"));
+  
+  if (listItems.length > 0) {
+    // Contains a list. Extract introductory text and first 3 names (splitting by commas)
+    const intro = lines.find(l => !/^[\s•\-*]/.test(l) && !l.startsWith("•") && !l.startsWith("-") && !l.startsWith("*")) || "Here is the summary:";
+    const cleanedNames = listItems.map(item => {
+      const parts = item.replace(/^[\s•\-*]*\s*/, "").trim().split(",");
+      return parts[0].trim();
+    });
+    const firstFew = cleanedNames.slice(0, 3).join(", ");
+    
+    if (cleanedNames.length > 3) {
+      return `${intro.replace(/[:\-]$/, "")} ${firstFew}, and ${cleanedNames.length - 3} others. I have displayed the complete list on your chat screen.`;
+    } else {
+      return `${intro.replace(/[:\-]$/, "")} ${firstFew}.`;
+    }
+  }
+
+  // If no bullet list, take the first paragraph and limit to 2 sentences
+  const firstParagraph = lines[0] || "";
+  const sentences = firstParagraph.match(/[^.!?]+[.!?]+/g);
+  if (sentences && sentences.length > 2) {
+    return sentences.slice(0, 2).join(" ").trim();
+  }
+  return firstParagraph.trim();
+};
+
 export default function AssistantPage() {
   const router = useRouter();
   const { token, user: currentUser } = useAuth();
@@ -313,23 +384,24 @@ export default function AssistantPage() {
     }
 
     if (voiceAgentState === 'SPEAKING') {
-      const speed = Date.now() / 320;
-      const sinusVal = Math.sin(speed + index * 0.5) * 8 + 14;
+      const speed = Date.now() / 150;
+      const sinusVal = Math.sin(speed - index * 0.5) * 10 + 16;
       return { 
         height: `${sinusVal}px`, 
-        transition: 'height 0.12s ease-in-out',
-        boxShadow: '0 0 8px rgba(168, 85, 247, 0.35)',
-        opacity: 0.85
+        transition: 'height 0.08s ease-in-out',
+        boxShadow: '0 0 10px rgba(168, 85, 247, 0.4)',
+        opacity: 0.9
       };
     }
 
     if (voiceAgentState === 'THINKING') {
-      const sinusVal = Math.sin((Date.now() / 500) + index * 0.4) * 3 + 8;
+      const speed = Date.now() / 180;
+      const sinusVal = Math.sin(speed - index * 0.7) * 4 + 10;
       return { 
         height: `${sinusVal}px`, 
-        transition: 'height 0.2s ease-in-out',
-        boxShadow: '0 0 6px rgba(16, 185, 129, 0.25)',
-        opacity: 0.6
+        transition: 'height 0.08s ease-in-out',
+        boxShadow: '0 0 8px rgba(16, 185, 129, 0.35)',
+        opacity: 0.75
       };
     }
 
@@ -675,8 +747,9 @@ export default function AssistantPage() {
               }]);
 
               const spokenText = data.spokenResponse || data.response;
-              setSubtitleFeedAi(spokenText);
-              speakText(spokenText);
+              const summarizedText = summarizeForSpeech(spokenText);
+              setSubtitleFeedAi(summarizedText);
+              speakText(summarizedText);
             } else {
               speakText("Sorry, I encountered a connection issue. Please try again.");
             }
