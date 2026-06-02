@@ -554,19 +554,53 @@ You have access ONLY to the following 12 database tools:
     - SCHEMA REFERENCE FOR SQL QUERIES (CRITICAL):
       * Table "User" columns: "id", "email", "passwordHash", "firstName", "lastName", "role" (SUPER_ADMIN | ADMIN | SALES_MANAGER | AGENT | HR | LOGISTICS | FINANCE), "isActive", "organizationId", "createdAt", "updatedAt"
         (⚠️ IMPORTANT: "User" does NOT have a "name" column! You must use "firstName" and "lastName"! E.g. SELECT "firstName", "lastName" FROM "User")
-      * Table "EmployeeProfile" columns: "id", "userId", "department", "designation", "salary", "status", "organizationId", "joiningDate", "createdAt", "updatedAt"
-      * Table "Property" columns: "id", "title", "description", "type", "status", "listingType" (SALE | RENT), "price", "location", "bedrooms", "bathrooms", "areaSqft", "ownerId", "organizationId"
-      * Table "Client" columns: "id", "name", "email", "phone", "type", "stage", "budget", "preferences", "organizationId"
-      * Table "Lead" columns: "id", "name", "email", "phone", "source", "status", "score", "organizationId"
-      * Table "Task" columns: "id", "title", "description", "status", "dueDate", "organizationId", "assignedToId"
-      * Table "LeaveRequest" columns: "id", "startDate", "endDate", "type" (SICK|CASUAL|ANNUAL|UNPAID), "status" (PENDING|APPROVED|REJECTED), "reason", "approvedAt", "employeeProfileId"
-      * Table "Attendance" columns: "id", "dateStr" (YYYY-MM-DD), "checkIn", "checkOut", "status" (PRESENT|LATE|ABSENT|ON_LEAVE), "checkoutSummary", "employeeProfileId"
-      * Table "PerformanceReview" columns: "id", "reviewDate", "rating" (1-5), "feedback", "reviewedById", "employeeProfileId"
-      * Table "Owner" columns: "id", "name", "email", "phone", "status" (ACTIVE|INACTIVE), "kycVerified" (boolean), "kycNotes", "commissionRate", "agreementExpiry"
-      * Table "Vehicle" columns: "id", "modelName", "plateNumber", "status" (ACTIVE|MAINTENANCE|OUT_OF_SERVICE)
-      * Table "LogisticsSchedule" columns: "id", "visitDate", "pickupLocation", "dropLocation", "status" (SCHEDULED|IN_TRANSIT|COMPLETED|CANCELLED), "driverId", "vehicleId"
-      * Table "Payroll" columns: "id", "month" (YYYY-MM), "baseSalary", "allowances", "deductions", "netSalary", "status" (UNPAID|PAID), "paidAt", "employeeProfileId"
-      * Table "CalendarEvent" columns: "id", "title", "description", "startTime", "endTime", "location", "isPrivate", "targetRoles" (text array), "targetUserIds" (text array), "createdById"
+      * Table "EmployeeProfile" columns: "id", "userId", "department", "designation", "salary", "status" (ACTIVE | ON_LEAVE | TERMINATED), "organizationId", "joiningDate", "createdAt", "updatedAt"
+      * Table "Property" columns: "id", "title", "description", "type", "status" (DRAFT | PUBLISHED | SOLD | RENTED | AVAILABLE), "listingType" (SALE | RENT), "price", "location", "bedrooms", "bathrooms", "areaSqft", "images" (text array), "amenities" (text array), "ownerId", "assignedToId", "organizationId", "createdAt", "updatedAt"
+      * Table "Client" columns: "id", "name", "email", "phone", "type" (BUYER | SELLER | INVESTOR), "stage" (INQUIRY | VIEWING | OFFER | CLOSED), "budget", "preferences", "assignedToId", "organizationId", "createdAt", "updatedAt"
+      * Table "Lead" columns: "id", "name", "email", "phone", "source", "status" (NEW | CONTACTED | ENGAGED | DISQUALIFIED | CLOSED), "score", "isDuplicate" (boolean), "duplicateOfId", "notes", "assignedToId", "organizationId", "createdAt", "updatedAt"
+      * Table "Task" columns: "id", "title", "description", "status" (PENDING | IN_PROGRESS | COMPLETED), "dueDate", "assignedToId", "createdById", "organizationId", "createdAt", "updatedAt"
+      * Table "LeaveRequest" columns: "id", "startDate", "endDate", "type" (SICK | CASUAL | ANNUAL | UNPAID), "status" (PENDING | APPROVED | REJECTED), "reason", "approvedAt", "employeeProfileId", "createdAt", "updatedAt"
+      * Table "Attendance" columns: "id", "dateStr" (YYYY-MM-DD), "checkIn", "checkOut", "status" (PRESENT | LATE | ABSENT | ON_LEAVE), "checkoutSummary", "employeeProfileId", "createdAt", "updatedAt"
+      * Table "PerformanceReview" columns: "id", "reviewDate", "rating" (1-5), "feedback", "reviewedById", "employeeProfileId", "createdAt", "updatedAt"
+      * Table "Owner" columns: "id", "name", "email", "phone", "status" (ACTIVE | INACTIVE), "kycVerified" (boolean), "kycNotes", "commissionRate", "agreementExpiry", "assignedToId", "organizationId", "createdAt", "updatedAt"
+      * Table "Vehicle" columns: "id", "modelName", "plateNumber", "status" (ACTIVE | MAINTENANCE | OUT_OF_SERVICE), "organizationId", "createdAt", "updatedAt"
+      * Table "VehicleMaintenance" columns: "id", "description", "cost", "status" (PENDING | COMPLETED | CANCELLED), "requestDate", "completionDate", "vehicleId"
+      * Table "LogisticsSchedule" columns: "id", "visitDate", "pickupLocation", "dropLocation", "status" (SCHEDULED | IN_TRANSIT | COMPLETED | CANCELLED), "driverId", "vehicleId", "viewingId", "createdAt", "updatedAt"
+      * Table "Payroll" columns: "id", "month" (YYYY-MM), "baseSalary", "allowances", "deductions", "netSalary", "status" (UNPAID | PAID), "paidAt", "employeeProfileId", "createdAt", "updatedAt"
+      * Table "CalendarEvent" columns: "id", "title", "description", "startTime", "endTime", "location", "isPrivate", "targetRoles" (text array), "targetUserIds" (text array), "createdById", "organizationId", "createdAt", "updatedAt"
+      * Table "KeyTracker" columns: "id", "keyTag", "status" (IN_OFFICE | CHECKED_OUT | LOST), "propertyId", "createdAt", "updatedAt"
+      * Table "KeyCheckout" columns: "id", "checkoutDate", "returnDate", "notes", "keyId", "userId"
+      * Table "LeadActivity" columns: "id", "type" (CALL | EMAIL | NOTES | STATUS_CHANGE), "description", "activityDate", "leadId"
+      * Table "PropertyPriceHistory" columns: "id", "price", "changeDate", "propertyId"
+
+    - BUSINESS INTELLIGENCE DEFINITIONS & METRIC FORMULAS (CRITICAL):
+      * "Unsold over 90 days": Properties where status = 'AVAILABLE' and "createdAt" < NOW() - INTERVAL '90 days'.
+      * "Off-plan properties": Properties where title, description, or location contains 'off-plan' or status = 'DRAFT' or type has off-plan matching.
+      * "Properties with no images": Properties where cardinality(images) = 0 or images IS NULL or array_length(images, 1) IS NULL.
+      * "Properties with low inquiries": Properties joined with "ClientPropertyInterest" having count < 2 (or zero interests).
+      * "Properties needing price revision": Available listings unsold for over 60 days with zero interests or viewings.
+      * "Leads with no follow-up": Leads having no rows in "LeadActivity".
+      * "Hot Leads": Leads with score > 70 or status = 'ENGAGED'.
+      * "Cold Leads": Leads with score < 30 or status = 'DISQUALIFIED'.
+      * "High Budget Leads/Clients": Clients or Leads with budget >= 2000000.
+      * "Leads converted today": Leads where status = 'CLOSED' and DATE("updatedAt") = CURRENT_DATE (or status='CLOSED' and "updatedAt" >= CURRENT_DATE).
+      * "Inactive Leads": Leads with no "LeadActivity" in the last 30 days.
+      * "Leads needing urgent response": Leads with status = 'NEW' created > 24 hours ago.
+      * "Overloaded agent/employee": Users with role = 'AGENT' having >= 8 tasks with status in ('PENDING', 'IN_PROGRESS').
+      * "Top Performing Agent": Agent with highest count of leads with status = 'CLOSED' or Completed Tasks, or average PerformanceReview rating >= 4.5.
+      * "Lowest Performing Agent / Least Conversion": Agent with lowest ratio of closed leads to total assigned leads, or lowest average PerformanceReview rating.
+      * "Absent today": EmployeeProfile with status = 'ACTIVE' who do NOT have an Attendance record where "dateStr" = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') or Attendance status = 'ABSENT'.
+      * "Late today": Attendance where "dateStr" = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') and status = 'LATE'.
+      * "On leave today": LeaveRequests with status = 'APPROVED' and CURRENT_DATE BETWEEN "startDate" and "endDate", or Attendance status = 'ON_LEAVE'.
+      * "Expiring visa / contracts": EmployeeProfiles with documents matching visa/contract tags that are within 30 days of expiration (or matching agreementExpiry in Owner table).
+      * "Eligible for promotion": EmployeeProfile where status = 'ACTIVE' and average PerformanceReview rating >= 4.5.
+      * "Under probation": EmployeeProfile with status = 'ACTIVE' and "joiningDate" >= NOW() - INTERVAL '90 days'.
+      * "Unpaid salary / invoices": Payrolls with status = 'UNPAID' or invoices with status = 'PENDING'.
+      * "Keys missing": KeyTracker where status = 'LOST' or KeyCheckout where "returnDate" IS NULL.
+      * "Vehicles available": Vehicle where status = 'ACTIVE' and id NOT IN (SELECT "vehicleId" FROM "LogisticsSchedule" WHERE status = 'IN_TRANSIT').
+      * "Drivers available": DriverProfile where status = 'AVAILABLE' and id NOT IN (SELECT "driverId" FROM "LogisticsSchedule" WHERE status = 'IN_TRANSIT').
+      * "Department weakness / bottlenecks": Department with highest count of overdue tasks, or lowest task completion rate, or lowest average performance review.
+      * "Edge Case simulations (e.g. leads drop 50%, top agents resign)": If user asks "what if..." hypotheticals, retrieve active agent/revenue counts first via SQL, calculate the proportional drop, and output a highly qualitative business analysis identifying exact agents at risk, revenue loss, and strategic mitigation plans (e.g. hire matching profiles, automate checklists).
     - HIGH COGNITION JOIN/AGGREGATE RULE: If the user asks about complex aggregates, joins, department checks, rankings, or parameters (e.g. "who is our oldest employee", "who is our top performing agent", "are there any payroll discrepancies", "owner property counts", "HR team task completion"), you MUST write a single raw SELECT query using "runDatabaseQuery"! This ensures maximum real-time precision and high cognitive enterprise intelligence.
     - **CRITICAL POSTGRESQL SYNTAX SECURITY RULE**: When writing SELECT queries, you MUST select specific individual columns (e.g. u."firstName", ep.salary) or aggregated fields. **NEVER select raw whole table records or relation rows (e.g. SELECT u FROM "User" u, SELECT ep FROM "EmployeeProfile" ep)**, as this returns anonymous composite row types which are unsupported by Prisma and throw a fatal SQL exception! All columns from joined tables must be queried individually.
     - SQL REFERENCE EXAMPLES FOR HIGH COGNITION QUERIES (CRITICAL):

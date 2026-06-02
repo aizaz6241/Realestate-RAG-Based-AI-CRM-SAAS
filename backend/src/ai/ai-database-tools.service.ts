@@ -738,7 +738,7 @@ export class AiDatabaseToolsService {
             'completionDate', 'vehicleId', 'driverId', 'viewingId', 'keyTag', 'checkoutDate',
             'returnDate', 'keyId', 'activityDate', 'leadId', 'isGroup', 'senderId',
             'isPrivate', 'fileUrl', 'fileType', 'fileSize', 'isEnabled', 'errorMessage',
-            'kycVerified', 'kycNotes', 'requestDate'
+            'kycVerified', 'kycNotes', 'requestDate', 'uploadedAt'
           ];
 
           const casedTables = [
