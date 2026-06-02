@@ -39,8 +39,8 @@ const sectionHeaders = [
   },
   { 
     key: "observations", 
-    pattern: /🧠?\s*2\.\s*AI\s*OBSERVATIONS/i, 
-    title: "AI Observations", 
+    pattern: /🧠?\s*2\.\s*(ANALYTICAL\s*INSIGHT|AI\s*OBSERVATIONS)/i, 
+    title: "Analytical Insight", 
     icon: "Brain", 
     colorClass: "border-cyan-500/25 bg-cyan-500/5 text-cyan-400",
     glowClass: "shadow-[0_0_15px_rgba(6,182,212,0.08)]",
@@ -48,8 +48,8 @@ const sectionHeaders = [
   },
   { 
     key: "insights", 
-    pattern: /💡?\s*3\.\s*INSIGHTS/i, 
-    title: "AI Insights", 
+    pattern: /💡?\s*3\.\s*(DYNAMIC\s*INTERPRETATION\s*METHOD|INSIGHTS)/i, 
+    title: "Dynamic Interpretation Method", 
     icon: "Lightbulb", 
     colorClass: "border-amber-500/25 bg-amber-500/5 text-amber-400",
     glowClass: "shadow-[0_0_15px_rgba(245,158,11,0.08)]",
@@ -57,8 +57,8 @@ const sectionHeaders = [
   },
   { 
     key: "recommendations", 
-    pattern: /🎯?\s*4\.\s*RECOMMENDED\s*ACTIONS/i, 
-    title: "Recommended Actions", 
+    pattern: /🎯?\s*4\.\s*(SUGGESTED\s*ACTION|RECOMMENDED\s*ACTIONS)/i, 
+    title: "Suggested Action", 
     icon: "Target", 
     colorClass: "border-violet-500/25 bg-violet-500/5 text-violet-400",
     glowClass: "shadow-[0_0_15px_rgba(139,92,246,0.08)]",
@@ -108,10 +108,26 @@ export default function FormattedAiMessage({ content, onExecuteCommand }: Format
     const regex = new RegExp(sh.pattern);
     const match = content.match(regex);
     if (match && match.index !== undefined) {
+      let title = sh.title;
+      const matchedText = match[0];
+      if (/ANALYTICAL\s*INSIGHT/i.test(matchedText)) {
+        title = "Analytical Insight";
+      } else if (/AI\s*OBSERVATIONS/i.test(matchedText)) {
+        title = "AI Observations";
+      } else if (/DYNAMIC\s*INTERPRETATION\s*METHOD/i.test(matchedText)) {
+        title = "Dynamic Interpretation Method";
+      } else if (/INSIGHTS/i.test(matchedText)) {
+        title = "AI Insights";
+      } else if (/SUGGESTED\s*ACTION/i.test(matchedText)) {
+        title = "Suggested Action";
+      } else if (/RECOMMENDED\s*ACTIONS/i.test(matchedText)) {
+        title = "Recommended Actions";
+      }
+
       matches.push({
         key: sh.key,
         index: match.index,
-        title: sh.title,
+        title: title,
         icon: sh.icon,
         colorClass: sh.colorClass,
         glowClass: sh.glowClass,
@@ -234,6 +250,41 @@ export default function FormattedAiMessage({ content, onExecuteCommand }: Format
     return (
       <div className="space-y-2.5">
         {lines.map((line, idx) => {
+          // Check for checkbox action item first
+          const checkboxMatch = line.trim().match(/^-\s*\[\s*\]\s*(.*)$/);
+          if (checkboxMatch) {
+            const actionText = checkboxMatch[1].trim();
+            let commandToRun = actionText;
+
+            // Clean up run command prefixes
+            const runActionMatch = actionText.match(/^(?:Run action|Create task|Execute|Command):\s*['"`]?(.*?)['"`]?$/i);
+            if (runActionMatch) {
+              commandToRun = runActionMatch[1];
+            } else {
+              commandToRun = actionText.replace(/^['"`]|['"`]$/g, "");
+            }
+
+            return (
+              <div 
+                key={idx} 
+                className="flex items-center gap-3 p-3 rounded-xl border border-rose-500/10 bg-rose-500/5 hover:bg-rose-500/10 hover:border-rose-500/25 transition-all duration-200 mt-2"
+              >
+                <div className="w-5 h-5 rounded border border-rose-500/30 flex items-center justify-center text-rose-400 bg-rose-500/5">
+                  <Play className="w-2.5 h-2.5 fill-current opacity-70" />
+                </div>
+                <div className="flex-1 text-xs font-semibold text-gray-300">
+                  {formatTextInline(actionText)}
+                </div>
+                <button
+                  onClick={() => onExecuteCommand && onExecuteCommand(commandToRun)}
+                  className="px-3 py-1 rounded bg-rose-500/20 hover:bg-rose-500 text-[10px] font-black uppercase tracking-wider text-rose-300 hover:text-white transition-all cursor-pointer"
+                >
+                  Execute
+                </button>
+              </div>
+            );
+          }
+
           // Check for bullet lists
           if (line.trim().startsWith("- ") || line.trim().startsWith("* ")) {
             const text = line.trim().substring(2);

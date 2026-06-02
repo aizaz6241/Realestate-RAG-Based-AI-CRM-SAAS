@@ -656,6 +656,18 @@ STRICT INTENT ROUTING & REAL ESTATE INTELLIGENCE LAYER:
 4. NEVER mix intents. Do NOT execute a workflow action (like createTask) if the user is asking a database query (like searching employees).
 5. RESPONSE CONSISTENCY: Only respond based on user intent. Do NOT randomly show analytics, dashboards, or employee cards unless explicitly aligned to their intent!
 
+RENS COGNITIVE CORE DYNAMIC REASONING ENGINE RULES:
+- CORE PRINCIPLE: All business logic must be derived dynamically from data distribution, time context, user intent semantics, comparative analysis, and statistical baselines. You are a reasoning analyst, not a rule-based system.
+- RULE 1: NO HARD CODED BUSINESS LOGIC: Never assume fixed days (like 90, 30), fixed scores (like 70, 50), or fixed counts (like 8 tasks). Instead, derive thresholds dynamically using percentile ranking, moving averages, historical comparison, and deviation from mean.
+- RULE 2: NATURAL LANGUAGE ➔ SEMANTIC TRANSLATION: Convert user input into Entity, Intent, Temporal meaning, Comparative meaning, Risk/Opportunity signal. (Example: "25 days se unsold properties" ➔ Entity: Property, Signal: stagnation, Time: dynamic interval of 25 days, Condition: deviation from normal selling cycle).
+- RULE 3: TEMPORAL INTELLIGENCE ENGINE: Interpret time expressions dynamically:
+  * "recently" = last 7–14 days (context-based)
+  * "long time" = above median lifecycle
+  * "overdue" = beyond expected lifecycle (computed dynamically, not fixed)
+  * "fast/slow" = relative to dataset distribution
+- RULE 4: BEHAVIORAL ANALYTICS ENGINE: For humans (agents, leads), do NOT use fixed thresholds. Instead, compute percentile ranking, performance deviation, trend slope, and momentum score.
+- RULE 5: SELF-ADJUSTING SYSTEM: Continuous adjustment of what "hot lead", "overloaded agent", or "slow property" means based on last 30–90 days data, seasonal patterns, and company performance trends.
+
 STRICT ENTITY RESOLUTION & ERROR FLOW FIX:
 1. NEVER directly trust raw user names. For any employee lookup or task assignment query, trigger "searchEmployees" to verify their identity and evaluate their "similarityScore":
    - Similarity Score > 0.85 (85%) ➔ High confidence! Auto-select the employee and proceed with the flow.
@@ -700,23 +712,20 @@ CONVERSATIONAL RULES & WORKFLOWS:
     - Actively parse previous turns in the "history" to sustain reference memory.
     - If the user uses a pronoun (e.g. "his designation", "her salary", "is employee ko reminder bhejo"), map it to the active employee, client, or property discussed in the most recent turn. Never lose context immediately after retrieval.
  7. FOLLOW-UP SUGGESTIONS: At the end of your response, always suggest 1 or 2 natural, context-sensitive follow-up questions to guide them nicely.
- 8. STRICT 5-LAYER RESPONSE LAYOUT (Rule 10):
+ 8. STRICT 4-LAYER DECISION RESPONSE LAYOUT (Rule 6):
     If the query is business-related, database-related, or analytical, your response MUST follow this exact structure:
 
     🟢 1. DIRECT ANSWER (Assistant Mode)
     [Direct, precise answer based on live database records or RAG docs]
 
-    🧠 2. AI OBSERVATIONS (Cognitive Layer)
-    [Automatically detect and list patterns, missing follow-ups, anomalies, employee workload capacity, low property engagement, or system risks from the data.]
+    🧠 2. ANALYTICAL INSIGHT (Cognitive Layer)
+    [Provide high-cognition analysis of patterns, trends, anomalies, performance comparisons, risks, and opportunities from the live data. Explain WHY the data is shaped this way and the business/revenue impact.]
 
-    💡 3. INSIGHTS (Business Intelligence Layer)
-    [Explain WHY the observations are happening, what they mean, and their business/revenue impact.]
+    💡 3. DYNAMIC INTERPRETATION METHOD (Dynamic Baseline & Calculation Explanation)
+    [Provide the mathematical and statistical method used to dynamically determine the thresholds (e.g. median lifecycle, 75th percentile of listing age, 80th percentile of task loads, deviation from average). Do NOT assume or write hardcoded rules or fixed numbers (like 90, 30 days, or 8 tasks). Detail how the numbers in the direct answer align with the current dataset distribution.]
 
-    🎯 4. RECOMMENDED ACTIONS (Agent Layer)
-    [Categorized actionable advice: Immediate actions (urgent), Short-term actions, Strategic actions.]
-
-    ⚡ 5. AI EXECUTION OPTIONS (Optional Autonomy Layer)
-    [Checklist of actions that can be executed. List them as "- [ ] Run action: <command>". E.g., "- [ ] Create task: 'Verify documents for Zain'"]
+    🎯 4. SUGGESTED ACTION (Actionable Advice & Autonomy Layer)
+    [Provide categorized actionable advice: Immediate, Short-term, and Strategic actions. You may also include execution options formatted as checkboxes to run direct operations: "- [ ] Run action: <command>". E.g., "- [ ] Create task: 'Verify documents for Zain'"]
 
 If the question CANNOT be answered by database tools, or the tool has already run, answer using:
 - The context from retrieved unstructured documents (RAG) attached below.
@@ -927,22 +936,19 @@ ${consensusReport.reducedCertaintyWarning ? `- REDUCED CERTAINTY WARNING (Low Co
 
 Provide a beautiful, friendly, completely human-like natural language response summarizing these results.
 CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
-1. EVERY response MUST follow this exact 5-layer structure (Rule 10):
+1. EVERY response MUST follow this exact 4-layer structure (Rule 6):
 
    🟢 1. DIRECT ANSWER (Assistant Mode)
    [Direct, precise answer based on the live database records and consensus details.]
 
-   🧠 2. AI OBSERVATIONS (Cognitive Layer)
-   [Automatically detect and list patterns, missing follow-ups, anomalies, employee workload capacity, low property engagement, or system risks from the data.]
+   🧠 2. ANALYTICAL INSIGHT (Cognitive Layer)
+   [Provide high-cognition analysis of patterns, trends, anomalies, performance comparisons, risks, and opportunities from the live data. Explain WHY the data is shaped this way and the business/revenue impact.]
 
-   💡 3. INSIGHTS (Business Intelligence Layer)
-   [Explain WHY the observations are happening, what they mean, and their business/revenue impact.]
+   💡 3. DYNAMIC INTERPRETATION METHOD (Dynamic Baseline & Calculation Explanation)
+   [Provide the mathematical and statistical method used to dynamically determine the thresholds (e.g. median lifecycle, 75th percentile of listing age, 80th percentile of task loads, deviation from average). Do NOT assume or write hardcoded rules or fixed numbers (like 90, 30 days, or 8 tasks). Detail how the numbers in the direct answer align with the current dataset distribution.]
 
-   🎯 4. RECOMMENDED ACTIONS (Agent Layer)
-   [Categorized actionable advice: Immediate actions (urgent), Short-term actions, Strategic actions.]
-
-   ⚡ 5. AI EXECUTION OPTIONS (Optional Autonomy Layer)
-   [Checklist of actions that can be executed. List them as "- [ ] Run action: <command>". E.g., "- [ ] Create task: 'Verify documents for Zain'"]
+   🎯 4. SUGGESTED ACTION (Actionable Advice & Autonomy Layer)
+   [Provide categorized actionable advice: Immediate, Short-term, and Strategic actions. You may also include execution options formatted as checkboxes to run direct operations: "- [ ] Run action: <command>". E.g., "- [ ] Create task: 'Verify documents for Zain'"]
 
 2. STRICTLY FORBID RAW DATABASE DUMPS: Never print raw, bare lists of database fields or JSON records. You must analyze the records, aggregate them, compute trends, detect rankings, and draw smart business conclusions.
    - Example: Instead of just listing properties, say "3 properties are unsold for 45+ days in the Downtown area."
@@ -1161,6 +1167,14 @@ JSON Structure:
       actions: []
     };
 
+    // Statistical Percentile Helper
+    const getPercentile = (arr: number[], percentile: number): number => {
+      if (arr.length === 0) return 0;
+      const sorted = [...arr].sort((a, b) => a - b);
+      const index = Math.min(Math.floor((percentile / 100) * sorted.length), sorted.length - 1);
+      return sorted[index];
+    };
+
     try {
       // -------------------------------------------------------------
       // Tier A: CEO / SUPER_ADMIN / ADMIN / SALES_MANAGER
@@ -1174,13 +1188,14 @@ JSON Structure:
         const taskCompletionPct = pendingTasks + completedTasks > 0 ? Math.round((completedTasks / (pendingTasks + completedTasks)) * 100) : 0;
 
         result.kpis = [
-          { label: "Available Properties", value: propertiesCount.toString(), change: "+5% vs last week" },
-          { label: "Active Lead Pipeline", value: activeLeadsCount.toString(), change: "+12.4% vs last month" },
-          { label: "Pending Tasks Check", value: pendingTasks.toString(), change: "-3% this week" },
-          { label: "Task Completion Rate", value: `${taskCompletionPct}%`, change: "+8% efficiency improvement" }
+          { label: "Available Properties", value: propertiesCount.toString(), change: "Active Inventory" },
+          { label: "Active Lead Pipeline", value: activeLeadsCount.toString(), change: "Open Prospects" },
+          { label: "Pending Tasks Check", value: pendingTasks.toString(), change: "In Flight" },
+          { label: "Task Completion Rate", value: `${taskCompletionPct}%`, change: "Efficiency baseline" }
         ];
 
         // 2. Critical Priorities (Top 3)
+        // Priority 1: Unassigned Leads
         const unassignedLeads = await this.prisma.lead.findMany({
           where: { organizationId, assignedToId: null },
           take: 2
@@ -1194,6 +1209,7 @@ JSON Structure:
           });
         }
 
+        // Priority 2: Overdue Tasks
         const overdueTasks = await this.prisma.task.findMany({
           where: { organizationId, status: { in: ['PENDING', 'IN_PROGRESS'] }, dueDate: { lt: now } },
           include: { assignedTo: true },
@@ -1209,14 +1225,22 @@ JSON Structure:
           });
         }
 
+        // Priority 3: Stagnant Listings - Derived Dynamically (75th Percentile Age)
+        const allAvailableProperties = await this.prisma.property.findMany({
+          where: { organizationId, status: 'AVAILABLE' },
+          select: { createdAt: true }
+        });
+        const propertyAges = allAvailableProperties.map(p => (now.getTime() - new Date(p.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+        const stagnantPropAgeThreshold = propertyAges.length > 0 ? Math.max(7, getPercentile(propertyAges, 75)) : 30;
+
         const stagnantProperties = await this.prisma.property.findMany({
-          where: { organizationId, status: 'AVAILABLE', createdAt: { lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+          where: { organizationId, status: 'AVAILABLE', createdAt: { lt: new Date(Date.now() - stagnantPropAgeThreshold * 24 * 60 * 60 * 1000) } },
           take: 2
         });
         if (stagnantProperties.length > 0) {
           result.priorities.push({
             title: "Stagnant Dubai Inventory Alert",
-            description: `${stagnantProperties.length} properties have been available for over 30 days. Recommend review.`,
+            description: `${stagnantProperties.length} properties are flagged as stagnant (listing age exceeds the team's 75th percentile baseline of ${Math.round(stagnantPropAgeThreshold)} days).`,
             actionText: "List Stagnant Properties",
             actionCommand: "List stagnant properties available for rent or sale"
           });
@@ -1231,28 +1255,41 @@ JSON Structure:
           });
         }
 
+        // 3. Risks & Anomalies
+        // Risk 1: Agreement Expirations - Dynamic (Bottom 10% remaining days or within 30 days)
+        const allAgreements = await this.prisma.owner.findMany({
+          where: { organizationId, agreementExpiry: { not: null } },
+          select: { agreementExpiry: true }
+        });
+        const remainingDays = allAgreements.map(a => (new Date(a.agreementExpiry!).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const expiryThreshold = remainingDays.length > 0 ? Math.max(7, getPercentile(remainingDays, 10)) : 30;
+
         const expiringAgreements = await this.prisma.owner.findMany({
-          where: { organizationId, agreementExpiry: { lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) } },
+          where: { organizationId, agreementExpiry: { lte: new Date(Date.now() + expiryThreshold * 24 * 60 * 60 * 1000) } },
           take: 2
         });
         for (const owner of expiringAgreements) {
           result.risks.push({
             level: "HIGH",
             title: `Owner Agreement Expiring: ${owner.name}`,
-            description: `Landlord agreement with ${owner.name} expires on ${owner.agreementExpiry ? new Date(owner.agreementExpiry).toLocaleDateString() : 'N/A'}.`
+            description: `Landlord agreement with ${owner.name} expires in less than ${Math.round(expiryThreshold)} days (which is in the bottom 10% remaining lifespan baseline).`
           });
         }
 
+        // Risk 2: Agent Workload Anomalies - Derived Dynamically (80th Percentile)
         const agents = await this.prisma.user.findMany({
           where: { organizationId, role: 'AGENT' },
           include: { assignedTasks: { where: { status: { in: ['PENDING', 'IN_PROGRESS'] } } } }
         });
+        const agentTaskCounts = agents.map(a => a.assignedTasks.length);
+        const overloadedTaskThreshold = agentTaskCounts.length > 0 ? Math.max(3, getPercentile(agentTaskCounts, 80)) : 8;
+
         for (const agent of agents) {
-          if (agent.assignedTasks.length >= 8) {
+          if (agent.assignedTasks.length > 0 && agent.assignedTasks.length >= overloadedTaskThreshold) {
             result.risks.push({
               level: "MEDIUM",
               title: `Agent Workload Alert: ${agent.firstName}`,
-              description: `Broker agent ${agent.firstName} has ${agent.assignedTasks.length} active tasks, which exceeds the safe threshold.`
+              description: `Broker agent ${agent.firstName} has ${agent.assignedTasks.length} active tasks, which meets or exceeds the team's 80th percentile task workload threshold (${overloadedTaskThreshold} tasks).`
             });
           }
         }
@@ -1296,9 +1333,9 @@ JSON Structure:
         const taskCompletionPct = myPendingTasks + myCompletedTasks > 0 ? Math.round((myCompletedTasks / (myPendingTasks + myCompletedTasks)) * 100) : 0;
 
         result.kpis = [
-          { label: "My Active Leads", value: myActiveLeads.toString(), change: "+2 from yesterday" },
-          { label: "My Pending Tasks", value: myPendingTasks.toString(), change: "-1 today" },
-          { label: "Task Completion Rate", value: `${taskCompletionPct}%`, change: "Target is 90%" }
+          { label: "My Active Leads", value: myActiveLeads.toString(), change: "In pipeline" },
+          { label: "My Pending Tasks", value: myPendingTasks.toString(), change: "Needs checkout" },
+          { label: "Task Completion Rate", value: `${taskCompletionPct}%`, change: "Your rate" }
         ];
 
         const myOverdueTasks = await this.prisma.task.findMany({
@@ -1336,15 +1373,23 @@ JSON Structure:
           });
         }
 
+        // Stagnant Leads: Dynamic (75th percentile of lead aging lifespan)
+        const allMyLeads = await this.prisma.lead.findMany({
+          where: { organizationId, assignedToId: userId, status: { in: ['NEW', 'CONTACTED', 'ENGAGED'] } },
+          select: { createdAt: true }
+        });
+        const myLeadAges = allMyLeads.map(l => (now.getTime() - new Date(l.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+        const stagnantLeadThreshold = myLeadAges.length > 0 ? Math.max(1, getPercentile(myLeadAges, 75)) : 3;
+
         const uncontactedLeads = await this.prisma.lead.findMany({
-          where: { organizationId, assignedToId: userId, status: 'NEW', createdAt: { lt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) } },
+          where: { organizationId, assignedToId: userId, status: 'NEW', createdAt: { lt: new Date(Date.now() - stagnantLeadThreshold * 24 * 60 * 60 * 1000) } },
           take: 2
         });
         for (const lead of uncontactedLeads) {
           result.risks.push({
             level: "HIGH",
             title: `Lead Stagnant Risk: ${lead.name}`,
-            description: `Lead ${lead.name} has been in NEW status for over 3 days without follow-up contact.`
+            description: `Lead ${lead.name} has been in NEW status for over ${Math.round(stagnantLeadThreshold)} days (which exceeds your 75th percentile lead aging baseline) without follow-up contact.`
           });
         }
 
@@ -1380,9 +1425,9 @@ JSON Structure:
         const presentToday = await this.prisma.attendance.count({ where: { employeeProfile: { organizationId }, dateStr: now.toISOString().split('T')[0], status: 'PRESENT' } });
 
         result.kpis = [
-          { label: "Active Employees", value: employeeCount.toString(), change: "Team is fully staffed" },
-          { label: "Pending Leave Requests", value: pendingLeaves.toString(), change: `${pendingLeaves > 0 ? 'Requires immediate action' : 'All clear'}` },
-          { label: "Present Today", value: presentToday.toString(), change: "Clocked in at starting shift" }
+          { label: "Active Employees", value: employeeCount.toString(), change: "FTE Staff" },
+          { label: "Pending Leave Requests", value: pendingLeaves.toString(), change: "Requires review" },
+          { label: "Present Today", value: presentToday.toString(), change: "Shift Check-ins" }
         ];
 
         const pendingRequests = await this.prisma.leaveRequest.findMany({
@@ -1400,16 +1445,19 @@ JSON Structure:
           });
         }
 
-        const overloadedStaff = await this.prisma.user.findMany({
+        // HR Overloaded Agent Audit - Dynamic (80th Percentile)
+        const allAgents = await this.prisma.user.findMany({
           where: { organizationId },
-          include: { assignedTasks: { where: { status: { in: ['PENDING', 'IN_PROGRESS'] } } } },
-          take: 2
+          include: { assignedTasks: { where: { status: { in: ['PENDING', 'IN_PROGRESS'] } } } }
         });
-        const overloadedList = overloadedStaff.filter(s => s.assignedTasks.length >= 8);
+        const allAgentTaskCounts = allAgents.map(a => a.assignedTasks.length);
+        const hrOverloadedTaskThreshold = allAgentTaskCounts.length > 0 ? Math.max(3, getPercentile(allAgentTaskCounts, 80)) : 8;
+
+        const overloadedList = allAgents.filter(s => s.assignedTasks.length >= hrOverloadedTaskThreshold);
         if (overloadedList.length > 0) {
           result.priorities.push({
             title: "Audit Overloaded Broker Agents",
-            description: `${overloadedList.length} staff are holding more than 8 pending tasks.`,
+            description: `${overloadedList.length} staff are holding more than ${hrOverloadedTaskThreshold} pending tasks (which meets or exceeds the team's 80th percentile workload baseline).`,
             actionText: "Check Task Distribution",
             actionCommand: "Show task capacity per employee"
           });
@@ -1469,7 +1517,7 @@ JSON Structure:
         const activeVehicles = await this.prisma.vehicle.count({ where: { organizationId } });
 
         result.kpis = [
-          { label: "Unpaid Payroll Batches", value: unpaidPayrolls.toString(), change: `${unpaidPayrolls > 0 ? 'Action required' : 'All payrolls paid'}` },
+          { label: "Unpaid Payroll Batches", value: unpaidPayrolls.toString(), change: "Pending release" },
           { label: "Logistics Fleet Size", value: activeVehicles.toString(), change: "Fully active" }
         ];
 
