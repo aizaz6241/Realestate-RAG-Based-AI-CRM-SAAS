@@ -45,6 +45,7 @@ import RagDocumentsDrawer from "./components/RagDocumentsDrawer";
 import DatabaseWidgets from "./components/DatabaseWidgets";
 import VoiceCallingConsole from "./components/VoiceCallingConsole";
 import AudioSynthesizer from "./components/AudioSynthesizer";
+import FormattedAiMessage from "./components/FormattedAiMessage";
 
 const SPEECH_LANGUAGES = [
   { code: "en-US", name: "English (US)", flag: "🇺🇸", label: "EN" },
@@ -926,12 +927,19 @@ export default function AssistantPage() {
                       <span className="block text-[8px] font-black uppercase text-gray-500 tracking-wider">RENS Cognitive Core</span>
                     )}
 
-                    <div className={`p-4 rounded-2xl border text-sm leading-relaxed shadow-lg whitespace-pre-wrap ${
+                    <div className={`p-4 rounded-2xl border text-sm leading-relaxed shadow-lg ${
                       isUser 
-                        ? "bg-primary/20 border-primary/30 text-white rounded-tr-none glow-primary shadow-[0_0_15px_rgba(6,182,212,0.05)]" 
-                        : "bg-card border-border/50 text-gray-200 rounded-tl-none"
+                        ? "bg-primary/20 border-primary/30 text-white rounded-tr-none glow-primary shadow-[0_0_15px_rgba(6,182,212,0.05)] whitespace-pre-wrap" 
+                        : "bg-card border-border/50 text-gray-200 rounded-tl-none w-full"
                     }`}>
-                      <p className="font-medium">{msg.content}</p>
+                      {isUser ? (
+                        <p className="font-medium">{msg.content}</p>
+                      ) : (
+                        <FormattedAiMessage 
+                          content={msg.content} 
+                          onExecuteCommand={(cmd) => executeChatQuery(cmd)} 
+                        />
+                      )}
 
                       {/* CITATION PILLS */}
                       {msg.citations && msg.citations.length > 0 && (

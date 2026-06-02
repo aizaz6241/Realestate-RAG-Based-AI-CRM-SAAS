@@ -17,7 +17,12 @@ import {
   LogOut,
   Check,
   Loader2,
-  X
+  X,
+  ShieldAlert,
+  AlertTriangle,
+  Play,
+  ArrowRight,
+  Lightbulb
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -38,6 +43,12 @@ export default function DashboardPage() {
   // Checkout Modal states
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutSummaryText, setCheckoutSummaryText] = useState("");
+
+  // AI Operations Advisor states
+  const [aiData, setAiData] = useState<any>(null);
+  const [isLoadingAi, setIsLoadingAi] = useState(true);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'loading' | 'error'>('success');
 
   // Fetch events for dashboard dots
   const fetchDashboardEvents = async (showLoading = false) => {
@@ -78,9 +89,81 @@ export default function DashboardPage() {
     }
   };
 
+  // Fetch dynamic AI dashboard intelligence
+  const fetchDashboardIntelligence = async (showLoading = false) => {
+    if (!token) return;
+    if (showLoading) setIsLoadingAi(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/dashboard-intelligence`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiData(data);
+      }
+    } catch (err) {
+      console.error("Failed to load dashboard AI intelligence:", err);
+    } finally {
+      setIsLoadingAi(false);
+    }
+  };
+
+  // Agentic Action Execution through Chat API
+  const handleExecuteAiAction = async (command: string) => {
+    if (!token) return;
+    setToastType('loading');
+    setToastMessage(`Executing: "${command}"`);
+    
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/ai/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          message: command
+        })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        let answer = data.response;
+        // Parse the first direct answer block if it has a header, else fallback
+        const directAnswerMatch = data.response.match(/🟢?\s*1\.\s*DIRECT\s*ANSWER\s*\(Assistant Mode\)\s*\n([\s\S]*?)(?:\n\n?\s*🧠|\n\n?\s*🧠|$)/i) ||
+                                  data.response.match(/🟢?\s*1\.\s*DIRECT\s*ANSWER\s*\n([\s\S]*?)(?:\n\n?\s*🧠|\n\n?\s*🧠|$)/i);
+        if (directAnswerMatch && directAnswerMatch[1]) {
+          answer = directAnswerMatch[1].trim();
+        }
+        
+        // Remove markdown formatting
+        answer = answer.replace(/\*\*/g, "");
+        if (answer.length > 200) {
+          answer = answer.substring(0, 197) + "...";
+        }
+        
+        setToastType('success');
+        setToastMessage(answer);
+        
+        // Refresh all dashboards metrics dynamically
+        fetchDashboardIntelligence(false);
+        fetchAttendanceStatus();
+        fetchDashboardEvents(false);
+      } else {
+        setToastType('error');
+        setToastMessage("Execution failed. AI could not complete this request.");
+      }
+    } catch (err) {
+      console.error(err);
+      setToastType('error');
+      setToastMessage("Network error during action execution.");
+    }
+  };
+
   useEffect(() => {
     fetchDashboardEvents(true);
     fetchAttendanceStatus();
+    fetchDashboardIntelligence(true);
   }, [token, user?.id]);
 
   // Polling loop (every 3 seconds)
@@ -89,6 +172,7 @@ export default function DashboardPage() {
     const interval = setInterval(() => {
       fetchDashboardEvents(false);
       fetchAttendanceStatus();
+      fetchDashboardIntelligence(false);
     }, 3000);
     return () => clearInterval(interval);
   }, [token, user?.id]);
@@ -448,6 +532,162 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* AI Operations Advisor Panel */}
+      {aiData && (
+        <div className="glass p-6 rounded-3xl border border-primary/20 bg-primary/5 relative overflow-hidden flex flex-col gap-6 shadow-[0_0_30px_rgba(138,43,226,0.05)]">
+          {/* Header */}
+          <div className="flex justify-between items-center border-b border-white/5 pb-4">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <Bot className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <h2 className="text-sm font-black tracking-widest uppercase text-white flex items-center gap-1.5">
+                  RENS Operations Advisor
+                  <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                </h2>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Augmented Real-Time Cognitive Analytics Core</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-1 rounded-full text-[9px] font-bold text-primary tracking-wider uppercase">
+              <Sparkles className="w-3 h-3 animate-spin-slow" />
+              Continuous Learning Active
+            </div>
+          </div>
+
+          {/* Body Content */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 text-left">
+            
+            {/* Column 1: AI KPI Snapshots */}
+            <div className="space-y-3 lg:border-r lg:border-white/5 lg:pr-6">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">
+                <TrendingUp className="w-3.5 h-3.5 text-cyan-400" />
+                KPI Snapshots
+              </div>
+              <div className="grid grid-cols-1 gap-2.5">
+                {aiData.kpis?.map((kpi: any, idx: number) => (
+                  <div key={idx} className="p-3 rounded-xl bg-white/5 border border-white/5 flex flex-col justify-between">
+                    <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">{kpi.label}</span>
+                    <div className="flex items-baseline justify-between mt-1">
+                      <span className="text-lg font-black text-white">{kpi.value}</span>
+                      <span className="text-[8px] font-bold text-cyan-400">{kpi.change}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Column 2: Critical Priorities */}
+            <div className="space-y-3 lg:border-r lg:border-white/5 lg:pr-6">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">
+                <Target className="w-3.5 h-3.5 text-violet-400" />
+                Critical Priorities
+              </div>
+              <div className="space-y-2.5">
+                {aiData.priorities?.map((priority: any, idx: number) => (
+                  <div key={idx} className="p-3 rounded-xl bg-violet-500/5 border border-violet-500/10 flex flex-col gap-1.5">
+                    <div className="flex items-start gap-1.5">
+                      <span className="text-[9px] font-bold text-violet-400 uppercase bg-violet-500/10 px-1.5 py-0.5 rounded leading-none">
+                        Priority {idx + 1}
+                      </span>
+                      <h4 className="text-xs font-extrabold text-white leading-tight">{priority.title}</h4>
+                    </div>
+                    <p className="text-[10px] text-gray-400 leading-normal">{priority.description}</p>
+                    {priority.actionCommand && (
+                      <button
+                        onClick={() => handleExecuteAiAction(priority.actionCommand)}
+                        className="w-full mt-1.5 py-1 px-2.5 rounded bg-violet-500/20 hover:bg-violet-500 text-[9px] font-black uppercase tracking-wider text-violet-300 hover:text-white transition-all text-center flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Play className="w-2 h-2 fill-current" />
+                        {priority.actionText || "Execute Action"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Column 3: Risk Alerts */}
+            <div className="space-y-3 lg:border-r lg:border-white/5 lg:pr-6">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">
+                <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                Risk Audit
+              </div>
+              <div className="space-y-2.5">
+                {aiData.risks?.map((risk: any, idx: number) => {
+                  const isHigh = risk.level === "HIGH";
+                  const isMedium = risk.level === "MEDIUM";
+                  const levelColor = isHigh ? "text-rose-400 bg-rose-500/15 border-rose-500/30 shadow-[0_0_10px_rgba(244,63,94,0.1)]" : 
+                                     isMedium ? "text-amber-400 bg-amber-500/15 border-amber-500/30" : 
+                                     "text-blue-400 bg-blue-500/15 border-blue-500/30";
+                  return (
+                    <div key={idx} className={`p-3 rounded-xl border flex flex-col gap-1.5 ${levelColor}`}>
+                      <div className="flex items-center gap-1.5 justify-between">
+                        <h4 className="text-xs font-extrabold text-white leading-tight">{risk.title}</h4>
+                        <span className="text-[7px] font-black tracking-widest uppercase">{risk.level}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-300 leading-normal">{risk.description}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Column 4: Opportunities */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+                Growth Opportunities
+              </div>
+              <div className="space-y-2.5">
+                {aiData.opportunities?.map((opp: any, idx: number) => (
+                  <div key={idx} className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/10 flex flex-col gap-1.5">
+                    <h4 className="text-xs font-extrabold text-white leading-tight flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-400 animate-pulse" />
+                      {opp.title}
+                    </h4>
+                    <p className="text-[10px] text-gray-400 leading-normal">{opp.description}</p>
+                    {opp.actionCommand && (
+                      <button
+                        onClick={() => handleExecuteAiAction(opp.actionCommand)}
+                        className="w-full mt-1.5 py-1 px-2.5 rounded bg-amber-500/20 hover:bg-amber-500 text-[9px] font-black uppercase tracking-wider text-amber-300 hover:text-white transition-all text-center flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Play className="w-2 h-2 fill-current" />
+                        {opp.actionText || "Capture Opp"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+
+          {/* Quick AI Execution Buttons Bar */}
+          {aiData.actions && aiData.actions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-white/5 text-left">
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mr-1">Suggested System Actions:</span>
+              {aiData.actions.map((act: any, idx: number) => {
+                const isPrimary = act.style === "primary";
+                const btnStyle = isPrimary 
+                  ? "bg-primary hover:bg-primary/95 text-white border-primary/20 hover:scale-[1.02] shadow-[0_0_15px_rgba(138,43,226,0.2)]" 
+                  : "bg-secondary border-border hover:bg-secondary/80 hover:scale-[1.02]";
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => handleExecuteAiAction(act.command)}
+                    className={`py-2 px-4 rounded-xl border text-xs font-semibold transition-all duration-300 flex items-center gap-1.5 cursor-pointer ${btnStyle}`}
+                  >
+                    <Play className="w-2.5 h-2.5 fill-current opacity-85" />
+                    {act.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -862,6 +1102,32 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* AI Toast Notifications */}
+      {toastMessage && (
+        <div className={`fixed bottom-6 right-6 z-[100] p-4 rounded-2xl border backdrop-blur-md shadow-2xl flex items-center gap-3 max-w-md animate-fade-in ${
+          toastType === "loading" ? "bg-primary/20 border-primary/30 text-white shadow-[0_0_20px_rgba(138,43,226,0.15)]" :
+          toastType === "error" ? "bg-rose-500/20 border-rose-500/30 text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.15)]" :
+          "bg-emerald-500/20 border-emerald-500/30 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+        }`}>
+          {toastType === "loading" ? (
+            <Loader2 className="w-5 h-5 animate-spin text-primary shrink-0" />
+          ) : toastType === "error" ? (
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+          ) : (
+            <Check className="w-5 h-5 text-emerald-400 shrink-0" />
+          )}
+          <div className="flex-1 text-xs font-semibold leading-normal">
+            {toastMessage}
+          </div>
+          <button 
+            onClick={() => setToastMessage(null)}
+            className="w-5 h-5 rounded-full hover:bg-white/10 flex items-center justify-center text-current/70 hover:text-current transition-all shrink-0 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 

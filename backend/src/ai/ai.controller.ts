@@ -93,6 +93,15 @@ export class AiController {
     return { success: true };
   }
 
+  @Get('dashboard-intelligence')
+  async getDashboardIntelligence(@Request() req) {
+    return this.aiService.getDashboardIntelligence(
+      req.user.id,
+      req.user.organizationId,
+      req.user.role
+    );
+  }
+
   // -----------------------------------------------------------------------------
   // Chat core endpoint (RAG + Postgres live database tools with history session)
   // -----------------------------------------------------------------------------

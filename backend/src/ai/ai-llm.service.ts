@@ -302,7 +302,7 @@ export class AiLlmService {
     return chunks;
   }
 
-  private cosineSimilarity(vecA: number[], vecB: number[]): number {
+  public cosineSimilarity(vecA: number[], vecB: number[]): number {
     const minLength = Math.min(vecA.length, vecB.length);
     if (minLength === 0) return 0;
 

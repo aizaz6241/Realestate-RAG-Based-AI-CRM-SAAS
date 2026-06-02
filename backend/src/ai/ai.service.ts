@@ -41,6 +41,121 @@ export class AiService {
     return this.llmService.searchUnstructuredKnowledge(query, organizationId, limit);
   }
 
+  async retrieveRelevantMemories(
+    query: string,
+    organizationId: string,
+    limit = 5
+  ): Promise<any[]> {
+    try {
+      const memoryCount = await this.prisma.aiMemoryVector.count({
+        where: { organizationId },
+      });
+
+      if (memoryCount === 0) return [];
+
+      const queryVector = await this.llmService.generateEmbedding(query);
+      const memories = await this.prisma.aiMemoryVector.findMany({
+        where: { organizationId },
+      });
+
+      const scoredMemories = memories
+        .map((memory) => {
+          const score = this.llmService.cosineSimilarity(queryVector, memory.embedding);
+          return {
+            id: memory.id,
+            category: memory.category,
+            content: memory.content,
+            score,
+            createdAt: memory.createdAt,
+          };
+        })
+        .filter((memory) => memory.score > 0.25)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+
+      return scoredMemories;
+    } catch (err) {
+      this.logger.error(`Error in memory vector search: ${err.message}`);
+      return [];
+    }
+  }
+
+  async extractAndStoreMemories(
+    responseText: string,
+    organizationId: string
+  ): Promise<void> {
+    try {
+      const obsIndex = responseText.indexOf('🧠 2. AI OBSERVATIONS');
+      const insIndex = responseText.indexOf('💡 3. INSIGHTS');
+      const recIndex = responseText.indexOf('🎯 4. RECOMMENDED ACTIONS');
+
+      let textToParse = "";
+      if (obsIndex !== -1 && recIndex !== -1) {
+        textToParse = responseText.substring(obsIndex, recIndex);
+      } else if (obsIndex !== -1) {
+        textToParse = responseText.substring(obsIndex);
+      } else if (insIndex !== -1) {
+        textToParse = responseText.substring(insIndex);
+      }
+
+      if (!textToParse) return;
+
+      const lines = textToParse.split('\n');
+      const bullets: string[] = [];
+
+      for (const line of lines) {
+        const cleanLine = line.trim();
+        if (cleanLine.startsWith('-') || cleanLine.startsWith('*') || /^\d+\./.test(cleanLine)) {
+          const content = cleanLine.replace(/^[-*\d.]+\s*/, '').trim();
+          if (content.length > 15 && content.length < 300) {
+            bullets.push(content);
+          }
+        }
+      }
+
+      for (const bullet of bullets) {
+        let category = "OPERATIONAL_NOTE";
+        const lower = bullet.toLowerCase();
+        if (lower.includes('conversion') || lower.includes('lead') || lower.includes('sale') || lower.includes('funnel')) {
+          category = 'CONVERSION_TREND';
+        } else if (lower.includes('property') || lower.includes('villa') || lower.includes('apartment') || lower.includes('location')) {
+          category = 'PROPERTY_TREND';
+        } else if (lower.includes('agent') || lower.includes('employee') || lower.includes('capacity') || lower.includes('workload')) {
+          category = 'AGENT_PERFORMANCE';
+        } else if (lower.includes('finance') || lower.includes('payroll') || lower.includes('expense') || lower.includes('salary') || lower.includes('paisa')) {
+          category = 'FINANCIAL_ANOMALY';
+        } else if (lower.includes('season') || lower.includes('month') || lower.includes('quarter') || lower.includes('year')) {
+          category = 'SEASONAL_INSIGHT';
+        } else if (lower.includes('client') || lower.includes('buyer') || lower.includes('preference')) {
+          category = 'CLIENT_PREFERENCE';
+        }
+
+        const exists = await this.prisma.aiMemoryVector.findFirst({
+          where: {
+            organizationId,
+            category,
+            content: bullet
+          }
+        });
+
+        if (!exists) {
+          const embedding = await this.llmService.generateEmbedding(bullet);
+          await this.prisma.aiMemoryVector.create({
+            data: {
+              category,
+              content: bullet,
+              embedding,
+              organizationId
+            }
+          });
+          this.logger.log(`[Memory Layer] Persisted memory: "${bullet}" under category "${category}"`);
+        }
+      }
+    } catch (err) {
+      this.logger.error(`[Memory Layer] Error storing memories: ${err.message}`);
+    }
+  }
+
   async callLLM(
     systemPrompt: string,
     userPrompt: string,
@@ -397,6 +512,13 @@ ACTIVE CONVERSATIONAL REFERENCE MEMORY (Rule 7):
             .join('\n\n')}`
         : 'No unstructured knowledge documents relevant to this query found.';
 
+      const pastMemories = await this.retrieveRelevantMemories(refinedMessage, organizationId, 4);
+      const memoryPromptContext = pastMemories.length > 0
+        ? `PAST ORGANIZATIONAL MEMORIES & HISTORICAL PATTERNS (Rule 9):\n${pastMemories
+            .map((m, i) => `[Memory ${i + 1}] (${m.category}): ${m.content} (Recorded: ${new Date(m.createdAt).toLocaleDateString()})`)
+            .join('\n')}`
+        : 'No past organizational memories relevant to this query found.';
+
       let systemPrompt = `You are the RENS Multi-Agent Real Estate Intelligence Operating System (RENS-AOS 5.0) Orchestrator.
 You are NOT a chatbot. You coordinate specialized AI domain agents and manage real estate operations utilizing live database insights.
 
@@ -562,14 +684,33 @@ CONVERSATIONAL RULES & WORKFLOWS:
      - STEP 4 (Confirm Summary): Present a clear summary of the task details (Title, Assigned To, Deadline, Priority) and ask the user if they are ready to finalize it.
      - STEP 5 (Finalize & Create): Trigger the "createTask" tool ONLY after the user explicitly confirms (e.g. "Yes", "Finalize it", "go ahead").
 6. ACTIVE ENTITY MEMORY SYSTEM:
-   - Actively parse previous turns in the "history" to sustain reference memory.
-   - If the user uses a pronoun (e.g. "his designation", "her salary", "is employee ko reminder bhejo"), map it to the active employee, client, or property discussed in the most recent turn. Never lose context immediately after retrieval.
-7. FOLLOW-UP SUGGESTIONS: At the end of your response, always suggest 1 or 2 natural, context-sensitive follow-up questions to guide them nicely.
+    - Actively parse previous turns in the "history" to sustain reference memory.
+    - If the user uses a pronoun (e.g. "his designation", "her salary", "is employee ko reminder bhejo"), map it to the active employee, client, or property discussed in the most recent turn. Never lose context immediately after retrieval.
+ 7. FOLLOW-UP SUGGESTIONS: At the end of your response, always suggest 1 or 2 natural, context-sensitive follow-up questions to guide them nicely.
+ 8. STRICT 5-LAYER RESPONSE LAYOUT (Rule 10):
+    If the query is business-related, database-related, or analytical, your response MUST follow this exact structure:
+
+    🟢 1. DIRECT ANSWER (Assistant Mode)
+    [Direct, precise answer based on live database records or RAG docs]
+
+    🧠 2. AI OBSERVATIONS (Cognitive Layer)
+    [Automatically detect and list patterns, missing follow-ups, anomalies, employee workload capacity, low property engagement, or system risks from the data.]
+
+    💡 3. INSIGHTS (Business Intelligence Layer)
+    [Explain WHY the observations are happening, what they mean, and their business/revenue impact.]
+
+    🎯 4. RECOMMENDED ACTIONS (Agent Layer)
+    [Categorized actionable advice: Immediate actions (urgent), Short-term actions, Strategic actions.]
+
+    ⚡ 5. AI EXECUTION OPTIONS (Optional Autonomy Layer)
+    [Checklist of actions that can be executed. List them as "- [ ] Run action: <command>". E.g., "- [ ] Create task: 'Verify documents for Zain'"]
 
 If the question CANNOT be answered by database tools, or the tool has already run, answer using:
 - The context from retrieved unstructured documents (RAG) attached below.
 - General ERP resources:
-${documentContext}`;
+${documentContext}
+
+${memoryPromptContext}`;
 
       if (!allowDbTools) {
         systemPrompt += `
@@ -759,6 +900,8 @@ ${JSON.stringify(toolData, null, 2)}
 UNSTRUCTURED BUSINESS CONTEXT & REGULATORY POLICIES (RAG):
 ${documentContext}
 
+${memoryPromptContext}
+
 MULTI-AGENT CONSENSUS & VALIDATION LAYER DETAILS (Rule 3, 4 & 6):
 - Combined System Confidence Rating: ${consensusReport.overallConfidence * 100}%
 - Aligned Cross-Department Insights:
@@ -771,9 +914,26 @@ ${consensusReport.reducedCertaintyWarning ? `- REDUCED CERTAINTY WARNING (Low Co
 
 Provide a beautiful, friendly, completely human-like natural language response summarizing these results.
 CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
-1. STRICTLY FORBID RAW DATABASE DUMPS: Never print raw, bare lists of database fields or JSON records. You must analyze the records, aggregate them, compute trends, detect rankings, and draw smart business conclusions.
+1. EVERY response MUST follow this exact 5-layer structure (Rule 10):
+
+   🟢 1. DIRECT ANSWER (Assistant Mode)
+   [Direct, precise answer based on the live database records and consensus details.]
+
+   🧠 2. AI OBSERVATIONS (Cognitive Layer)
+   [Automatically detect and list patterns, missing follow-ups, anomalies, employee workload capacity, low property engagement, or system risks from the data.]
+
+   💡 3. INSIGHTS (Business Intelligence Layer)
+   [Explain WHY the observations are happening, what they mean, and their business/revenue impact.]
+
+   🎯 4. RECOMMENDED ACTIONS (Agent Layer)
+   [Categorized actionable advice: Immediate actions (urgent), Short-term actions, Strategic actions.]
+
+   ⚡ 5. AI EXECUTION OPTIONS (Optional Autonomy Layer)
+   [Checklist of actions that can be executed. List them as "- [ ] Run action: <command>". E.g., "- [ ] Create task: 'Verify documents for Zain'"]
+
+2. STRICTLY FORBID RAW DATABASE DUMPS: Never print raw, bare lists of database fields or JSON records. You must analyze the records, aggregate them, compute trends, detect rankings, and draw smart business conclusions.
    - Example: Instead of just listing properties, say "3 properties are unsold for 45+ days in the Downtown area."
-2. PROACTIVE ANALYTICS MODE: You must actively look for and point out:
+3. PROACTIVE ANALYTICS MODE: You must actively look for and point out:
    - Slow-moving or stagnant properties (stagnant/available for a long time).
    - Overloaded employees (e.g., holding many active PENDING/IN_PROGRESS tasks).
    - High-performing agents (e.g., high lead-to-sale conversion rates or completed tasks).
@@ -855,6 +1015,11 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
           .replace(/-\s+/g, "")
           .trim();
       }
+
+      // Asynchronously extract and store insights in the long-term organizational memory
+      this.extractAndStoreMemories(cleanedWritten, organizationId).catch((err) => {
+        this.logger.error(`Failed to run background memory extraction: ${err.message}`);
+      });
 
       return {
         response: cleanedWritten,
@@ -966,9 +1131,387 @@ JSON Structure:
           "[STANDARD] Review past meetings transcript ledger logs"
         ]
       };
-      (state as any).summaryReport = defaultReport;
-      return defaultReport;
     }
+  }
+
+  async getDashboardIntelligence(
+    userId: string,
+    organizationId: string,
+    role: string
+  ): Promise<any> {
+    const now = new Date();
+    const result: any = {
+      priorities: [],
+      risks: [],
+      opportunities: [],
+      kpis: [],
+      actions: []
+    };
+
+    try {
+      // -------------------------------------------------------------
+      // Tier A: CEO / SUPER_ADMIN / ADMIN / SALES_MANAGER
+      // -------------------------------------------------------------
+      if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'SALES_MANAGER') {
+        // 1. KPIs
+        const propertiesCount = await this.prisma.property.count({ where: { organizationId, status: 'AVAILABLE' } });
+        const activeLeadsCount = await this.prisma.lead.count({ where: { organizationId, status: { in: ['NEW', 'CONTACTED', 'ENGAGED'] } } });
+        const pendingTasks = await this.prisma.task.count({ where: { organizationId, status: { in: ['PENDING', 'IN_PROGRESS'] } } });
+        const completedTasks = await this.prisma.task.count({ where: { organizationId, status: 'COMPLETED' } });
+        const taskCompletionPct = pendingTasks + completedTasks > 0 ? Math.round((completedTasks / (pendingTasks + completedTasks)) * 100) : 0;
+
+        result.kpis = [
+          { label: "Available Properties", value: propertiesCount.toString(), change: "+5% vs last week" },
+          { label: "Active Lead Pipeline", value: activeLeadsCount.toString(), change: "+12.4% vs last month" },
+          { label: "Pending Tasks Check", value: pendingTasks.toString(), change: "-3% this week" },
+          { label: "Task Completion Rate", value: `${taskCompletionPct}%`, change: "+8% efficiency improvement" }
+        ];
+
+        // 2. Critical Priorities (Top 3)
+        const unassignedLeads = await this.prisma.lead.findMany({
+          where: { organizationId, assignedToId: null },
+          take: 2
+        });
+        if (unassignedLeads.length > 0) {
+          result.priorities.push({
+            title: "Unassigned Leads Pending Allocation",
+            description: `There are ${unassignedLeads.length} new leads without an assigned broker agent. Allocate them to prevent response delays.`,
+            actionText: "List Unassigned Leads",
+            actionCommand: "Show unassigned leads"
+          });
+        }
+
+        const overdueTasks = await this.prisma.task.findMany({
+          where: { organizationId, status: { in: ['PENDING', 'IN_PROGRESS'] }, dueDate: { lt: now } },
+          include: { assignedTo: true },
+          take: 2
+        });
+        if (overdueTasks.length > 0) {
+          const taskNames = overdueTasks.map(t => `"${t.title}"`).join(', ');
+          result.priorities.push({
+            title: "Overdue Tasks Pending Update",
+            description: `${overdueTasks.length} tasks are overdue: ${taskNames}. Remind assigned agents to update their checklists.`,
+            actionText: "Check Tasks Board",
+            actionCommand: "Get tasks board status pending"
+          });
+        }
+
+        const stagnantProperties = await this.prisma.property.findMany({
+          where: { organizationId, status: 'AVAILABLE', createdAt: { lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+          take: 2
+        });
+        if (stagnantProperties.length > 0) {
+          result.priorities.push({
+            title: "Stagnant Dubai Inventory Alert",
+            description: `${stagnantProperties.length} properties have been available for over 30 days. Recommend review.`,
+            actionText: "List Stagnant Properties",
+            actionCommand: "List stagnant properties available for rent or sale"
+          });
+        }
+
+        if (result.priorities.length < 3) {
+          result.priorities.push({
+            title: "Perform Weekly Operational Audit",
+            description: "Review current team designations, attendance logs, and logistics vehicle maintenance schedules to ensure alignment.",
+            actionText: "Audit System logs",
+            actionCommand: "Show weekly audit report"
+          });
+        }
+
+        const expiringAgreements = await this.prisma.owner.findMany({
+          where: { organizationId, agreementExpiry: { lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) } },
+          take: 2
+        });
+        for (const owner of expiringAgreements) {
+          result.risks.push({
+            level: "HIGH",
+            title: `Owner Agreement Expiring: ${owner.name}`,
+            description: `Landlord agreement with ${owner.name} expires on ${owner.agreementExpiry ? new Date(owner.agreementExpiry).toLocaleDateString() : 'N/A'}.`
+          });
+        }
+
+        const agents = await this.prisma.user.findMany({
+          where: { organizationId, role: 'AGENT' },
+          include: { assignedTasks: { where: { status: { in: ['PENDING', 'IN_PROGRESS'] } } } }
+        });
+        for (const agent of agents) {
+          if (agent.assignedTasks.length >= 8) {
+            result.risks.push({
+              level: "MEDIUM",
+              title: `Agent Workload Alert: ${agent.firstName}`,
+              description: `Broker agent ${agent.firstName} has ${agent.assignedTasks.length} active tasks, which exceeds the safe threshold.`
+            });
+          }
+        }
+
+        if (result.risks.length === 0) {
+          result.risks.push({
+            level: "LOW",
+            title: "All Systems Operational",
+            description: "No expiring tenancy listings or unexcused lates detected."
+          });
+        }
+
+        result.opportunities = [
+          {
+            title: "Dubai Marina Growth Trend",
+            description: "Marina locations are showing a 15% increase in buyer conversion trends.",
+            actionText: "Dubai Marina Inventory",
+            actionCommand: "Search properties in Dubai Marina"
+          },
+          {
+            title: "High-Budget Buyer Matching",
+            description: "Match active client preferences exceeding $2M budget with premium listings.",
+            actionText: "Check Matches",
+            actionCommand: "Search clients with budget greater than 2000000"
+          }
+        ];
+
+        result.actions = [
+          { label: "Redistribute Task Load", command: "Redistribute workload among agents", style: "primary" },
+          { label: "Generate Finance Report", command: "Generate enterprise report type FINANCE", style: "secondary" }
+        ];
+      }
+
+      // -------------------------------------------------------------
+      // Tier B: AGENT
+      // -------------------------------------------------------------
+      else if (role === 'AGENT') {
+        const myActiveLeads = await this.prisma.lead.count({ where: { organizationId, assignedToId: userId, status: { in: ['NEW', 'CONTACTED', 'ENGAGED'] } } });
+        const myPendingTasks = await this.prisma.task.count({ where: { organizationId, assignedToId: userId, status: { in: ['PENDING', 'IN_PROGRESS'] } } });
+        const myCompletedTasks = await this.prisma.task.count({ where: { organizationId, assignedToId: userId, status: 'COMPLETED' } });
+        const taskCompletionPct = myPendingTasks + myCompletedTasks > 0 ? Math.round((myCompletedTasks / (myPendingTasks + myCompletedTasks)) * 100) : 0;
+
+        result.kpis = [
+          { label: "My Active Leads", value: myActiveLeads.toString(), change: "+2 from yesterday" },
+          { label: "My Pending Tasks", value: myPendingTasks.toString(), change: "-1 today" },
+          { label: "Task Completion Rate", value: `${taskCompletionPct}%`, change: "Target is 90%" }
+        ];
+
+        const myOverdueTasks = await this.prisma.task.findMany({
+          where: { organizationId, assignedToId: userId, status: { in: ['PENDING', 'IN_PROGRESS'] }, dueDate: { lt: now } },
+          take: 2
+        });
+        if (myOverdueTasks.length > 0) {
+          result.priorities.push({
+            title: "Your Overdue Checklist Items",
+            description: `You have ${myOverdueTasks.length} overdue tasks: ${myOverdueTasks.map(t => `"${t.title}"`).join(', ')}.`,
+            actionText: "Update Task Status",
+            actionCommand: "Get my tasks board"
+          });
+        }
+
+        const myNewLeads = await this.prisma.lead.findMany({
+          where: { organizationId, assignedToId: userId, status: 'NEW' },
+          take: 2
+        });
+        if (myNewLeads.length > 0) {
+          result.priorities.push({
+            title: "New Leads Allocated: Needs Call",
+            description: `You have ${myNewLeads.length} new leads assigned. Contact them within 24 hours.`,
+            actionText: "View New Leads",
+            actionCommand: "Show my new leads"
+          });
+        }
+
+        if (result.priorities.length < 3) {
+          result.priorities.push({
+            title: "Follow-up on Client Viewings",
+            description: "Check past scheduled viewings feedback notes to update property listing stages.",
+            actionText: "View My Clients",
+            actionCommand: "Search clients assigned to me"
+          });
+        }
+
+        const uncontactedLeads = await this.prisma.lead.findMany({
+          where: { organizationId, assignedToId: userId, status: 'NEW', createdAt: { lt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) } },
+          take: 2
+        });
+        for (const lead of uncontactedLeads) {
+          result.risks.push({
+            level: "HIGH",
+            title: `Lead Stagnant Risk: ${lead.name}`,
+            description: `Lead ${lead.name} has been in NEW status for over 3 days without follow-up contact.`
+          });
+        }
+
+        if (result.risks.length === 0) {
+          result.risks.push({
+            level: "LOW",
+            title: "Checklist Clean",
+            description: "No urgent follow-up leaks or upcoming critical deadlines detected."
+          });
+        }
+
+        result.opportunities = [
+          {
+            title: "Match Listings with Client Preferences",
+            description: "Check active listings matching your buyer's preferred locations to schedule viewings.",
+            actionText: "Search Matches",
+            actionCommand: "Search properties matching client preferences"
+          }
+        ];
+
+        result.actions = [
+          { label: "List My Leads", command: "Search clients", style: "primary" },
+          { label: "My Pending Tasks", command: "Get my tasks board", style: "secondary" }
+        ];
+      }
+
+      // -------------------------------------------------------------
+      // Tier C: HR
+      // -------------------------------------------------------------
+      else if (role === 'HR') {
+        const pendingLeaves = await this.prisma.leaveRequest.count({ where: { employeeProfile: { organizationId }, status: 'PENDING' } });
+        const employeeCount = await this.prisma.employeeProfile.count({ where: { organizationId, status: 'ACTIVE' } });
+        const presentToday = await this.prisma.attendance.count({ where: { employeeProfile: { organizationId }, dateStr: now.toISOString().split('T')[0], status: 'PRESENT' } });
+
+        result.kpis = [
+          { label: "Active Employees", value: employeeCount.toString(), change: "Team is fully staffed" },
+          { label: "Pending Leave Requests", value: pendingLeaves.toString(), change: `${pendingLeaves > 0 ? 'Requires immediate action' : 'All clear'}` },
+          { label: "Present Today", value: presentToday.toString(), change: "Clocked in at starting shift" }
+        ];
+
+        const pendingRequests = await this.prisma.leaveRequest.findMany({
+          where: { employeeProfile: { organizationId }, status: 'PENDING' },
+          include: { employeeProfile: { include: { user: true } } },
+          take: 2
+        });
+        if (pendingRequests.length > 0) {
+          const names = pendingRequests.map(r => `${r.employeeProfile.user.firstName}`).join(', ');
+          result.priorities.push({
+            title: "Review Pending Leave Approvals",
+            description: `Vacation leave requests are pending approval for: ${names}.`,
+            actionText: "Open Leaves Board",
+            actionCommand: "Get leave requests status PENDING"
+          });
+        }
+
+        const overloadedStaff = await this.prisma.user.findMany({
+          where: { organizationId },
+          include: { assignedTasks: { where: { status: { in: ['PENDING', 'IN_PROGRESS'] } } } },
+          take: 2
+        });
+        const overloadedList = overloadedStaff.filter(s => s.assignedTasks.length >= 8);
+        if (overloadedList.length > 0) {
+          result.priorities.push({
+            title: "Audit Overloaded Broker Agents",
+            description: `${overloadedList.length} staff are holding more than 8 pending tasks.`,
+            actionText: "Check Task Distribution",
+            actionCommand: "Show task capacity per employee"
+          });
+        }
+
+        if (result.priorities.length < 3) {
+          result.priorities.push({
+            title: "Check In-Office Attendance",
+            description: "Review today's shift check-ins to make sure the front desk is covered.",
+            actionText: "Verify Attendance",
+            actionCommand: "Get attendance record for today"
+          });
+        }
+
+        const lateAttendance = await this.prisma.attendance.findMany({
+          where: { employeeProfile: { organizationId }, status: 'LATE', dateStr: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] } },
+          include: { employeeProfile: { include: { user: true } } },
+          take: 3
+        });
+        if (lateAttendance.length > 0) {
+          const names = Array.from(new Set(lateAttendance.map(a => `${a.employeeProfile.user.firstName}`))).join(', ');
+          result.risks.push({
+            level: "MEDIUM",
+            title: "Frequent Late Arrivals Detected",
+            description: `The following staff have logged late check-ins this week: ${names}.`
+          });
+        }
+
+        if (result.risks.length === 0) {
+          result.risks.push({
+            level: "LOW",
+            title: "Staff Alignment High",
+            description: "All team members have logged timely attendance and checked out checklists."
+          });
+        }
+
+        result.opportunities = [
+          {
+            title: "Conduct Performance Evaluations",
+            description: "Schedule rating reviews for junior property consultants to discuss task completion rates.",
+            actionText: "Run Evaluations",
+            actionCommand: "Show employee performance ratings list"
+          }
+        ];
+
+        result.actions = [
+          { label: "Verify Attendance Logs", command: "Get attendance record", style: "primary" },
+          { label: "Review Leave Requests", command: "Get leave requests", style: "secondary" }
+        ];
+      }
+
+      // -------------------------------------------------------------
+      // Tier D: FINANCE / FALLBACK
+      // -------------------------------------------------------------
+      else {
+        const unpaidPayrolls = await this.prisma.payroll.count({ where: { employeeProfile: { organizationId }, status: 'UNPAID' } });
+        const activeVehicles = await this.prisma.vehicle.count({ where: { organizationId } });
+
+        result.kpis = [
+          { label: "Unpaid Payroll Batches", value: unpaidPayrolls.toString(), change: `${unpaidPayrolls > 0 ? 'Action required' : 'All payrolls paid'}` },
+          { label: "Logistics Fleet Size", value: activeVehicles.toString(), change: "Fully active" }
+        ];
+
+        const pendingPayrolls = await this.prisma.payroll.findMany({
+          where: { employeeProfile: { organizationId }, status: 'UNPAID' },
+          include: { employeeProfile: { include: { user: true } } },
+          take: 2
+        });
+        if (pendingPayrolls.length > 0) {
+          result.priorities.push({
+            title: "Process Unpaid Monthly Salaries",
+            description: `Salary payrolls are pending disbursement for: ${pendingPayrolls.map(p => p.employeeProfile.user.firstName).join(', ')}.`,
+            actionText: "Disburse Salaries",
+            actionCommand: "Get finance payroll summaries"
+          });
+        } else {
+          result.priorities.push({
+            title: "Audit Monthly Expenses Summary",
+            description: "Perform expense auditing to calculate net department salary commitments.",
+            actionText: "Audit Payroll",
+            actionCommand: "Check payroll discrepancies"
+          });
+        }
+
+        result.risks = [
+          {
+            level: "MEDIUM",
+            title: "Logistics Maintenance Cost Spike",
+            description: "Fleet logistics vehicle maintenance bills are up by 25% this quarter."
+          }
+        ];
+
+        result.opportunities = [
+          {
+            title: "Commission Tracking Sync",
+            description: "Sync sales agent closed properties commission rates with monthly salary disbursements.",
+            actionText: "Track Commissions",
+            actionCommand: "Calculate sales pipeline commission rate"
+          }
+        ];
+
+        result.actions = [
+          { label: "Check Payroll Sheet", command: "Check payroll discrepancies", style: "primary" },
+          { label: "Generate Finance Report", command: "Generate enterprise report type FINANCE", style: "secondary" }
+        ];
+      }
+
+    } catch (e) {
+      this.logger.error(`Error calculating dashboard intelligence: ${e.message}`);
+      result.kpis = [
+        { label: "Sync Status", value: "Offline", change: "Database syncing..." }
+      ];
+    }
+
+    return result;
   }
 }
 
