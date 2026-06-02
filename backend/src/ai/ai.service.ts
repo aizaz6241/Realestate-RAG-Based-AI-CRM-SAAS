@@ -573,34 +573,13 @@ You have access ONLY to the following 12 database tools:
       * Table "LeadActivity" columns: "id", "type" (CALL | EMAIL | NOTES | STATUS_CHANGE), "description", "activityDate", "leadId"
       * Table "PropertyPriceHistory" columns: "id", "price", "changeDate", "propertyId"
 
-    - BUSINESS INTELLIGENCE DEFINITIONS & METRIC FORMULAS (CRITICAL):
-      * "Unsold over 90 days": Properties where status = 'AVAILABLE' and "createdAt" < NOW() - INTERVAL '90 days'.
-      * "Off-plan properties": Properties where title, description, or location contains 'off-plan' or status = 'DRAFT' or type has off-plan matching.
-      * "Properties with no images": Properties where cardinality(images) = 0 or images IS NULL or array_length(images, 1) IS NULL.
-      * "Properties with low inquiries": Properties joined with "ClientPropertyInterest" having count < 2 (or zero interests).
-      * "Properties needing price revision": Available listings unsold for over 60 days with zero interests or viewings.
-      * "Leads with no follow-up": Leads having no rows in "LeadActivity".
-      * "Hot Leads": Leads with score > 70 or status = 'ENGAGED'.
-      * "Cold Leads": Leads with score < 30 or status = 'DISQUALIFIED'.
-      * "High Budget Leads/Clients": Clients or Leads with budget >= 2000000.
-      * "Leads converted today": Leads where status = 'CLOSED' and DATE("updatedAt") = CURRENT_DATE (or status='CLOSED' and "updatedAt" >= CURRENT_DATE).
-      * "Inactive Leads": Leads with no "LeadActivity" in the last 30 days.
-      * "Leads needing urgent response": Leads with status = 'NEW' created > 24 hours ago.
-      * "Overloaded agent/employee": Users with role = 'AGENT' having >= 8 tasks with status in ('PENDING', 'IN_PROGRESS').
-      * "Top Performing Agent": Agent with highest count of leads with status = 'CLOSED' or Completed Tasks, or average PerformanceReview rating >= 4.5.
-      * "Lowest Performing Agent / Least Conversion": Agent with lowest ratio of closed leads to total assigned leads, or lowest average PerformanceReview rating.
-      * "Absent today": EmployeeProfile with status = 'ACTIVE' who do NOT have an Attendance record where "dateStr" = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') or Attendance status = 'ABSENT'.
-      * "Late today": Attendance where "dateStr" = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') and status = 'LATE'.
-      * "On leave today": LeaveRequests with status = 'APPROVED' and CURRENT_DATE BETWEEN "startDate" and "endDate", or Attendance status = 'ON_LEAVE'.
-      * "Expiring visa / contracts": EmployeeProfiles with documents matching visa/contract tags that are within 30 days of expiration (or matching agreementExpiry in Owner table).
-      * "Eligible for promotion": EmployeeProfile where status = 'ACTIVE' and average PerformanceReview rating >= 4.5.
-      * "Under probation": EmployeeProfile with status = 'ACTIVE' and "joiningDate" >= NOW() - INTERVAL '90 days'.
-      * "Unpaid salary / invoices": Payrolls with status = 'UNPAID' or invoices with status = 'PENDING'.
-      * "Keys missing": KeyTracker where status = 'LOST' or KeyCheckout where "returnDate" IS NULL.
-      * "Vehicles available": Vehicle where status = 'ACTIVE' and id NOT IN (SELECT "vehicleId" FROM "LogisticsSchedule" WHERE status = 'IN_TRANSIT').
-      * "Drivers available": DriverProfile where status = 'AVAILABLE' and id NOT IN (SELECT "driverId" FROM "LogisticsSchedule" WHERE status = 'IN_TRANSIT').
-      * "Department weakness / bottlenecks": Department with highest count of overdue tasks, or lowest task completion rate, or lowest average performance review.
-      * "Edge Case simulations (e.g. leads drop 50%, top agents resign)": If user asks "what if..." hypotheticals, retrieve active agent/revenue counts first via SQL, calculate the proportional drop, and output a highly qualitative business analysis identifying exact agents at risk, revenue loss, and strategic mitigation plans (e.g. hire matching profiles, automate checklists).
+    - DYNAMIC RELATIONAL & TEMPORAL MAPPING GUIDE (AUTONOMOUS THINKING):
+      * **Dynamic Temporal Math**: Translate any user-specified duration dynamically (e.g. "unsold for X days", "joined in last Y months", "created Z weeks ago") by performing mathematical date comparisons relative to the current baseline date. E.g. '"createdAt" < NOW() - INTERVAL '\''25 days'\''' or '"joiningDate" >= NOW() - INTERVAL '\''3 months'\'''.
+      * **Dynamic Status & Boolean Deductions**: Match descriptive user terms (e.g., "unassigned", "duplicate", "available", "unpaid") dynamically to matching columns and statuses. E.g., unassigned leads/properties means '"assignedToId" IS NULL'; duplicate leads means '"isDuplicate" = true'; unpaid salary means '"status" = '\''UNPAID'\''' in the Payroll table.
+      * **Array Cardinality Checks**: If querying properties with "no images" or "no amenities", use PostgreSQL array functions. E.g., 'cardinality(images) = 0' or 'images IS NULL' or 'array_length(images, 1) IS NULL'.
+      * **Dynamic Aggregations & High-Cognition Joins**: Calculate indicators (like "low inquiries", "top performing", "overloaded", "at risk") by dynamically joining tables (e.g., Property + ClientPropertyInterest for interests, User + Lead for conversions) and grouping them with standard SQL aggregations (COUNT, SUM, AVG) ordered with 'LIMIT'.
+      * **Edge Case & Hypothetical Reasoning**: For stress-test questions (e.g., "What if sales drop 50%?", "What if top agents resign?"), first query the live database to fetch actual statistics (active lead pipeline, top agents by completed tasks or listings), calculate the hypothetical numeric impact, and generate a strategic mitigation report autonomously based on live counts.
+      * **Autonomous Parameter Parsing**: Do not rely on static values. Determine dates, budgets, thresholds, locations, and priorities dynamically from the user's natural query context.
     - HIGH COGNITION JOIN/AGGREGATE RULE: If the user asks about complex aggregates, joins, department checks, rankings, or parameters (e.g. "who is our oldest employee", "who is our top performing agent", "are there any payroll discrepancies", "owner property counts", "HR team task completion"), you MUST write a single raw SELECT query using "runDatabaseQuery"! This ensures maximum real-time precision and high cognitive enterprise intelligence.
     - **CRITICAL POSTGRESQL SYNTAX SECURITY RULE**: When writing SELECT queries, you MUST select specific individual columns (e.g. u."firstName", ep.salary) or aggregated fields. **NEVER select raw whole table records or relation rows (e.g. SELECT u FROM "User" u, SELECT ep FROM "EmployeeProfile" ep)**, as this returns anonymous composite row types which are unsupported by Prisma and throw a fatal SQL exception! All columns from joined tables must be queried individually.
     - SQL REFERENCE EXAMPLES FOR HIGH COGNITION QUERIES (CRITICAL):
