@@ -35,7 +35,8 @@ import {
   X,
   Award,
   Star,
-  User
+  User,
+  PhoneOff
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -363,7 +364,7 @@ export default function AssistantPage() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // RENS Voice Live Speech-to-Text Orchestrator Effect (Rule 1 & 6 - continuous auto-listen loop with barge-in support)
+  // RENS Voice Live Speech-to-Text Orchestrator Effect (Continuous single-instance loop with instant interim barge-in support)
   useEffect(() => {
     if (typeof window === "undefined" || !isVoiceModeActive) return;
     
@@ -372,49 +373,55 @@ export default function AssistantPage() {
 
     if (!SpeechRecognition) return;
 
-    let recognition: any = null;
+    console.log("🎙️ Continuous Speech Recognition Service Instantiating...");
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = speechLang;
 
-    if ((voiceAgentState === "LISTENING" || voiceAgentState === "SPEAKING") && !isMuted) {
-      recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = speechLang;
+    recognition.onstart = () => {
+      console.log("🎙️ Microphone is active and continuously listening...");
+    };
 
-      recognition.onstart = () => {
-        console.log("🎙️ Continuous Speech Recognition started...");
-      };
-
-      recognition.onend = () => {
-        // Auto-restart loop if still active, listening or speaking, and not muted (solves stale closures via Refs)
-        if (isVoiceModeActiveRef.current && (voiceAgentStateRef.current === "LISTENING" || voiceAgentStateRef.current === "SPEAKING") && !isMutedRef.current) {
-          try {
-            recognition.start();
-          } catch (e) {
-            console.warn("Attempted recognition restart failed:", e);
-          }
+    recognition.onend = () => {
+      // Auto-restart loop if still active, regardless of state, to keep mic hot and reduce cold-start delay
+      if (isVoiceModeActiveRef.current) {
+        try {
+          recognition.start();
+        } catch (e) {
+          console.warn("SpeechRecognition auto-restart failed:", e);
         }
-      };
+      }
+    };
 
-      recognition.onerror = (e: any) => {
+    recognition.onerror = (e: any) => {
+      if (e.error !== "no-speech") {
         console.warn("Speech recognition error:", e.error);
-      };
+      }
+    };
 
-      recognition.onresult = async (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript && transcript.trim()) {
-          console.log("🗣️ Voice dictated:", transcript);
+    recognition.onresult = async (event: any) => {
+      if (isMutedRef.current) return;
+      if (voiceAgentStateRef.current === "THINKING") return;
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const transcript = event.results[i][0].transcript;
+        if (!transcript || !transcript.trim()) continue;
+
+        if (event.results[i].isFinal) {
+          console.log("🗣️ Speech Final transcript dictation:", transcript);
           
           if (/exit voice mode|goodbye|allah hafiz|band karo/i.test(transcript)) {
             handleExitVoiceMode();
             return;
           }
 
-          // BARGE-IN INTERRUPTION logic:
+          // BARGE-IN INTERRUPTION logic (if user keeps speaking after final capture):
           if (voiceAgentStateRef.current === "SPEAKING") {
             const cleanAiResponse = lastAiResponseRef.current?.toLowerCase() || "";
             if (cleanAiResponse.includes(transcript.toLowerCase()) || transcript.length < 3) {
-              console.log("🤫 Echo of AI response detected, ignoring barge-in...");
-              return;
+              console.log("🤫 Echo of AI response detected, ignoring final barge-in...");
+              continue;
             }
             console.log("🤫 User interrupted AI! Cancelling speaking...");
             if (typeof window !== "undefined" && window.speechSynthesis) {
@@ -426,7 +433,6 @@ export default function AssistantPage() {
           setVoiceAgentState("THINKING");
 
           try {
-            // Push user message to dialog box
             const userMsgId = `user-${Date.now()}`;
             setMessages(prev => [...prev, {
               id: userMsgId,
@@ -444,7 +450,7 @@ export default function AssistantPage() {
               body: JSON.stringify({
                 message: transcript,
                 sessionId: activeSessionId || undefined,
-                callPersona: activeCallPersona
+                callPersona: "ORCHESTRATOR"
               })
             });
 
@@ -461,8 +467,9 @@ export default function AssistantPage() {
                 createdAt: new Date().toISOString(),
               }]);
 
-              setSubtitleFeedAi(data.response);
-              speakText(data.response);
+              const spokenText = data.spokenResponse || data.response;
+              setSubtitleFeedAi(spokenText);
+              speakText(spokenText);
             } else {
               speakText("Sorry, I encountered a connection issue. Please try again.");
             }
@@ -470,28 +477,41 @@ export default function AssistantPage() {
             console.error("Voice chat error:", err);
             speakText("Connection failed. Please check your network.");
           }
+        } else {
+          // Interim Result: perfect for fast barge-in detection
+          if (voiceAgentStateRef.current === "SPEAKING") {
+            const cleanAiResponse = lastAiResponseRef.current?.toLowerCase() || "";
+            if (cleanAiResponse.includes(transcript.toLowerCase()) || transcript.length < 3) {
+              // Ignore AI's own echo
+              continue;
+            }
+            console.log("🤫 Interim Barge-in user interruption detected:", transcript);
+            if (typeof window !== "undefined" && window.speechSynthesis) {
+              window.speechSynthesis.cancel();
+            }
+            setVoiceAgentState("LISTENING");
+            setSubtitleFeedAi("Listening to you...");
+          }
         }
-      };
-
-      voiceRecognitionRef.current = recognition;
-      try {
-        recognition.start();
-      } catch (e) {
-        console.error("Failed to start SpeechRecognition:", e);
       }
+    };
+
+    voiceRecognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error("Failed to start SpeechRecognition:", e);
     }
 
     return () => {
-      if (recognition) {
-        recognition.onend = null;
-        recognition.onerror = null;
-        recognition.onresult = null;
-        try {
-          recognition.stop();
-        } catch (e) {}
-      }
+      recognition.onend = null;
+      recognition.onerror = null;
+      recognition.onresult = null;
+      try {
+        recognition.stop();
+      } catch (e) {}
     };
-  }, [isVoiceModeActive, voiceAgentState, isMuted, speechLang, activeCallPersona]);
+  }, [isVoiceModeActive, speechLang]);
 
   const handleToggleVoiceMode = () => {
     if (isVoiceModeActive) {
@@ -1017,8 +1037,261 @@ export default function AssistantPage() {
           </div>
         </div>
 
-        {/* MIDDLE PANEL: Chat Dialogue Feed (50%) */}
-        <div className="lg:col-span-5 glass rounded-3xl border border-border/60 overflow-hidden flex flex-col bg-card/10 shadow-2xl h-full">
+        {isVoiceModeActive ? (
+          <div className="lg:col-span-8 glass border border-primary/20 overflow-hidden flex flex-col items-center justify-center bg-card/95 shadow-[0_10px_60px_rgba(0,0,0,0.55)] relative p-8 backdrop-blur-2xl h-full animate-fade-in rounded-3xl">
+            {/* Background glowing gradients */}
+            <div className="absolute -top-32 -left-32 w-72 h-72 rounded-full bg-primary/20 blur-[80px] pointer-events-none" />
+            <div className="absolute -bottom-32 -right-32 w-72 h-72 rounded-full bg-secondary/20 blur-[80px] pointer-events-none" />
+
+            {/* Glowing top line indicator */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-primary via-purple-500 to-secondary animate-pulse" />
+
+            {/* Close / Hang up Button */}
+            <button 
+              onClick={handleExitVoiceMode}
+              className="absolute top-6 right-6 text-red-400 hover:text-white transition-all p-3 rounded-2xl bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 cursor-pointer flex items-center justify-center z-[100]"
+              title="Hang up Call"
+            >
+              <X className="w-5 h-5 animate-pulse" />
+            </button>
+
+            {/* Header branding */}
+            <div className="space-y-2 mt-4 text-center">
+              <span className="text-[10px] font-black uppercase text-primary tracking-widest animate-pulse">RENS Voice Live 2.0</span>
+              <h2 className="text-xl font-black text-white flex items-center gap-2.5 justify-center">
+                <span className="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
+                RENS AI Live Calling Center
+              </h2>
+              <p className="text-[10px] text-gray-400 font-bold uppercase mt-1 tracking-wider">
+                Line 1: Operational Core Intelligence Agent • Connected
+              </p>
+            </div>
+
+            {/* Main Glowing Call Visualizer Orb & Dynamic Waveform */}
+            <div className="flex flex-col items-center justify-center my-8 relative w-full max-w-md">
+              <div 
+                onClick={() => {
+                  if (voiceAgentState === "SPEAKING") {
+                    if (typeof window !== "undefined" && window.speechSynthesis) {
+                      window.speechSynthesis.cancel();
+                    }
+                    setVoiceAgentState("LISTENING");
+                  }
+                }}
+                className={`w-32 h-32 rounded-full flex items-center justify-center relative cursor-pointer group transition-all duration-500 z-10 ${
+                  isMuted
+                    ? "bg-red-500/10 border-2 border-red-500/30 shadow-[0_0_30px_rgba(239,68,68,0.2)]"
+                    : voiceAgentState === 'LISTENING' 
+                    ? "bg-primary/20 border-2 border-primary animate-pulse shadow-[0_0_50px_rgba(var(--color-primary),0.6)]" 
+                    : voiceAgentState === 'THINKING'
+                    ? "bg-emerald-500/20 border-2 border-emerald-500 shadow-[0_0_50px_rgba(16,185,129,0.6)]"
+                    : voiceAgentState === 'SPEAKING'
+                    ? "bg-purple-500/20 border-2 border-purple-500 animate-pulse shadow-[0_0_50px_rgba(168,85,247,0.6)]"
+                    : "bg-secondary/40 border-2 border-border shadow-[0_0_30px_rgba(255,255,255,0.05)]"
+                }`}
+              >
+                <div className="absolute inset-2.5 rounded-full border border-white/5 bg-black/40 flex items-center justify-center">
+                  {isMuted ? (
+                    <MicOff className="w-8 h-8 text-red-400 glow-red animate-pulse" />
+                  ) : voiceAgentState === 'THINKING' ? (
+                    <Loader2 className="w-8 h-8 text-emerald-400 animate-spin glow-emerald" />
+                  ) : voiceAgentState === 'SPEAKING' ? (
+                    <Volume2 className="w-8 h-8 text-purple-400 glow-purple animate-bounce" />
+                  ) : (
+                    <Mic className={`w-8 h-8 text-primary glow-primary ${voiceAgentState === 'LISTENING' ? "scale-110" : ""}`} />
+                  )}
+                </div>
+                
+                {voiceAgentState === 'SPEAKING' && !isMuted && (
+                  <span className="absolute -bottom-6 text-[8px] font-bold text-purple-400 uppercase tracking-widest animate-pulse">Tap to Interrupt</span>
+                )}
+              </div>
+
+              {/* Dynamic Waveform Visualizer */}
+              <div className="flex items-center gap-1.5 justify-center h-20 mt-10 overflow-hidden w-full px-6">
+                <style>{`
+                  @keyframes wave-pulse-listening {
+                    0%, 100% { transform: scaleY(0.25); }
+                    50% { transform: scaleY(2.2); }
+                  }
+                  @keyframes wave-pulse-speaking {
+                    0%, 100% { transform: scaleY(0.2); }
+                    50% { transform: scaleY(2.8); }
+                  }
+                  @keyframes wave-pulse-thinking {
+                    0%, 100% { transform: scaleY(0.35); }
+                    50% { transform: scaleY(0.7); }
+                  }
+                  @keyframes wave-pulse-idle {
+                    0%, 100% { transform: scaleY(0.15); }
+                    50% { transform: scaleY(0.35); }
+                  }
+                  .animate-wave-listening {
+                    animation: wave-pulse-listening 0.5s ease-in-out infinite;
+                    transform-origin: center;
+                  }
+                  .animate-wave-speaking {
+                    animation: wave-pulse-speaking 0.4s ease-in-out infinite;
+                    transform-origin: center;
+                  }
+                  .animate-wave-thinking {
+                    animation: wave-pulse-thinking 1.2s ease-in-out infinite;
+                    transform-origin: center;
+                  }
+                  .animate-wave-idle {
+                    animation: wave-pulse-idle 2.0s ease-in-out infinite;
+                    transform-origin: center;
+                  }
+                `}</style>
+                {[
+                  { delay: '0.1s' },
+                  { delay: '0.3s' },
+                  { delay: '0.5s' },
+                  { delay: '0.2s' },
+                  { delay: '0.4s' },
+                  { delay: '0.6s' },
+                  { delay: '0.15s' },
+                  { delay: '0.35s' },
+                  { delay: '0.55s' },
+                  { delay: '0.25s' }
+                ].map((bar, i) => {
+                  const animClass = isMuted ? "animate-wave-idle" : 
+                    voiceAgentState === 'LISTENING' ? "animate-wave-listening" :
+                    voiceAgentState === 'THINKING' ? "animate-wave-thinking" :
+                    voiceAgentState === 'SPEAKING' ? "animate-wave-speaking" : "animate-wave-idle";
+                  const colorClass = isMuted ? "bg-red-500/30" :
+                    voiceAgentState === 'LISTENING' ? "bg-primary glow-primary" :
+                    voiceAgentState === 'THINKING' ? "bg-emerald-500 glow-emerald" :
+                    voiceAgentState === 'SPEAKING' ? "bg-purple-500 glow-purple" : "bg-cyan-500/40";
+                  return (
+                    <div 
+                      key={i} 
+                      className={`w-1.5 rounded-full ${colorClass} ${animClass}`} 
+                      style={{ animationDelay: bar.delay, height: '40px' }} 
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Subtitles & Spoken Captions Feed Console */}
+            <div className="w-full max-w-xl p-5 rounded-3xl border border-border/20 bg-black/40 text-left space-y-4 relative overflow-hidden backdrop-blur-md">
+              <span className="absolute top-2 right-4 text-[8px] font-black uppercase text-gray-500 tracking-widest">Subtitle Feed Desk</span>
+              
+              <div className="space-y-3 mt-2 min-h-24 max-h-32 overflow-y-auto pr-1 scrollbar-thin">
+                {subtitleFeedUser && (
+                  <div className="flex gap-2 items-start">
+                    <span className="text-[9px] font-black uppercase bg-secondary/50 text-white px-2 py-0.5 rounded border border-border/20 flex-shrink-0 mt-0.5 select-none">YOU</span>
+                    <p className="text-xs font-bold text-gray-200 leading-normal">{subtitleFeedUser}</p>
+                  </div>
+                )}
+                
+                {subtitleFeedAi && (
+                  <div className="flex gap-2 items-start">
+                    <span className="text-[9px] font-black uppercase bg-primary/20 text-primary px-2 py-0.5 rounded border border-primary/20 flex-shrink-0 mt-0.5 select-none">AI</span>
+                    <p className="text-xs font-extrabold text-primary-light glow-primary leading-normal">{subtitleFeedAi}</p>
+                  </div>
+                )}
+
+                {!subtitleFeedUser && !subtitleFeedAi && (
+                  <p className="text-xs text-gray-500 italic text-center py-6">
+                    {voiceAgentState === 'LISTENING' ? "🎙️ System is actively listening. Speak naturally now..." : "📞 Dialing Operational Core..."}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Call State Controls Strip */}
+            <div className="w-full max-w-xl border-t border-border/25 mt-6 pt-5 flex items-center justify-between gap-6">
+              
+              {/* Mute Mic Button */}
+              <button
+                onClick={() => setIsMuted(prev => !prev)}
+                className={`p-3 rounded-2xl border transition-all duration-300 active:scale-95 cursor-pointer flex items-center gap-2 px-4 py-2.5 ${
+                  isMuted 
+                    ? "bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse" 
+                    : "bg-secondary/40 border-border/20 text-gray-400 hover:text-white hover:border-border/40"
+                }`}
+                title={isMuted ? "Unmute Mic" : "Mute Mic"}
+              >
+                {isMuted ? <MicOff className="w-4.5 h-4.5" /> : <Mic className="w-4.5 h-4.5" />}
+                <span className="text-[10px] font-extrabold uppercase tracking-wider">{isMuted ? "Muted" : "Mute"}</span>
+              </button>
+
+              {/* Centered HANG UP Button */}
+              <button
+                onClick={handleExitVoiceMode}
+                className="px-6 py-2.5 rounded-full bg-red-600 hover:bg-red-500 border border-red-500/30 text-white font-extrabold text-xs uppercase tracking-wider transition-all duration-300 active:scale-95 cursor-pointer shadow-[0_0_20px_rgba(220,38,38,0.4)] flex items-center gap-2"
+                title="Disconnect Call"
+              >
+                <PhoneOff className="w-4 h-4 animate-pulse" />
+                <span>End Session</span>
+              </button>
+
+              {/* Force Recut / Restart State Button */}
+              <button
+                onClick={() => {
+                  if (typeof window !== "undefined" && window.speechSynthesis) {
+                    window.speechSynthesis.cancel();
+                  }
+                  setVoiceAgentState("LISTENING");
+                }}
+                className="p-3 rounded-2xl border bg-secondary/40 border-border/20 text-gray-400 hover:text-white hover:border-border/40 transition-all duration-300 active:scale-95 cursor-pointer flex items-center gap-2 px-4 py-2.5"
+                title="Restart Listening State"
+              >
+                <RefreshCw className="w-4.5 h-4.5" />
+                <span className="text-[10px] font-extrabold uppercase tracking-wider">Reset</span>
+              </button>
+            </div>
+
+            {/* Customizer Slider Settings Panel (Integrated Desk) */}
+            <div className="w-full max-w-xl border-t border-border/20 mt-5 pt-4 grid grid-cols-3 gap-4 text-left">
+              <div className="space-y-1.5 flex flex-col">
+                <label className="text-[8px] font-black text-gray-500 uppercase tracking-wider">Voice Gender</label>
+                <select 
+                  value={voiceGender}
+                  onChange={(e) => setVoiceGender(e.target.value as any)}
+                  className="p-2 border border-border/40 bg-secondary/35 text-[10px] text-gray-200 outline-none cursor-pointer focus:ring-1 focus:ring-primary focus:border-primary rounded-xl"
+                >
+                  <option value="female">👤 Female Narrator</option>
+                  <option value="male">👤 Male Narrator</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5 flex flex-col">
+                <label className="text-[8px] font-black text-gray-500 uppercase tracking-wider">Speaking Rate</label>
+                <select 
+                  value={voiceRate}
+                  onChange={(e) => setVoiceRate(parseFloat(e.target.value))}
+                  className="p-2 border border-border/40 bg-secondary/35 text-[10px] text-gray-200 outline-none cursor-pointer focus:ring-1 focus:ring-primary focus:border-primary rounded-xl"
+                >
+                  <option value="0.8">🐢 Slow (0.8x)</option>
+                  <option value="1.0">👤 Standard (1.0x)</option>
+                  <option value="1.15">🚀 Fast (1.15x)</option>
+                  <option value="1.3">⚡ High-Speed (1.3x)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5 flex flex-col">
+                <label className="text-[8px] font-black text-gray-500 uppercase tracking-wider">Accent Region</label>
+                <select 
+                  value={speechLang}
+                  onChange={(e) => setSpeechLang(e.target.value)}
+                  className="p-2 border border-border/40 bg-secondary/35 text-[10px] text-gray-200 outline-none cursor-pointer focus:ring-1 focus:ring-primary focus:border-primary w-full rounded-xl"
+                >
+                  {SPEECH_LANGUAGES.map((lang) => (
+                    <option key={lang.code} value={lang.code} className="bg-card">
+                      {lang.flag} {lang.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* MIDDLE PANEL: Chat Dialogue Feed (50%) */}
+            <div className="lg:col-span-5 glass rounded-3xl border border-border/60 overflow-hidden flex flex-col bg-card/10 shadow-2xl h-full">
           
           {/* Scrollable conversation logs */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
@@ -2642,11 +2915,13 @@ export default function AssistantPage() {
           </div>
 
         </div>
+      </>
+    )}
 
       </div>
 
       {/* RENS VOICE LIVE SYSTEM OVERLAY */}
-      {isVoiceModeActive && (
+      {false && (
         <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-center justify-center animate-fade-in transition-all">
           <div className="w-88 p-6 rounded-3xl glass border border-primary/20 bg-card/95 flex flex-col items-center text-center shadow-[0_10px_60px_rgba(0,0,0,0.55)] relative overflow-hidden backdrop-blur-2xl">
             {/* Background glowing gradients */}

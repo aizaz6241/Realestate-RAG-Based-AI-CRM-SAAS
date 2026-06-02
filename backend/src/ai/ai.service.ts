@@ -579,13 +579,24 @@ ${documentContext}`;
 - Answer the user's question directly, concisely, and naturally in natural language text only.`;
       }
 
-      if (callPersona && callPersona !== 'ORCHESTRATOR') {
+      if (callPersona) {
         systemPrompt += `
-\n🚨 DYNAMIC PHONE CALL PERSONA REINFORCEMENT:
+\n🚨 DYNAMIC PHONE CALL CONVERSATIONAL REINFORCEMENT:
 - You are currently speaking with the user in a continuous real-time audio PHONE CALL.
-- The user has dialed the **${callPersona} AI Officer** directly on their calling console.
-- You MUST speak, reason, and act strictly as the specialized ${callPersona} Agent! Focus your expertise entirely on the dialed department context (HR, Finance, Property, Logistics, etc.).
-- **AUDIO CALL RULES**: Keep your spoken responses highly concise, friendly, and natural. Since this is read out loud, restrict your responses to at most 2 or 3 short sentences. Avoid long bullet lists, complex markdown symbols, or structural grids completely! Speak in a smooth conversational tone.`;
+- The user is using their RENS Voice Live Calling Console to dial the central **RENS Operational Intelligence AI Agent** directly.
+- **CRITICAL - DUAL FORMAT JSON OUTPUT REQUIRED**:
+  - Since this is a live audio call, you MUST output your response as a valid, parsable JSON block containing exactly two fields:
+    1. "writtenResponse": (Comprehensive details) This will be displayed in the user's text chat screen history. Include all rich markdown tables, graphs, checklists, and professional guidelines.
+    2. "spokenResponse": (Ultra-natural speech) This will be synthesized as spoken audio. Keep it extremely concise, natural, warm, and friendly (at most 2 or 3 short sentences).
+  - Use smooth, natural Roman Urdu or English matching the user's query language. Include human conversational filler phrases (like "Aizaz bhai", "Ji bilkul", "Suno", "Haan", "Acha", "Koi masla nahi") to make it sound exactly like a warm, supportive human colleague on a live phone call!
+  - Example output format:
+    \`\`\`json
+    {
+      "writtenResponse": "**Employees Found:** Muhammad Aizaz Khan from Human Resources... [detailed table]",
+      "spokenResponse": "Aizaz bhai, maine Muhammad Aizaz Khan ko HR department mein find kar liya hai! Main unki complete details aapke chat screen par load kar raha hoon. Aur kuch check karna hai?"
+    }
+    \`\`\`
+  - You MUST strictly output this JSON block. Never output raw plain text or raw markdown outside the JSON!`;
       }
 
       // Step C: LLM decision round
@@ -799,27 +810,53 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
         fileType: chunk.fileType,
       }));
 
-      let cleanedText = finalResponseText.trim();
+      let finalWritten = finalResponseText.trim();
+      let finalSpoken: string | undefined = undefined;
 
-      // STRICT JARGON SHIELD: Clean up any accidental technical leaks or backend tool/SQL mentions
-      cleanedText = cleanedText.replace(/(?:I am using the|using the|executed the|I call the|I will execute|executed|calling|triggering)\s*["']?(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask)["']?\s*(?:tool)?\s*(?:to retrieve|to query|to search|to look up)?/gi, '');
-      cleanedText = cleanedText.replace(/(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask)\s*(?:tool|query|SQL)/gi, 'system search');
-      cleanedText = cleanedText.replace(/Postgres|database tool|SQL query|PrismaClientKnownRequestError/gi, 'system lookup');
+      if (callPersona) {
+        const jsonBlock = this.extractJsonBlock(finalWritten);
+        if (jsonBlock) {
+          try {
+            const parsed = JSON.parse(jsonBlock);
+            if (parsed.writtenResponse && parsed.spokenResponse) {
+              finalWritten = parsed.writtenResponse;
+              finalSpoken = parsed.spokenResponse;
+            }
+          } catch (e) {
+            this.logger.warn(`Failed to parse call JSON response: ${e.message}`);
+          }
+        }
+      }
 
-      cleanedText = cleanedText.replace(/(?:\[?Orchestrator\]?|\*Orchestrator\*)\s*➔\s*Delegating[\s\S]*?(?:Orchestrator\s*(?:\(Main\s*Brain\))?\s*(?:AI)?\s*:\s*|Orchestrator:\s*)/gi, '');
-      cleanedText = cleanedText.replace(/👥?\s*(?:HR|Finance|Property|Sales|Logistics|Orchestrator)\s+Agent:\s*["'].*?["']/gi, '');
-      cleanedText = cleanedText.replace(/(?:\[?Orchestrator\]?|\*Orchestrator\*)\s*➔\s*Delegating[^\n]*/gi, '');
-      cleanedText = cleanedText.replace(/👥?\s*(?:HR|Finance|Property|Sales|Logistics|Orchestrator)\s+Agent:\s*[^\n]*/gi, '');
+      // Clean up the written response using the strict technical jargon shield
+      let cleanedWritten = finalWritten.trim();
+      cleanedWritten = cleanedWritten.replace(/(?:I am using the|using the|executed the|I call the|I will execute|executed|calling|triggering)\s*["']?(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask)["']?\s*(?:tool)?\s*(?:to retrieve|to query|to search|to look up)?/gi, '');
+      cleanedWritten = cleanedWritten.replace(/(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask)\s*(?:tool|query|SQL)/gi, 'system search');
+      cleanedWritten = cleanedWritten.replace(/Postgres|database tool|SQL query|PrismaClientKnownRequestError/gi, 'system lookup');
+
+      cleanedWritten = cleanedWritten.replace(/(?:\[?Orchestrator\]?|\*Orchestrator\*)\s*➔\s*Delegating[\s\S]*?(?:Orchestrator\s*(?:\(Main\s*Brain\))?\s*(?:AI)?\s*:\s*|Orchestrator:\s*)/gi, '');
+      cleanedWritten = cleanedWritten.replace(/👥?\s*(?:HR|Finance|Property|Sales|Logistics|Orchestrator)\s+Agent:\s*["'].*?["']/gi, '');
+      cleanedWritten = cleanedWritten.replace(/(?:\[?Orchestrator\]?|\*Orchestrator\*)\s*➔\s*Delegating[^\n]*/gi, '');
+      cleanedWritten = cleanedWritten.replace(/👥?\s*(?:HR|Finance|Property|Sales|Logistics|Orchestrator)\s+Agent:\s*[^\n]*/gi, '');
       
-      // Preserve vertical layout by removing horizontal whitespace normalize but keeping newlines
-      cleanedText = cleanedText
+      cleanedWritten = cleanedWritten
         .replace(/\b(bhai|yaar|dost|bande)\b/gi, '')
         .replace(/[ \t]+/g, ' ')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 
+      // Prepare fallback spoken response if not explicitly set in JSON
+      if (callPersona && !finalSpoken) {
+        finalSpoken = finalWritten
+          .replace(/\*\*|__/g, "")
+          .replace(/#+\s+/g, "")
+          .replace(/-\s+/g, "")
+          .trim();
+      }
+
       return {
-        response: cleanedText,
+        response: cleanedWritten,
+        spokenResponse: finalSpoken,
         toolExecuted,
         toolData,
         citations,
