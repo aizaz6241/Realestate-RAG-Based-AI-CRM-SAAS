@@ -26,7 +26,7 @@ export const ChatSessionsList: React.FC<ChatSessionsListProps> = ({
   onDeleteSession
 }) => {
   return (
-    <div className="lg:col-span-2 glass rounded-3xl border border-border/60 p-4 bg-card/25 flex flex-col overflow-hidden text-left shadow-xl h-full">
+    <div className="glass rounded-3xl border border-border/60 p-4 bg-card/25 flex flex-col overflow-hidden text-left shadow-xl h-full">
       {/* "+ New Chat" Button */}
       <button
         onClick={onCreateNewChat}

@@ -206,6 +206,26 @@ export default function DashboardLayout({
     };
   }, []);
 
+  // Automatically close sidebar on mobile initial render and route transition
+  useEffect(() => {
+    const handleResizeOrRoute = () => {
+      if (window.innerWidth < 1024) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
+    };
+    handleResizeOrRoute(); // initial call
+    window.addEventListener("resize", handleResizeOrRoute);
+    return () => window.removeEventListener("resize", handleResizeOrRoute);
+  }, []);
+
+  useEffect(() => {
+    if (window.innerWidth < 1024) {
+      setIsSidebarOpen(false);
+    }
+  }, [pathname]);
+
   const initFloatingAiSession = async () => {
     if (!token) return;
     try {
@@ -665,10 +685,10 @@ export default function DashboardLayout({
   return (
     <div className="flex h-screen bg-background overflow-hidden relative">
       {/* Mobile Sidebar Overlay */}
-      {!isSidebarOpen && (
+      {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setIsSidebarOpen(true)}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden animate-fade-in"
+          onClick={() => setIsSidebarOpen(false)}
         />
       )}
 

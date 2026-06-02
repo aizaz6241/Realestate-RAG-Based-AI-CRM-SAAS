@@ -65,6 +65,7 @@ const SPEECH_LANGUAGES = [
 export default function AssistantPage() {
   const router = useRouter();
   const { token, user: currentUser } = useAuth();
+  const [activeMobileTab, setActiveMobileTab] = useState<'chat' | 'sessions' | 'knowledge'>('chat');
 
   // Voice Input Speech Recognition States
   const [isListening, setIsListening] = useState(false);
@@ -868,17 +869,47 @@ export default function AssistantPage() {
         </div>
       </div>
 
+      {/* Mobile Tab Selector */}
+      <div className="flex lg:hidden gap-1.5 p-1.5 bg-secondary/15 border border-border/40 rounded-2xl w-full flex-shrink-0">
+        <button 
+          onClick={() => setActiveMobileTab('sessions')}
+          className={`flex-1 py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer text-center ${
+            activeMobileTab === 'sessions' ? 'bg-primary text-white shadow-lg glow-primary' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Sessions
+        </button>
+        <button 
+          onClick={() => setActiveMobileTab('chat')}
+          className={`flex-1 py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer text-center ${
+            activeMobileTab === 'chat' ? 'bg-primary text-white shadow-lg glow-primary' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Chat Feed
+        </button>
+        <button 
+          onClick={() => setActiveMobileTab('knowledge')}
+          className={`flex-1 py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer text-center ${
+            activeMobileTab === 'knowledge' ? 'bg-primary text-white shadow-lg glow-primary' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Knowledge
+        </button>
+      </div>
+
       {/* Main Split Grid layout */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-10 gap-6 overflow-hidden h-[70vh] animate-fade-in">
         
-        <ChatSessionsList
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          isLoadingSessions={isLoadingSessions}
-          onCreateNewChat={handleCreateNewChat}
-          onSelectSession={handleSelectSession}
-          onDeleteSession={handleDeleteSession}
-        />
+        <div className={`${activeMobileTab === 'sessions' ? 'block' : 'hidden'} lg:block lg:col-span-2 h-full overflow-hidden`}>
+          <ChatSessionsList
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            isLoadingSessions={isLoadingSessions}
+            onCreateNewChat={handleCreateNewChat}
+            onSelectSession={handleSelectSession}
+            onDeleteSession={handleDeleteSession}
+          />
+        </div>
 
         {isVoiceModeActive ? (
           <VoiceCallingConsole
@@ -905,7 +936,7 @@ export default function AssistantPage() {
         ) : (
           <>
             {/* MIDDLE PANEL: Chat Dialogue Feed (50%) */}
-            <div className="lg:col-span-5 glass rounded-3xl border border-border/60 overflow-hidden flex flex-col bg-card/10 shadow-2xl h-full">
+            <div className={`${activeMobileTab === 'chat' ? 'flex' : 'hidden'} lg:flex lg:col-span-5 glass rounded-3xl border border-border/60 overflow-hidden flex flex-col bg-card/10 shadow-2xl h-full`}>
           
           {/* Scrollable conversation logs */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
@@ -922,7 +953,7 @@ export default function AssistantPage() {
                   </div>
 
                   {/* Conversation Bubble Content */}
-                  <div className="space-y-2 text-left">
+                  <div className="space-y-2 text-left min-w-0 flex-1 w-full">
                     {!isUser && (
                       <span className="block text-[8px] font-black uppercase text-gray-500 tracking-wider">RENS Cognitive Core</span>
                     )}
@@ -964,7 +995,7 @@ export default function AssistantPage() {
 
                       {/* DYNAMIC COMPONENT CARD RENDERING SECTION */}
                       {!isUser && msg.toolData && (
-                        <div className="mt-3 animate-fade-in w-full overflow-hidden">
+                        <div className="mt-3 animate-fade-in w-full overflow-x-auto scrollbar-thin">
                           <DatabaseWidgets 
                             toolExecuted={msg.toolExecuted} 
                             toolData={msg.toolData} 
@@ -1088,7 +1119,7 @@ export default function AssistantPage() {
         </div>
 
         {/* RIGHT SIDEBAR: Document Vault Manager (30%) */}
-        <div className="lg:col-span-3 flex flex-col gap-6 h-full overflow-hidden">
+        <div className={`${activeMobileTab === 'knowledge' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 flex-col gap-6 h-full overflow-hidden`}>
           
           {/* Drag & Drop Vector Upload Cabinet */}
           <div className="glass rounded-3xl border border-border/60 p-4 bg-card/25 text-center flex flex-col justify-between items-center gap-4 relative overflow-hidden flex-shrink-0">

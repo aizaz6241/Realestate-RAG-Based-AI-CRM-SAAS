@@ -289,23 +289,23 @@ export default function FormattedAiMessage({ content, onExecuteCommand }: Format
           if (line.trim().startsWith("- ") || line.trim().startsWith("* ")) {
             const text = line.trim().substring(2);
             return (
-              <div key={idx} className="flex gap-2 text-xs text-gray-300 items-start pl-1">
+              <div key={idx} className="flex gap-2 text-xs text-gray-300 items-start pl-1 w-full min-w-0">
                 <span className="text-primary mt-1 text-[8px]">•</span>
-                <span className="flex-1">{formatTextInline(text)}</span>
+                <span className="flex-1 break-words">{formatTextInline(text)}</span>
               </div>
             );
           }
           // Sub-headings (e.g. ### Title)
           if (line.trim().startsWith("###")) {
             return (
-              <h4 key={idx} className="text-xs font-black uppercase text-gray-400 mt-3 mb-1 tracking-wider">
+              <h4 key={idx} className="text-xs font-black uppercase text-gray-400 mt-3 mb-1 tracking-wider break-words w-full">
                 {formatTextInline(line.trim().substring(3).trim())}
               </h4>
             );
           }
           if (line.trim().startsWith("##")) {
             return (
-              <h3 key={idx} className="text-sm font-black uppercase text-gray-300 mt-4 mb-2 tracking-wider">
+              <h3 key={idx} className="text-sm font-black uppercase text-gray-300 mt-4 mb-2 tracking-wider break-words w-full">
                 {formatTextInline(line.trim().substring(2).trim())}
               </h3>
             );
@@ -315,7 +315,7 @@ export default function FormattedAiMessage({ content, onExecuteCommand }: Format
             return <div key={idx} className="h-1.5" />;
           }
           return (
-            <p key={idx} className="text-xs text-gray-300 leading-relaxed">
+            <p key={idx} className="text-xs text-gray-300 leading-relaxed break-words w-full">
               {formatTextInline(line)}
             </p>
           );
@@ -332,9 +332,9 @@ export default function FormattedAiMessage({ content, onExecuteCommand }: Format
 
         if (isUnstructured) {
           return (
-            <div key={sect.key} className="text-gray-200 text-sm leading-relaxed whitespace-pre-wrap">
+            <div key={sect.key} className="text-gray-200 text-sm leading-relaxed whitespace-pre-wrap break-words w-full overflow-hidden">
               {sect.content.split("\n").map((line, idx) => (
-                <p key={idx} className={line.trim() === "" ? "h-2" : "mb-1"}>
+                <p key={idx} className={line.trim() === "" ? "h-2" : "mb-1 break-words w-full"}>
                   {formatTextInline(line)}
                 </p>
               ))}
@@ -345,7 +345,7 @@ export default function FormattedAiMessage({ content, onExecuteCommand }: Format
         return (
           <div 
             key={sect.key} 
-            className={`rounded-2xl border p-4 transition-all duration-300 shadow-lg backdrop-blur-md ${sect.colorClass} ${sect.glowClass} hover:translate-y-[-1px] hover:shadow-xl`}
+            className={`rounded-2xl border p-4 transition-all duration-300 shadow-lg backdrop-blur-md ${sect.colorClass} ${sect.glowClass} hover:translate-y-[-1px] hover:shadow-xl w-full max-w-full overflow-x-auto scrollbar-thin`}
           >
             <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/5">
               <IconComponent className="w-4.5 h-4.5 text-current shrink-0" />
