@@ -188,8 +188,26 @@ INSTRUCTIONS:
       ].some(phrase => normalizedMessage === phrase);
 
       // FAST LANE BYPASS
-      if (isVoiceCheckPhrase || isGreetingPhrase) {
-        this.logger.log(`Fast Lane Match: Voice check or greeting detected ("${userMessage}"). Responding instantly.`);
+      if (isGreetingPhrase) {
+        this.logger.log(`Fast Lane Match: Greeting detected ("${userMessage}"). Responding instantly with personalization.`);
+        const userRecord = await this.prisma.user.findUnique({
+          where: { id: userId }
+        });
+        const name = userRecord ? userRecord.firstName : 'Admin';
+        const greeting = normalizedMessage.includes("salam") || normalizedMessage.includes("aoa") 
+          ? `Walaikum Assalam ${name}! How can I assist you with your RENS ERP operations today?`
+          : `Hello ${name}! Welcome to RENS Cognitive Core. How can I assist you with your ERP operations today?`;
+        
+        return {
+          response: greeting,
+          toolExecuted: null,
+          toolData: null,
+          citations: []
+        };
+      }
+
+      if (isVoiceCheckPhrase) {
+        this.logger.log(`Fast Lane Match: Voice check detected ("${userMessage}"). Responding instantly.`);
         return {
           response: "Yes, I can hear you clearly. How can I help you?",
           toolExecuted: null,
@@ -377,6 +395,24 @@ You have access ONLY to the following 11 database tools:
       * Table "Client" columns: "id", "name", "email", "phone", "type", "stage", "budget", "preferences", "organizationId"
       * Table "Lead" columns: "id", "name", "email", "phone", "source", "status", "score", "organizationId"
       * Table "Task" columns: "id", "title", "description", "status", "dueDate", "organizationId", "assignedToId"
+      * Table "LeaveRequest" columns: "id", "startDate", "endDate", "type" (SICK|CASUAL|ANNUAL|UNPAID), "status" (PENDING|APPROVED|REJECTED), "reason", "approvedAt", "employeeProfileId"
+      * Table "Attendance" columns: "id", "dateStr" (YYYY-MM-DD), "checkIn", "checkOut", "status" (PRESENT|LATE|ABSENT|ON_LEAVE), "checkoutSummary", "employeeProfileId"
+      * Table "PerformanceReview" columns: "id", "reviewDate", "rating" (1-5), "feedback", "reviewedById", "employeeProfileId"
+      * Table "Owner" columns: "id", "name", "email", "phone", "status" (ACTIVE|INACTIVE), "kycVerified" (boolean), "kycNotes", "commissionRate", "agreementExpiry"
+      * Table "Vehicle" columns: "id", "modelName", "plateNumber", "status" (ACTIVE|MAINTENANCE|OUT_OF_SERVICE)
+      * Table "LogisticsSchedule" columns: "id", "visitDate", "pickupLocation", "dropLocation", "status" (SCHEDULED|IN_TRANSIT|COMPLETED|CANCELLED), "driverId", "vehicleId"
+      * Table "Payroll" columns: "id", "month" (YYYY-MM), "baseSalary", "allowances", "deductions", "netSalary", "status" (UNPAID|PAID), "paidAt", "employeeProfileId"
+      * Table "CalendarEvent" columns: "id", "title", "description", "startTime", "endTime", "location", "isPrivate", "targetRoles" (text array), "targetUserIds" (text array), "createdById"
+    - HIGH COGNITION JOIN/AGGREGATE RULE: If the user asks about complex aggregates, joins, department checks, rankings, or parameters (e.g. "who is our oldest employee", "who is our top performing agent", "are there any payroll discrepancies", "owner property counts", "HR team task completion"), you MUST write a single raw SELECT query using "runDatabaseQuery"! This ensures maximum real-time precision and high cognitive enterprise intelligence.
+    - SQL REFERENCE EXAMPLES FOR HIGH COGNITION QUERIES (CRITICAL):
+      * Oldest Employee (Minimum joining date):
+        SELECT u."firstName", u."lastName", ep."joiningDate", ep."designation" FROM "EmployeeProfile" ep JOIN "User" u ON ep."userId" = u.id WHERE ep."joiningDate" IS NOT NULL ORDER BY ep."joiningDate" ASC LIMIT 1
+      * Top Performing Agent (By completed tasks count):
+        SELECT u."firstName", u."lastName", COUNT(t.id) as "totalTasks", SUM(CASE WHEN t.status = 'COMPLETED' THEN 1 ELSE 0 END) as "completedTasks" FROM "User" u LEFT JOIN "Task" t ON t."assignedToId" = u.id WHERE u.role = 'AGENT' GROUP BY u.id, u."firstName", u."lastName" ORDER BY "completedTasks" DESC LIMIT 1
+      * Payroll Discrepancy Checks:
+        SELECT u."firstName", p.month, p."baseSalary", p.allowances, p.deductions, p."netSalary" FROM "Payroll" p JOIN "EmployeeProfile" ep ON p."employeeProfileId" = ep.id JOIN "User" u ON ep."userId" = u.id WHERE ABS(p."baseSalary" + p.allowances - p.deductions - p."netSalary") > 0.01
+      * Vehicle Maintenance Alert:
+        SELECT v."modelName", v."plateNumber", COUNT(m.id) as "maintenanceCount" FROM "Vehicle" v LEFT JOIN "VehicleMaintenance" m ON m."vehicleId" = v.id GROUP BY v.id, v."modelName", v."plateNumber"
     - Example (Total Employee Count): {"tool": "runDatabaseQuery", "params": {"query": "SELECT COUNT(*) as count FROM \"User\""}}
 11. "createTask": Create a new task. (Always follow the strict validation flow first!).
     - Params: { "title": "Task title", "employeeName": "Target employee name", "description": "Details", "dueDate": "YYYY-MM-DD", "priority": "STANDARD | HIGH | URGENT" }
