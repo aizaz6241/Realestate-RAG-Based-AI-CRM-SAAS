@@ -238,6 +238,30 @@ export class AiService {
     return null;
   }
 
+  private extractCallResponseJson(text: string): string | null {
+    let keyIdx = text.indexOf('"writtenResponse"');
+    if (keyIdx === -1) keyIdx = text.indexOf("'writtenResponse'");
+    if (keyIdx === -1) keyIdx = text.indexOf("writtenResponse");
+    if (keyIdx === -1) return null;
+    
+    let startIdx = -1;
+    let depth = 0;
+    for (let i = keyIdx; i >= 0; i--) {
+      if (text[i] === '}') depth++;
+      if (text[i] === '{') {
+        if (depth === 0) {
+          startIdx = i;
+          break;
+        } else {
+          depth--;
+        }
+      }
+    }
+    
+    if (startIdx === -1) return null;
+    return this.extractJsonBlock(text.substring(startIdx));
+  }
+
   // -----------------------------------------------------------------------------
   // Context-Aware Query Refiner (Pronoun & Reference Resolution)
   // -----------------------------------------------------------------------------
@@ -745,15 +769,18 @@ ${memoryPromptContext}`;
 
       if (callPersona) {
         systemPrompt += `
-\n🚨 DYNAMIC PHONE CALL CONVERSATIONAL REINFORCEMENT:
+\n🚨 DYNAMIC PHONE CALL CONVERSATIONAL REINFORCEMENT (FIRST ROUND):
 - You are currently speaking with the user in a continuous real-time audio PHONE CALL.
 - The user is using their RENS Voice Live Calling Console to dial the central **RENS Operational Intelligence AI Agent** directly.
-- **CRITICAL - DUAL FORMAT JSON OUTPUT REQUIRED**:
-  - Since this is a live audio call, you MUST output your response as a valid, parsable JSON block containing exactly two fields:
+- **IF YOU NEED TO RUN A DATABASE QUERY OR CALL A TOOL**:
+  - You MUST output ONLY the raw tool JSON block (e.g. {"tool": "...", "params": {...}}).
+  - Do NOT output any other text, greetings, explanations, or written/spoken responses in this round!
+- **IF YOU CAN ANSWER DIRECTLY WITHOUT ANY TOOL**:
+  - You MUST output your response as a valid, parsable JSON block containing exactly two fields:
     1. "writtenResponse": (Comprehensive details) This will be displayed in the user's text chat screen history. Include all rich markdown tables, graphs, checklists, and professional guidelines.
     2. "spokenResponse": (Ultra-natural speech) This will be synthesized as spoken audio. Keep it extremely concise, natural, warm, and friendly (at most 2 or 3 short sentences).
   - Use smooth, natural Roman Urdu or English matching the user's query language. Include human conversational filler phrases (like "Aizaz bhai", "Ji bilkul", "Suno", "Haan", "Acha", "Koi masla nahi") to make it sound exactly like a warm, supportive human colleague on a live phone call!
-  - Example output format:
+  - Example output format for direct answer:
     \`\`\`json
     {
       "writtenResponse": "**Employees Found:** Muhammad Aizaz Khan from Human Resources... [detailed table]",
@@ -977,7 +1004,25 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
 13. If no records are found, inform the user politely.
 14. **CRITICAL ERROR HANDLER RULE**: If the database results (toolData) contain a query syntax error ("QUERY_ERROR" or "Database query syntax error"), you MUST NOT hallucinate that "there are no employees" or "the database is empty/incomplete"! Instead, politely inform the user in their matching language that there was a temporary system lookup bottleneck, and suggest they retry their question or ask in a simpler way.`;
 
-              finalResponseText = await this.llmService.callLLM(systemPrompt, databaseFeedPrompt, history);
+              let finalSystemPrompt = systemPrompt;
+              if (callPersona) {
+                finalSystemPrompt += `
+\n🚨 DYNAMIC PHONE CALL CONVERSATIONAL REINFORCEMENT (FINAL ROUND):
+- Since the database query has completed, you MUST now output your final response as a valid, parsable JSON block containing exactly two fields:
+  1. "writtenResponse": (Comprehensive details) This will be displayed in the user's text chat screen history. Include all rich markdown tables, graphs, checklists, and professional guidelines.
+  2. "spokenResponse": (Ultra-natural speech) This will be synthesized as spoken audio. Keep it extremely concise, natural, warm, and friendly (at most 2 or 3 short sentences).
+- Use smooth, natural Roman Urdu or English matching the user's query language. Include human conversational filler phrases (like "Aizaz bhai", "Ji bilkul", "Suno", "Haan", "Acha", "Koi masla nahi") to make it sound exactly like a warm, supportive human colleague on a live phone call!
+- You MUST strictly output this JSON block. Never output raw plain text, markdown, or tool calls outside the JSON!
+- Example output format:
+  \`\`\`json
+  {
+    "writtenResponse": "[Comprehensive response detailed table/paragraphs]",
+    "spokenResponse": "[Concise natural conversational spoken text]"
+  }
+  \`\`\`
+`;
+              }
+              finalResponseText = await this.llmService.callLLM(finalSystemPrompt, databaseFeedPrompt, history);
             }
           } catch (e) {
             this.logger.error(`Failed to parse tool execution JSON: ${e.message}. Raw Block: ${jsonBlock}`);
@@ -995,7 +1040,7 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
       let finalSpoken: string | undefined = undefined;
 
       if (callPersona) {
-        const jsonBlock = this.extractJsonBlock(finalWritten);
+        const jsonBlock = this.extractCallResponseJson(finalWritten);
         if (jsonBlock) {
           try {
             const parsed = JSON.parse(jsonBlock);
