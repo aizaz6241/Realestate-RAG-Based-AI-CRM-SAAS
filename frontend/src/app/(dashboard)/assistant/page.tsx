@@ -55,6 +55,119 @@ const SPEECH_LANGUAGES = [
   { code: "en-NG", name: "English (Nigeria)", flag: "🇳🇬", label: "NG" }
 ];
 
+class AudioSynthesizer {
+  private static ctx: AudioContext | null = null;
+  private static activeDialOscs: OscillatorNode[] = [];
+  private static dialInterval: any = null;
+
+  private static getContext() {
+    if (!this.ctx && typeof window !== "undefined") {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) this.ctx = new AudioContextClass();
+    }
+    return this.ctx;
+  }
+
+  static playDialTone() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    
+    this.stopDialTone();
+    
+    let active = true;
+    const playPulse = () => {
+      if (!active) return;
+      
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc1.type = "sine";
+      osc2.type = "sine";
+      osc1.frequency.value = 350;
+      osc2.frequency.value = 440;
+      
+      gain.gain.setValueAtTime(0.04, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.0);
+      
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc1.start();
+      osc2.start();
+      osc1.stop(ctx.currentTime + 1.0);
+      osc2.stop(ctx.currentTime + 1.0);
+      
+      this.activeDialOscs = [osc1, osc2];
+    };
+
+    playPulse();
+    this.dialInterval = setInterval(playPulse, 2000);
+  }
+
+  static stopDialTone() {
+    if (this.dialInterval) {
+      clearInterval(this.dialInterval);
+      this.dialInterval = null;
+    }
+    this.activeDialOscs.forEach(osc => {
+      try { osc.stop(); } catch (e) {}
+    });
+    this.activeDialOscs = [];
+  }
+
+  static playConnectionChime() {
+    this.stopDialTone();
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const frequencies = [523.25, 659.25, 783.99, 1046.50];
+    frequencies.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = freq;
+      
+      const time = ctx.currentTime + idx * 0.08;
+      gain.gain.setValueAtTime(0.0, time);
+      gain.gain.linearRampToValueAtTime(0.04, time + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.3);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start(time);
+      osc.stop(time + 0.35);
+    });
+  }
+
+  static playHangupChime() {
+    this.stopDialTone();
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const frequencies = [783.99, 659.25, 523.25];
+    frequencies.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      
+      const time = ctx.currentTime + idx * 0.1;
+      gain.gain.setValueAtTime(0.0, time);
+      gain.gain.linearRampToValueAtTime(0.04, time + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.35);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start(time);
+      osc.stop(time + 0.4);
+    });
+  }
+}
+
 export default function AssistantPage() {
   const router = useRouter();
   const { token, user: currentUser } = useAuth();
@@ -72,6 +185,10 @@ export default function AssistantPage() {
   const [voicePitch, setVoicePitch] = useState(1.0);
   const voiceRecognitionRef = useRef<any>(null);
   const lastAiResponseRef = useRef<string>("");
+
+  const [activeCallPersona, setActiveCallPersona] = useState<'ORCHESTRATOR' | 'HR' | 'FINANCE' | 'PROPERTY' | 'LOGISTICS'>('ORCHESTRATOR');
+  const [subtitleFeedUser, setSubtitleFeedUser] = useState("");
+  const [subtitleFeedAi, setSubtitleFeedAi] = useState("");
 
   // Voice Mute & Active States orchestrators (Rule 1 & 6)
   const [isMuted, setIsMuted] = useState(false);
@@ -305,6 +422,7 @@ export default function AssistantPage() {
             }
           }
 
+          setSubtitleFeedUser(transcript);
           setVoiceAgentState("THINKING");
 
           try {
@@ -325,7 +443,8 @@ export default function AssistantPage() {
               },
               body: JSON.stringify({
                 message: transcript,
-                sessionId: activeSessionId || undefined
+                sessionId: activeSessionId || undefined,
+                callPersona: activeCallPersona
               })
             });
 
@@ -342,6 +461,7 @@ export default function AssistantPage() {
                 createdAt: new Date().toISOString(),
               }]);
 
+              setSubtitleFeedAi(data.response);
               speakText(data.response);
             } else {
               speakText("Sorry, I encountered a connection issue. Please try again.");
@@ -371,26 +491,43 @@ export default function AssistantPage() {
         } catch (e) {}
       }
     };
-  }, [isVoiceModeActive, voiceAgentState, isMuted, speechLang]);
+  }, [isVoiceModeActive, voiceAgentState, isMuted, speechLang, activeCallPersona]);
 
   const handleToggleVoiceMode = () => {
     if (isVoiceModeActive) {
       handleExitVoiceMode();
     } else {
       setIsVoiceModeActive(true);
-      setVoiceAgentState("LISTENING");
+      setVoiceAgentState("THINKING");
+      setSubtitleFeedUser("RENS Core Calling Desk... Dialing...");
+      setSubtitleFeedAi("");
+      AudioSynthesizer.playDialTone();
+
       if (isListening) {
         if (recognitionRef.current) {
           recognitionRef.current.stop();
         }
         setIsListening(false);
       }
+
+      setTimeout(() => {
+        if (isVoiceModeActiveRef.current) {
+          AudioSynthesizer.playConnectionChime();
+          setVoiceAgentState("LISTENING");
+          setSubtitleFeedUser("");
+          setSubtitleFeedAi("RENS Operational Intelligence System is connected and ready. Speak now!");
+          speakText("Welcome! RENS Cognitive Core system is connected. Speak naturally now.");
+        }
+      }, 3500);
     }
   };
 
   const handleExitVoiceMode = () => {
+    AudioSynthesizer.playHangupChime();
     setIsVoiceModeActive(false);
     setVoiceAgentState("IDLE");
+    setSubtitleFeedUser("");
+    setSubtitleFeedAi("");
     
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
@@ -2511,41 +2648,58 @@ export default function AssistantPage() {
       {/* RENS VOICE LIVE SYSTEM OVERLAY */}
       {isVoiceModeActive && (
         <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-center justify-center animate-fade-in transition-all">
-          <div className="w-80 p-5 rounded-3xl glass border border-primary/20 bg-card/90 flex flex-col items-center text-center shadow-[0_10px_50px_rgba(0,0,0,0.45)] relative overflow-hidden backdrop-blur-xl">
+          <div className="w-88 p-6 rounded-3xl glass border border-primary/20 bg-card/95 flex flex-col items-center text-center shadow-[0_10px_60px_rgba(0,0,0,0.55)] relative overflow-hidden backdrop-blur-2xl">
             {/* Background glowing gradients */}
-            <div className="absolute -top-24 -left-24 w-48 h-48 rounded-full bg-primary/20 blur-[60px]" />
-            <div className="absolute -bottom-24 -right-24 w-48 h-48 rounded-full bg-secondary/20 blur-[60px]" />
+            <div className="absolute -top-24 -left-24 w-48 h-48 rounded-full bg-primary/25 blur-[60px] pointer-events-none" />
+            <div className="absolute -bottom-24 -right-24 w-48 h-48 rounded-full bg-secondary/25 blur-[60px] pointer-events-none" />
 
             {/* Glowing top line indicator */}
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary to-secondary animate-pulse" />
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-primary via-purple-500 to-secondary animate-pulse" />
 
-            {/* Close Button */}
+            {/* Close / Hang up Button */}
             <button 
               onClick={handleExitVoiceMode}
-              className="absolute top-4 right-4 text-gray-500 hover:text-white transition-all p-2 rounded-xl bg-secondary/35 border border-border/20 cursor-pointer flex items-center justify-center"
+              className="absolute top-4 right-4 text-red-400 hover:text-white transition-all p-2 rounded-xl bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 cursor-pointer flex items-center justify-center"
+              title="Hang up Call"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4 animate-pulse" />
             </button>
 
             {/* Header branding */}
-            <div className="space-y-1 mt-4">
-              <span className="text-[10px] font-black uppercase text-primary tracking-widest animate-pulse">RENS Voice Live Mode</span>
-              <h3 className="text-sm font-extrabold text-white">Operational AI Assistant</h3>
+            <div className="space-y-1.5 mt-2">
+              <span className="text-[9px] font-black uppercase text-primary tracking-widest animate-pulse">RENS Voice Live 2.0</span>
+              <h3 className="text-sm font-extrabold text-white flex items-center gap-1.5 justify-center">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                RENS Cognitive Call Room
+              </h3>
             </div>
 
-            {/* Main Control Panel (Rule 6 - Mute & Refresh controls) */}
+            {/* Dialed Agent Display */}
+            <div className="w-full mt-4 p-3 rounded-2xl bg-secondary/35 border border-border/20 flex flex-col items-center">
+              <span className="text-[8px] font-black uppercase text-gray-500 tracking-widest">Active Line</span>
+              <span className="text-xs font-black text-white mt-1 uppercase flex items-center gap-1.5">
+                {activeCallPersona === 'ORCHESTRATOR' && '📞 General Orchestrator (Core)'}
+                {activeCallPersona === 'HR' && '👥 Human Resources (HR AI Officer)'}
+                {activeCallPersona === 'FINANCE' && '💼 Finance & Payroll (Auditor AI)'}
+                {activeCallPersona === 'PROPERTY' && '🏢 Property Listings (Assets AI)'}
+                {activeCallPersona === 'LOGISTICS' && '🚚 Logistics Fleet (Transit AI)'}
+              </span>
+              <span className="text-[9px] text-primary font-bold mt-0.5 tracking-wider animate-pulse">CONNECTED</span>
+            </div>
+
+            {/* Main Control Panel */}
             <div className="flex items-center gap-6 mt-6 relative justify-center">
               {/* Mute/Unmute Mic Button */}
               <button
                 onClick={() => setIsMuted(prev => !prev)}
-                className={`p-3 rounded-full border transition-all duration-300 active:scale-95 cursor-pointer ${
+                className={`p-3.5 rounded-full border transition-all duration-300 active:scale-95 cursor-pointer ${
                   isMuted 
                     ? "bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse" 
                     : "bg-secondary/35 border-border/20 text-gray-400 hover:text-white hover:border-border/40"
                 }`}
                 title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
               >
-                {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                {isMuted ? <MicOff className="w-4.5 h-4.5" /> : <Mic className="w-4.5 h-4.5" />}
               </button>
 
               {/* Main Glowing Orb */}
@@ -2572,13 +2726,13 @@ export default function AssistantPage() {
               >
                 <div className="absolute inset-2 rounded-full border border-white/5 bg-black/35 flex items-center justify-center">
                   {isMuted ? (
-                    <MicOff className="w-6 h-6 text-red-400 glow-red animate-pulse" />
+                    <MicOff className="w-7 h-7 text-red-400 glow-red animate-pulse" />
                   ) : voiceAgentState === 'THINKING' ? (
-                    <Loader2 className="w-6 h-6 text-emerald-400 animate-spin glow-emerald" />
+                    <Loader2 className="w-7 h-7 text-emerald-400 animate-spin glow-emerald" />
                   ) : voiceAgentState === 'SPEAKING' ? (
-                    <Volume2 className="w-6 h-6 text-purple-400 glow-purple animate-bounce" />
+                    <Volume2 className="w-7 h-7 text-purple-400 glow-purple animate-bounce" />
                   ) : (
-                    <Mic className={`w-6 h-6 text-primary glow-primary ${voiceAgentState === 'LISTENING' ? "scale-110" : ""}`} />
+                    <Mic className={`w-7 h-7 text-primary glow-primary ${voiceAgentState === 'LISTENING' ? "scale-110" : ""}`} />
                   )}
                 </div>
                 
@@ -2587,7 +2741,7 @@ export default function AssistantPage() {
                 )}
               </div>
 
-              {/* Restart State Button */}
+              {/* Force Recut / Restart State Button */}
               <button
                 onClick={() => {
                   if (typeof window !== "undefined" && window.speechSynthesis) {
@@ -2595,17 +2749,41 @@ export default function AssistantPage() {
                   }
                   setVoiceAgentState("LISTENING");
                 }}
-                className="p-4 rounded-full border bg-secondary/35 border-border/20 text-gray-400 hover:text-white hover:border-border/40 transition-all duration-300 active:scale-95 cursor-pointer"
+                className="p-3.5 rounded-full border bg-secondary/35 border-border/20 text-gray-400 hover:text-white hover:border-border/40 transition-all duration-300 active:scale-95 cursor-pointer"
                 title="Restart Listening State"
               >
-                <RefreshCw className="w-5 h-5" />
+                <RefreshCw className="w-4.5 h-4.5" />
               </button>
             </div>
 
-            {/* Status Text & Dynamic Sub-status (Rule 6 - Dynamic Progress Feedback) */}
-            <div className="mt-8 space-y-1.5 w-full">
-              <p className="text-xs font-black uppercase tracking-widest text-gray-500">System State</p>
-              <h4 className={`text-base font-extrabold tracking-wider ${
+            {/* Subtitles & Spoken Captions Feed */}
+            <div className="w-full mt-6 p-4 rounded-2xl border border-border/20 bg-black/30 text-left space-y-3 relative overflow-hidden backdrop-blur-sm">
+              <span className="absolute top-2 right-3 text-[7px] font-black uppercase text-gray-600 tracking-widest">Subtitle Feed</span>
+              
+              <div className="space-y-2 mt-1 min-h-16 max-h-24 overflow-y-auto scrollbar-thin">
+                {subtitleFeedUser && (
+                  <div className="flex gap-1.5 items-start">
+                    <span className="text-[9px] font-black uppercase bg-secondary/50 text-white px-1.5 py-0.5 rounded border border-border/20 flex-shrink-0 mt-0.5">YOU</span>
+                    <p className="text-[10px] font-medium text-gray-300 leading-normal">{subtitleFeedUser}</p>
+                  </div>
+                )}
+                
+                {subtitleFeedAi && (
+                  <div className="flex gap-1.5 items-start">
+                    <span className="text-[9px] font-black uppercase bg-primary/20 text-primary px-1.5 py-0.5 rounded border border-primary/20 flex-shrink-0 mt-0.5">AI</span>
+                    <p className="text-[10px] font-bold text-primary-light glow-primary leading-normal">{subtitleFeedAi}</p>
+                  </div>
+                )}
+
+                {!subtitleFeedUser && !subtitleFeedAi && (
+                  <p className="text-[10px] text-gray-500 italic text-center py-4">Silence detected. Speak to talk with RENS AI...</p>
+                )}
+              </div>
+            </div>
+
+            {/* Dynamic Status Display */}
+            <div className="mt-5 space-y-1 w-full">
+              <h4 className={`text-sm font-extrabold tracking-wider ${
                 isMuted ? "text-red-400 glow-red" :
                 voiceAgentState === 'LISTENING' ? "text-primary glow-primary animate-pulse" :
                 voiceAgentState === 'THINKING' ? "text-emerald-400 glow-emerald animate-pulse" :
@@ -2613,21 +2791,17 @@ export default function AssistantPage() {
               }`}>
                 {isMuted ? "🔇 MUTED" :
                  voiceAgentState === 'LISTENING' ? "🎙️ LISTENING..." :
-                 voiceAgentState === 'THINKING' ? "⚡ THINKING..." :
-                 voiceAgentState === 'SPEAKING' ? "🔊 SPEAKING..." : "💤 IDLE"}
+                 voiceAgentState === 'THINKING' ? "⚡ ROUTING..." :
+                 voiceAgentState === 'SPEAKING' ? "🔊 VOCALIZING..." : "💤 IDLE"}
               </h4>
-              <p className={`text-[10px] font-semibold tracking-wide transition-all ${
-                isMuted ? "text-red-400/80 animate-pulse" :
-                voiceAgentState === 'THINKING' ? "text-emerald-400/95" :
-                voiceAgentState === 'SPEAKING' ? "text-purple-400/80" : "text-muted-foreground/60"
-              }`}>
+              <p className="text-[9px] font-semibold text-muted-foreground/60 transition-all">
                 {getVoiceSubStatus()}
               </p>
             </div>
 
             {/* Bouncing Audio Visualizer */}
             {(voiceAgentState === 'LISTENING' || voiceAgentState === 'SPEAKING') && (
-              <div className="flex items-center gap-1.5 justify-center h-10 mt-6 overflow-hidden">
+              <div className="flex items-center gap-1.5 justify-center h-8 mt-4 overflow-hidden">
                 <style>{`
                   @keyframes bounce-bar {
                     0%, 100% { transform: scaleY(0.25); }
@@ -2640,14 +2814,14 @@ export default function AssistantPage() {
                 `}</style>
                 {[
                   { delay: '0.1s', h: 'h-4' },
-                  { delay: '0.3s', h: 'h-8' },
-                  { delay: '0.5s', h: 'h-10' },
-                  { delay: '0.2s', h: 'h-7' },
-                  { delay: '0.4s', h: 'h-5' }
+                  { delay: '0.3s', h: 'h-6' },
+                  { delay: '0.5s', h: 'h-8' },
+                  { delay: '0.2s', h: 'h-5' },
+                  { delay: '0.4s', h: 'h-4' }
                 ].map((bar, i) => (
                   <div 
                     key={i} 
-                    className={`w-1.5 ${bar.h} rounded-full animate-bounce-bar ${
+                    className={`w-1 rounded-full animate-bounce-bar ${
                       voiceAgentState === 'LISTENING' ? "bg-primary glow-primary" : "bg-purple-500 glow-purple"
                     }`} 
                     style={{ animationDelay: bar.delay }} 
@@ -2656,13 +2830,60 @@ export default function AssistantPage() {
               </div>
             )}
 
-            {/* Settings Customizer */}
-            <div className="w-full border-t border-border/20 mt-10 pt-6 space-y-4 text-left">
-              <span className="block text-[8px] font-black uppercase text-gray-500 tracking-widest">Voice customizer settings</span>
+            {/* Department Dialer Roster */}
+            <div className="w-full border-t border-border/25 mt-6 pt-5 space-y-3 text-left">
+              <span className="block text-[8px] font-black uppercase text-gray-500 tracking-widest">AI Department Line Dialer</span>
+              
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'ORCHESTRATOR', label: 'Core AI', emoji: '🎙️', desc: 'Central Brain' },
+                  { id: 'HR', label: 'HR Officer', emoji: '👥', desc: 'Staff Reviews' },
+                  { id: 'FINANCE', label: 'Finance', emoji: '💼', desc: 'Payroll Accounts' },
+                  { id: 'PROPERTY', label: 'Listings', emoji: '🏢', desc: 'Assets & Sales' },
+                  { id: 'LOGISTICS', label: 'Logistics', emoji: '🚚', desc: 'Fleet Schedules' }
+                ].map((agent) => (
+                  <button
+                    key={agent.id}
+                    onClick={() => {
+                      if (activeCallPersona === agent.id) return;
+                      AudioSynthesizer.playConnectionChime();
+                      setActiveCallPersona(agent.id as any);
+                      
+                      // Restart session for the new agent persona
+                      setVoiceAgentState("THINKING");
+                      setSubtitleFeedUser(`Routing call to ${agent.label}...`);
+                      setSubtitleFeedAi("");
+                      
+                      setTimeout(() => {
+                        setVoiceAgentState("LISTENING");
+                        const greeting = `Direct call line established with RENS ${agent.label} Agent. How can I help you?`;
+                        setSubtitleFeedAi(greeting);
+                        speakText(greeting);
+                      }, 2000);
+                    }}
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer flex flex-col transition-all active:scale-95 ${
+                      activeCallPersona === agent.id 
+                        ? "bg-primary/20 border-primary/50 text-white shadow-[0_0_10px_rgba(var(--color-primary),0.3)]" 
+                        : "bg-secondary/20 border-border/30 text-gray-400 hover:text-white hover:border-border/60"
+                    }`}
+                  >
+                    <span className="text-[10px] font-black uppercase flex items-center gap-1">
+                      <span>{agent.emoji}</span>
+                      <span>{agent.label}</span>
+                    </span>
+                    <span className="text-[7px] text-gray-500 font-semibold truncate mt-0.5">{agent.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Customizer Slider Settings */}
+            <div className="w-full border-t border-border/25 mt-5 pt-4 space-y-4 text-left">
+              <span className="block text-[8px] font-black uppercase text-gray-500 tracking-widest">Audio Controls & Accent Desk</span>
               
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5 flex flex-col">
-                  <label className="text-[9px] font-extrabold text-gray-400 uppercase">Voice Persona</label>
+                  <label className="text-[9px] font-extrabold text-gray-400 uppercase">Voice Gender</label>
                   <select 
                     value={voiceGender}
                     onChange={(e) => setVoiceGender(e.target.value as any)}
@@ -2688,13 +2909,30 @@ export default function AssistantPage() {
                 </div>
               </div>
 
-              <div className="p-3 bg-secondary/15 rounded-xl border border-border/20 text-center mt-4">
+              {/* Language Selection */}
+              <div className="space-y-1.5 flex flex-col">
+                <label className="text-[9px] font-extrabold text-gray-400 uppercase">STT Speech Language & TTS Accent</label>
+                <select 
+                  value={speechLang}
+                  onChange={(e) => setSpeechLang(e.target.value)}
+                  className="p-2.5 rounded-xl border border-border/40 bg-secondary/35 text-[10px] text-gray-200 outline-none cursor-pointer focus:ring-1 focus:ring-primary w-full"
+                >
+                  {SPEECH_LANGUAGES.map((lang) => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.flag} {lang.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="p-3 bg-secondary/15 rounded-xl border border-border/20 text-center mt-3">
                 <p className="text-[9px] text-gray-500 leading-relaxed font-medium">
                   💡 Speak naturally to check dashboards, create tasks, or query profiles.<br />
-                  Say <b className="text-gray-300">"Exit voice mode"</b> or <b className="text-gray-300">"Goodbye"</b> to close.
+                  Say <b className="text-gray-300">"Exit voice mode"</b> or click the red hang-up button to close.
                 </p>
               </div>
             </div>
+
           </div>
         </div>
       )}

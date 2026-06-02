@@ -100,7 +100,8 @@ export class AiController {
   async chat(
     @Body('message') message: string,
     @Request() req,
-    @Body('sessionId') sessionId?: string
+    @Body('sessionId') sessionId?: string,
+    @Body('callPersona') callPersona?: string
   ) {
     if (!message || !message.trim()) {
       throw new HttpException('Message cannot be empty', HttpStatus.BAD_REQUEST);
@@ -134,7 +135,8 @@ export class AiController {
       req.user.id, 
       req.user.organizationId, 
       req.user.role,
-      aiHistory
+      aiHistory,
+      callPersona
     );
 
     // Save history if active session

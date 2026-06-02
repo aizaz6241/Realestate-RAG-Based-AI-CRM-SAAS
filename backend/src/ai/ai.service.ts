@@ -166,7 +166,8 @@ INSTRUCTIONS:
     userId: string,
     organizationId: string,
     userRole: string,
-    history: { role: 'user' | 'model'; content: string }[] = []
+    history: { role: 'user' | 'model'; content: string }[] = [],
+    callPersona?: string
   ): Promise<any> {
     try {
       // -----------------------------------------------------------------------------
@@ -576,6 +577,15 @@ ${documentContext}`;
 - **You MUST NOT call any database tools or SQL queries!**
 - Do NOT output any JSON tool blocks (like {"tool": "..."}).
 - Answer the user's question directly, concisely, and naturally in natural language text only.`;
+      }
+
+      if (callPersona && callPersona !== 'ORCHESTRATOR') {
+        systemPrompt += `
+\n🚨 DYNAMIC PHONE CALL PERSONA REINFORCEMENT:
+- You are currently speaking with the user in a continuous real-time audio PHONE CALL.
+- The user has dialed the **${callPersona} AI Officer** directly on their calling console.
+- You MUST speak, reason, and act strictly as the specialized ${callPersona} Agent! Focus your expertise entirely on the dialed department context (HR, Finance, Property, Logistics, etc.).
+- **AUDIO CALL RULES**: Keep your spoken responses highly concise, friendly, and natural. Since this is read out loud, restrict your responses to at most 2 or 3 short sentences. Avoid long bullet lists, complex markdown symbols, or structural grids completely! Speak in a smooth conversational tone.`;
       }
 
       // Step C: LLM decision round
