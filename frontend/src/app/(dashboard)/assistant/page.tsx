@@ -1380,31 +1380,6 @@ export default function AssistantPage() {
           />
         </div>
 
-        {isVoiceModeActive ? (
-          <VoiceCallingConsole
-            isMuted={isMuted}
-            onToggleMute={() => setIsMuted(prev => !prev)}
-            voiceAgentState={voiceAgentState}
-            onExitVoiceMode={handleExitVoiceMode}
-            onResetListening={() => {
-              if (typeof window !== "undefined" && window.speechSynthesis) {
-                window.speechSynthesis.cancel();
-              }
-              setVoiceAgentState("LISTENING");
-            }}
-            subtitleFeedUser={subtitleFeedUser}
-            subtitleFeedAi={subtitleFeedAi}
-            activeCallPersona={activeCallPersona}
-            onPersonaChange={setActiveCallPersona}
-            voiceGender={voiceGender}
-            onVoiceGenderChange={setVoiceGender}
-            voiceRate={voiceRate}
-            onVoiceRateChange={setVoiceRate}
-            voicePitch={voicePitch}
-            onVoicePitchChange={setVoicePitch}
-            voiceStatusText={getVoiceSubStatus()}
-          />
-        ) : (
           <>
             {/* MIDDLE PANEL: Chat Dialogue Feed (50%) */}
             <div className={`${activeMobileTab === 'chat' ? 'flex' : 'hidden'} lg:flex lg:col-span-5 glass rounded-3xl border border-border/60 overflow-hidden flex flex-col bg-card/10 shadow-2xl h-full`}>
@@ -1483,7 +1458,7 @@ export default function AssistantPage() {
               </div>
 
               {/* Real-time Voice Mode Subtitles Feed */}
-              {isVoiceModeActive && (subtitleFeedUser || subtitleFeedAi) && (
+              {isVoiceModeActive && (subtitleFeedUser || subtitleFeedAi || voiceAgentState === 'THINKING') && (
                 <div className="mx-6 mb-3 p-3.5 rounded-2xl border border-border/30 bg-slate-950/90 flex flex-col gap-2 shadow-2xl animate-fade-in text-left">
                   {subtitleFeedUser && (
                     <div className="flex gap-2.5 items-start text-xs">
@@ -1495,6 +1470,15 @@ export default function AssistantPage() {
                     <div className="flex gap-2.5 items-start text-xs border-t border-border/35 pt-2">
                       <span className="text-[8px] font-black uppercase bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-md border border-cyan-500/30 flex-shrink-0 mt-0.5 select-none">AI</span>
                       <p className="font-semibold text-cyan-300 leading-relaxed drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">{subtitleFeedAi}</p>
+                    </div>
+                  )}
+                  {voiceAgentState === 'THINKING' && (
+                    <div className="flex gap-2.5 items-center text-xs border-t border-border/35 pt-2 text-emerald-400">
+                      <span className="text-[8px] font-black uppercase bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md border border-emerald-500/30 flex-shrink-0 select-none animate-pulse">THINKING</span>
+                      <div className="flex items-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                        <span className="font-semibold text-emerald-400/90">{getVoiceSubStatus() || "Running database analytics..."}</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1553,20 +1537,27 @@ export default function AssistantPage() {
      
                     {/* Dynamic Waveform Visualizer - Slower and smooth oscillations */}
                     <div className="flex-1 flex items-center justify-center gap-1.5 h-12 overflow-hidden px-4">
-                      {[...Array(10)].map((_, i) => {
-                        const barStyle = getWaveBarStyles(i);
-                        const colorClass = isMuted ? "bg-red-500/30" :
-                          voiceAgentState === 'LISTENING' ? "bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.5)]" :
-                          voiceAgentState === 'THINKING' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
-                          voiceAgentState === 'SPEAKING' ? "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" : "bg-cyan-500/40";
-                        return (
-                          <div 
-                            key={i} 
-                            className={`w-2 rounded-full ${colorClass} transition-all duration-[40ms]`} 
-                            style={barStyle} 
-                          />
-                        );
-                      })}
+                      {voiceAgentState === 'THINKING' ? (
+                        <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 animate-pulse">
+                          <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                          <span>{getVoiceSubStatus()}</span>
+                        </div>
+                      ) : (
+                        [...Array(10)].map((_, i) => {
+                          const barStyle = getWaveBarStyles(i);
+                          const colorClass = isMuted ? "bg-red-500/30" :
+                            voiceAgentState === 'LISTENING' ? "bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.5)]" :
+                            (voiceAgentState as any) === 'THINKING' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
+                            voiceAgentState === 'SPEAKING' ? "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" : "bg-cyan-500/40";
+                          return (
+                            <div 
+                              key={i} 
+                              className={`w-2 rounded-full ${colorClass} transition-all duration-[40ms]`} 
+                              style={barStyle} 
+                            />
+                          );
+                        })
+                      )}
                     </div>
      
                     {/* Call End / Disconnect Button (X layout) */}
@@ -1794,7 +1785,6 @@ export default function AssistantPage() {
 
             </div>
           </>
-        )}
       </div>
 
       {/* Zorvex VOICE LIVE SYSTEM OVERLAY */}

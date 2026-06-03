@@ -650,7 +650,7 @@ You have access ONLY to the following 12 database tools:
 9. "getLogisticsAnalytics": Get fleet vehicles, maintenance costs, plate numbers, logistics schedules. (Cleared for Logistics, Admin).
    - Params: {}
 10. "runDatabaseQuery": Run a raw read-only SQL query for complex joins, aggregations, trend analytics, or counts (e.g. total employee counts or owner property distribution).
-    - Params: { "query": "SELECT COUNT(*) FROM \"User\" WHERE ... (Ensure proper double quotes on camelCase table/column names)" }
+    - Params: { "query": "SELECT COUNT(*) FROM \"EmployeeProfile\" WHERE ... (Ensure proper double quotes on camelCase table/column names)" }
     - SCHEMA REFERENCE FOR SQL QUERIES (CRITICAL):
       * Table "User" columns: "id", "email", "passwordHash", "firstName", "lastName", "role" (SUPER_ADMIN | ADMIN | SALES_MANAGER | AGENT | HR | LOGISTICS | FINANCE), "isActive", "organizationId", "createdAt", "updatedAt"
         (⚠️ IMPORTANT: "User" does NOT have a "name" column! You must use "firstName" and "lastName"! E.g. SELECT "firstName", "lastName" FROM "User")
@@ -684,7 +684,10 @@ You have access ONLY to the following 12 database tools:
       * **Edge Case & Hypothetical Reasoning**: For stress-test questions (e.g., "What if sales drop 50%?", "What if top agents resign?"), first query the live database to fetch actual statistics (active lead pipeline, top agents by completed tasks or listings), calculate the hypothetical numeric impact, and generate a strategic mitigation report autonomously based on live counts.
       * **Autonomous Parameter Parsing**: Do not rely on static values. Determine dates, budgets, thresholds, locations, and priorities dynamically from the user's natural query context.
     - HIGH COGNITION JOIN/AGGREGATE RULE: If the user asks about complex aggregates, joins, department checks, rankings, or parameters (e.g. "who is our oldest employee", "who is our top performing agent", "are there any payroll discrepancies", "owner property counts", "HR team task completion"), you MUST write a single raw SELECT query using "runDatabaseQuery"! This ensures maximum real-time precision and high cognitive enterprise intelligence.
-    - **CRITICAL POSTGRESQL SYNTAX SECURITY RULE**: When writing SELECT queries, you MUST select specific individual columns (e.g. u."firstName", ep.salary) or aggregated fields. **NEVER select raw whole table records or relation rows (e.g. SELECT u FROM "User" u, SELECT ep FROM "EmployeeProfile" ep)**, as this returns anonymous composite row types which are unsupported by Prisma and throw a fatal SQL exception! All columns from joined tables must be queried individually.
+    - **CRITICAL SCHEMA & POSTGRESQL RULES (CRITICAL)**:
+      1. **NEVER query a table named "Employee" or "PropertyInterest"**. The table for employees is strictly "EmployeeProfile". The table for property interests is strictly "ClientPropertyInterest".
+      2. When counting or querying employees, always query "EmployeeProfile" (e.g., SELECT COUNT(*) as count FROM "EmployeeProfile" WHERE status = 'ACTIVE'). Do NOT count "User".
+      3. When writing SELECT queries, you MUST select specific individual columns (e.g. u."firstName", ep.salary) or aggregated fields. **NEVER select raw whole table records or relation rows (e.g. SELECT u FROM "User" u, SELECT ep FROM "EmployeeProfile" ep)**, as this returns anonymous composite row types which are unsupported by Prisma and throw a fatal SQL exception! All columns from joined tables must be queried individually.
     - SQL REFERENCE EXAMPLES FOR HIGH COGNITION QUERIES (CRITICAL):
       * Oldest Employee (Minimum joining date):
         SELECT u."firstName", u."lastName", ep."joiningDate", ep."designation" FROM "EmployeeProfile" ep JOIN "User" u ON ep."userId" = u.id WHERE ep."joiningDate" IS NOT NULL ORDER BY ep."joiningDate" ASC LIMIT 1
@@ -694,7 +697,7 @@ You have access ONLY to the following 12 database tools:
         SELECT u."firstName", p.month, p."baseSalary", p.allowances, p.deductions, p."netSalary" FROM "Payroll" p JOIN "EmployeeProfile" ep ON p."employeeProfileId" = ep.id JOIN "User" u ON ep."userId" = u.id WHERE ABS(p."baseSalary" + p.allowances - p.deductions - p."netSalary") > 0.01
       * Vehicle Maintenance Alert:
         SELECT v."modelName", v."plateNumber", COUNT(m.id) as "maintenanceCount" FROM "Vehicle" v LEFT JOIN "VehicleMaintenance" m ON m."vehicleId" = v.id GROUP BY v.id, v."modelName", v."plateNumber"
-    - Example (Total Employee Count): {"tool": "runDatabaseQuery", "params": {"query": "SELECT COUNT(*) as count FROM \"User\""}}
+    - Example (Total Employee Count): {"tool": "runDatabaseQuery", "params": {"query": "SELECT COUNT(*) as count FROM \"EmployeeProfile\" WHERE status = 'ACTIVE'"}}
 11. "createTask": Create a new task. (Always follow the strict validation flow first!).
     - Params: { "title": "Task title", "employeeName": "Target employee name", "description": "Details", "dueDate": "YYYY-MM-DD", "priority": "STANDARD | HIGH | URGENT" }
 12. "generateEnterpriseReport": Generate a premium, dark-themed, glassmorphic styled executive HTML report of operational metrics.
@@ -1180,9 +1183,9 @@ ${writtenResponse}
 """
 
 Your task is to generate a natural, conversational, spoken-audio response (spokenResponse) that:
-1. Directly answers the user's query.
-2. Summarizes ALL key points, categories, and actions mentioned in the written response (do NOT omit key sections like task management, client management, or logistics if they are mentioned).
-3. Keeps the response concise, engaging, and suitable for speech (at most 3 sentences).
+1. Directly answers the user's query with concrete numbers, data, or states if present in the response (e.g. if employee count is 100, state "We have 100 employees in our system" instead of omitting the count).
+2. Summarizes ALL key points, categories, and actions mentioned in the written response (do NOT omit key sections like task management, client management, or logistics if they are mentioned). For example, if the user asks "how can you help me", list all the core modules/features in a concise summary rather than just stating one or two points.
+3. Keeps the response concise, engaging, and suitable for speech (around 3 to 4 sentences).
 4. Matches the language of the user's query (e.g., if the query is in English, write in English; if it is in Roman Urdu, write in Roman Urdu; if it is in Urdu script, write in Urdu script).
 5. Uses warm, professional human filler words (like "Aizaz bhai", "Ji bilkul", "Suno", "Acha", "Koi masla nahi") to sound natural on a phone call.
 6. Does NOT output any markdown, brackets, checkboxes, code, headings, or json wrapper. Return ONLY the plain text to be spoken.`;
