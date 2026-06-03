@@ -300,6 +300,9 @@ const summarizeForSpeech = (text: string): string => {
     .replace(/^(Direct\s*Answer|Direct\s*Response|Answer|Response|Assistant\s*Mode)[:\-\s\(\)]*/i, "")
     .trim();
 
+  // Strip optional leading Assistant Mode wrapper with parentheses
+  clean = clean.replace(/^\(?Assistant\s*Mode\)?[:\-\s\(\)]*/i, "").trim();
+
   // 4. Handle lists and summarize
   const lines = clean.split("\n").map(l => l.trim()).filter(l => l.length > 0);
   
@@ -324,6 +327,10 @@ const summarizeForSpeech = (text: string): string => {
 
   // If no bullet list, take the first paragraph and limit to 2 sentences
   const firstParagraph = lines[0] || "";
+  if (firstParagraph.replace(/[\[\]\s]/g, "").length === 0) {
+    return "I have displayed the requested database cards on your screen.";
+  }
+
   const sentences = firstParagraph.match(/[^.!?]+[.!?]+/g);
   if (sentences && sentences.length > 2) {
     return sentences.slice(0, 2).join(" ").trim();
@@ -822,7 +829,7 @@ export default function AssistantPage() {
               }]);
 
               const spokenText = data.spokenResponse || data.response;
-              const summarizedText = summarizeForSpeech(spokenText);
+              const summarizedText = data.spokenResponse ? spokenText : summarizeForSpeech(spokenText);
               setSubtitleFeedAi(summarizedText);
               speakText(summarizedText);
             } else {
@@ -1373,394 +1380,421 @@ export default function AssistantPage() {
           />
         </div>
 
-        {/* MIDDLE PANEL: Chat Dialogue Feed (50%) */}
-        <div className={`${activeMobileTab === 'chat' ? 'flex' : 'hidden'} lg:flex lg:col-span-5 glass rounded-3xl border border-border/60 overflow-hidden flex flex-col bg-card/10 shadow-2xl h-full`}>
-          
-          {/* Scrollable conversation logs */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
-            {messages.map((msg, index) => {
-              const isUser = msg.role === "user";
-              
-              return (
-                <div key={msg.id || index} className={`flex gap-3 max-w-[85%] animate-fade-in ${isUser ? "ml-auto flex-row-reverse" : "mr-auto"}`}>
-                  {/* Avatar Bubble */}
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border ${
-                    isUser ? "bg-primary/10 border-primary/20 text-primary" : "bg-amber-500/10 border-amber-500/20 text-amber-400"
-                  }`}>
-                    {isUser ? <span className="font-extrabold text-sm uppercase">{currentUser?.firstName?.charAt(0) || "A"}</span> : <Bot className="w-5 h-5" />}
-                  </div>
-
-                  {/* Conversation Bubble Content */}
-                  <div className="space-y-2 text-left min-w-0 flex-1 w-full">
-                    {!isUser && (
-                      <span className="block text-[8px] font-black uppercase text-gray-500 tracking-wider">Zorvex Cognitive Core</span>
-                    )}
-
-                    <div className={`p-4 rounded-2xl border text-sm leading-relaxed shadow-lg ${
-                      isUser 
-                        ? "bg-primary/20 border-primary/30 text-white rounded-tr-none glow-primary shadow-[0_0_15px_rgba(6,182,212,0.05)] whitespace-pre-wrap" 
-                        : "bg-card border-border/50 text-gray-200 rounded-tl-none w-full"
-                    }`}>
-                      {isUser ? (
-                        <p className="font-medium">{msg.content}</p>
-                      ) : (
-                        <FormattedAiMessage 
-                          content={msg.content} 
-                          onExecuteCommand={(cmd) => executeChatQuery(cmd)} 
-                        />
-                      )}
-
-                      {/* CITATION PILLS */}
-                      {msg.citations && msg.citations.length > 0 && (
-                        <div className="mt-3.5 pt-2 border-t border-border/30 space-y-1">
-                          <span className="block text-[8px] font-black uppercase text-gray-500 tracking-widest flex items-center gap-1">
-                            <BookOpen className="w-2.5 h-2.5 text-primary" /> Sources Referenced:
-                          </span>
-                          <div className="flex flex-wrap gap-1.5 mt-1">
-                            {Array.from(new Set(msg.citations.map((c: any) => c.documentName))).map((docName: any, idx) => (
-                              <span 
-                                key={idx}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-secondary/80 border border-border/60 text-[9px] text-gray-400 font-bold"
-                                title={docName}
-                              >
-                                <FileText className="w-2.5 h-2.5 text-primary" />
-                                {docName.length > 25 ? docName.substring(0, 22) + "..." : docName}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* DYNAMIC COMPONENT CARD RENDERING SECTION */}
-                      {!isUser && msg.toolData && (
-                        <div className="mt-3 animate-fade-in w-full overflow-x-auto scrollbar-thin">
-                          <DatabaseWidgets 
-                            toolExecuted={msg.toolExecuted} 
-                            toolData={msg.toolData} 
-                            msgId={msg.id} 
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Real-time Voice Mode Subtitles Feed */}
-          {isVoiceModeActive && (subtitleFeedUser || subtitleFeedAi) && (
-            <div className="mx-6 mb-3 p-3.5 rounded-2xl border border-border/30 bg-slate-950/90 flex flex-col gap-2 shadow-2xl animate-fade-in text-left">
-              {subtitleFeedUser && (
-                <div className="flex gap-2.5 items-start text-xs">
-                  <span className="text-[8px] font-black uppercase bg-slate-800 text-white px-2 py-0.5 rounded-md border border-white/5 flex-shrink-0 mt-0.5 select-none">YOU</span>
-                  <p className="font-semibold text-gray-300 leading-relaxed">{subtitleFeedUser}</p>
-                </div>
-              )}
-              {subtitleFeedAi && (
-                <div className="flex gap-2.5 items-start text-xs border-t border-border/35 pt-2">
-                  <span className="text-[8px] font-black uppercase bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-md border border-cyan-500/30 flex-shrink-0 mt-0.5 select-none">AI</span>
-                  <p className="font-semibold text-cyan-300 leading-relaxed drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">{subtitleFeedAi}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Scrolling Loading Indicator */}
-          {isLoadingChat && (
-            <div className="p-4 flex items-center justify-start gap-2.5 pl-6 border-t border-border/30 bg-secondary/5 text-xs text-muted-foreground select-none">
-              <Loader2 className="w-4 h-4 animate-spin text-primary glow-primary" />
-              <span>AI calculations in progress...</span>
-            </div>
-          )}
-
-          {/* Quick Prompts Chips Feed */}
-          <div className="p-3 border-t border-border/30 bg-secondary/15 flex items-center gap-2 overflow-x-auto scrollbar-none flex-shrink-0">
-            <span className="text-[9px] font-black uppercase text-gray-500 tracking-wider flex items-center gap-1 whitespace-nowrap pl-2">
-              <Sparkles className="w-3 h-3 text-primary animate-pulse" /> Try Quick Chip:
-            </span>
-            {suggestionChips.map((chip, i) => (
-              <button
-                key={i}
-                onClick={() => handleChipClick(chip.text)}
-                disabled={isLoadingChat}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-secondary/50 hover:bg-primary/10 border border-border/60 hover:border-primary/30 rounded-xl text-[10px] text-gray-300 hover:text-white transition-all cursor-pointer whitespace-nowrap disabled:opacity-50"
-              >
-                <chip.icon className="w-3.5 h-3.5 text-gray-400 group-hover:text-primary" />
-                {chip.text}
-              </button>
-            ))}
-          </div>
-
-          {/* Form input bar */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (isVoiceModeActive) return;
-              executeChatQuery(userInput);
+        {isVoiceModeActive ? (
+          <VoiceCallingConsole
+            isMuted={isMuted}
+            onToggleMute={() => setIsMuted(prev => !prev)}
+            voiceAgentState={voiceAgentState}
+            onExitVoiceMode={handleExitVoiceMode}
+            onResetListening={() => {
+              if (typeof window !== "undefined" && window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+              }
+              setVoiceAgentState("LISTENING");
             }}
-            className="p-4 border-t border-border/40 bg-secondary/20 flex gap-3.5 items-center flex-shrink-0 relative overflow-hidden"
-          >
-            {isVoiceModeActive ? (
-              <>
-                {/* Mute Mic Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsMuted(prev => !prev)}
-                  className={`p-3.5 rounded-2xl border transition-all duration-300 active:scale-95 cursor-pointer flex items-center justify-center ${
-                    isMuted 
-                      ? "bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse" 
-                      : "bg-secondary/40 border-border/60 text-gray-400 hover:text-white"
-                  }`}
-                  title={isMuted ? "Unmute Mic" : "Mute Mic"}
-                >
-                  {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                </button>
- 
-                {/* Dynamic Waveform Visualizer - Slower and smooth oscillations */}
-                <div className="flex-1 flex items-center justify-center gap-1.5 h-12 overflow-hidden px-4">
-                  {[...Array(10)].map((_, i) => {
-                    const barStyle = getWaveBarStyles(i);
-                    const colorClass = isMuted ? "bg-red-500/30" :
-                      voiceAgentState === 'LISTENING' ? "bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.5)]" :
-                      voiceAgentState === 'THINKING' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
-                      voiceAgentState === 'SPEAKING' ? "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" : "bg-cyan-500/40";
-                    return (
-                      <div 
-                        key={i} 
-                        className={`w-2 rounded-full ${colorClass} transition-all duration-[40ms]`} 
-                        style={barStyle} 
-                      />
-                    );
-                  })}
-                </div>
- 
-                {/* Call End / Disconnect Button (X layout) */}
-                <button
-                  type="button"
-                  onClick={handleExitVoiceMode}
-                  className="bg-red-600 hover:bg-red-500 border border-red-500/30 text-white p-3.5 rounded-2xl shadow-[0_0_15px_rgba(220,38,38,0.3)] flex items-center justify-center flex-shrink-0 transition-all duration-300 active:scale-95 cursor-pointer"
-                  title="End Call"
-                >
-                  <X className="w-5 h-5 animate-pulse" />
-                </button>
-              </>
-            ) : (
-              <>
-                {/* Language Switcher Dropdown */}
-                <select
-                  disabled={isLoadingChat || isListening}
-                  value={speechLang}
-                  onChange={(e) => setSpeechLang(e.target.value)}
-                  className="px-2 py-2.5 bg-secondary/60 hover:bg-secondary border border-border/60 rounded-xl text-[10px] font-bold text-gray-200 outline-none transition-all cursor-pointer disabled:opacity-50 flex-shrink-0 appearance-none text-center"
-                  style={{ minWidth: "75px" }}
-                  title="Select Speech Input Language"
-                >
-                  {SPEECH_LANGUAGES.map((lang) => (
-                    <option key={lang.code} value={lang.code} className="bg-card text-gray-200">
-                      {lang.flag} {lang.label}
-                    </option>
-                  ))}
-                </select>
+            subtitleFeedUser={subtitleFeedUser}
+            subtitleFeedAi={subtitleFeedAi}
+            activeCallPersona={activeCallPersona}
+            onPersonaChange={setActiveCallPersona}
+            voiceGender={voiceGender}
+            onVoiceGenderChange={setVoiceGender}
+            voiceRate={voiceRate}
+            onVoiceRateChange={setVoiceRate}
+            voicePitch={voicePitch}
+            onVoicePitchChange={setVoicePitch}
+            voiceStatusText={getVoiceSubStatus()}
+          />
+        ) : (
+          <>
+            {/* MIDDLE PANEL: Chat Dialogue Feed (50%) */}
+            <div className={`${activeMobileTab === 'chat' ? 'flex' : 'hidden'} lg:flex lg:col-span-5 glass rounded-3xl border border-border/60 overflow-hidden flex flex-col bg-card/10 shadow-2xl h-full`}>
+              
+              {/* Scrollable conversation logs */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
+                {messages.map((msg, index) => {
+                  const isUser = msg.role === "user";
+                  
+                  return (
+                    <div key={msg.id || index} className={`flex gap-3 max-w-[85%] animate-fade-in ${isUser ? "ml-auto flex-row-reverse" : "mr-auto"}`}>
+                      {/* Avatar Bubble */}
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border ${
+                        isUser ? "bg-primary/10 border-primary/20 text-primary" : "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                      }`}>
+                        {isUser ? <span className="font-extrabold text-sm uppercase">{currentUser?.firstName?.charAt(0) || "A"}</span> : <Bot className="w-5 h-5" />}
+                      </div>
 
-                <input
-                  type="text"
-                  required
-                  disabled={isLoadingChat}
-                  placeholder={
-                    isListening
-                      ? `Listening in ${
-                          SPEECH_LANGUAGES.find((l) => l.code === speechLang)?.name || "selected language"
-                        }... Speak now!`
-                      : "Ask documents (RAG) or query live ERP Postgres tables..."
-                  }
-                  className="flex-1 glass-input pl-4.5 pr-4.5 py-3.5 rounded-2xl text-xs bg-secondary border border-border/60 outline-none text-white focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/45"
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                />
+                      {/* Conversation Bubble Content */}
+                      <div className="space-y-2 text-left min-w-0 flex-1 w-full">
+                        {!isUser && (
+                          <span className="block text-[8px] font-black uppercase text-gray-500 tracking-wider">Zorvex Cognitive Core</span>
+                        )}
 
-                {/* Zorvex Voice Live Toggle Button */}
-                <button
-                  type="button"
-                  disabled={isLoadingChat}
-                  onClick={handleToggleVoiceMode}
-                  className="p-3.5 rounded-2xl border flex items-center justify-center flex-shrink-0 transition-all duration-300 active:scale-95 cursor-pointer bg-secondary/40 border-border/60 text-gray-400 hover:text-white hover:border-border/80"
-                  title="Zorvex Voice Live Mode"
-                >
-                  <Volume2 className="w-5 h-5 text-gray-400 hover:text-primary" />
-                </button>
+                        <div className={`p-4 rounded-2xl border text-sm leading-relaxed shadow-lg ${
+                          isUser 
+                            ? "bg-primary/20 border-primary/30 text-white rounded-tr-none glow-primary shadow-[0_0_15px_rgba(6,182,212,0.05)] whitespace-pre-wrap" 
+                            : "bg-card border-border/50 text-gray-200 rounded-tl-none w-full"
+                        }`}>
+                          {isUser ? (
+                            <p className="font-medium">{msg.content}</p>
+                          ) : (
+                            <FormattedAiMessage 
+                              content={msg.content} 
+                              onExecuteCommand={(cmd) => executeChatQuery(cmd)} 
+                            />
+                          )}
 
-                {/* Mic dictation button */}
-                <button
-                  type="button"
-                  disabled={isLoadingChat}
-                  onClick={toggleListening}
-                  className={`p-3.5 rounded-2xl border flex items-center justify-center flex-shrink-0 transition-all active:scale-95 cursor-pointer ${
-                    isListening
-                      ? "bg-red-500/20 border-red-500/80 text-red-400 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.25)]"
-                      : "bg-secondary/40 border-border/60 text-gray-400 hover:text-white"
-                  }`}
-                  title={isListening ? "Stop dictation" : "Voice dictation"}
-                >
-                  {isListening ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                </button>
+                          {/* CITATION PILLS */}
+                          {msg.citations && msg.citations.length > 0 && (
+                            <div className="mt-3.5 pt-2 border-t border-border/30 space-y-1">
+                              <span className="block text-[8px] font-black uppercase text-gray-500 tracking-widest flex items-center gap-1">
+                                <BookOpen className="w-2.5 h-2.5 text-primary" /> Sources Referenced:
+                              </span>
+                              <div className="flex flex-wrap gap-1.5 mt-1">
+                                {Array.from(new Set(msg.citations.map((c: any) => c.documentName))).map((docName: any, idx) => (
+                                  <span 
+                                    key={idx}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-secondary/80 border border-border/60 text-[9px] text-gray-400 font-bold"
+                                    title={docName}
+                                  >
+                                    <FileText className="w-2.5 h-2.5 text-primary" />
+                                    {docName.length > 25 ? docName.substring(0, 22) + "..." : docName}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
 
-                <button
-                  type="submit"
-                  disabled={isLoadingChat || !userInput.trim()}
-                  className="bg-primary hover:bg-primary/95 text-white p-3.5 rounded-2xl glow-primary flex items-center justify-center flex-shrink-0 transition-transform active:scale-95 disabled:opacity-50 disabled:scale-100 cursor-pointer"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
-              </>
-            )}
-          </form>
-
-        </div>
-
-        {/* RIGHT SIDEBAR: Document Vault Manager (30%) */}
-        <div className={`${activeMobileTab === 'knowledge' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 flex-col gap-6 h-full overflow-hidden`}>
-          
-          {/* Drag & Drop Vector Upload Cabinet */}
-          <div className="glass rounded-3xl border border-border/60 p-4 bg-card/25 text-center flex flex-col justify-between items-center gap-4 relative overflow-hidden flex-shrink-0">
-            {isUploading && (
-              <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-30 flex flex-col items-center justify-center gap-2">
-                <Loader2 className="w-8 h-8 animate-spin text-primary glow-primary" />
-                <span className="text-[10px] font-black uppercase text-primary tracking-widest">Generating Embeddings...</span>
-              </div>
-            )}
-            
-            <div className="space-y-1.5 text-left w-full border-b border-border/30 pb-2 flex justify-between items-center">
-              <div>
-                <h3 className="text-xs font-black uppercase text-white tracking-wider flex items-center gap-1.5">
-                  <UploadCloud className="w-4 h-4 text-primary" /> Vector Upload Zone
-                </h3>
-                <p className="text-[9px] text-muted-foreground">Upload and index unstructured files inside RAG pipeline.</p>
-              </div>
-              <button 
-                onClick={() => setShowNoteUpload(!showNoteUpload)}
-                className="text-[9px] font-black uppercase border border-border px-2 py-0.5 rounded bg-secondary/50 text-gray-400 hover:text-white transition-colors cursor-pointer"
-              >
-                {showNoteUpload ? "File Upload" : "Paste Note"}
-              </button>
-            </div>
-
-            {/* Ingest paste note layout */}
-            {showNoteUpload ? (
-              <form onSubmit={handleNoteUpload} className="w-full flex flex-col gap-2.5 text-left">
-                <input 
-                  type="text"
-                  placeholder="Note Title (e.g. DHA Policy Changes)"
-                  className="glass-input text-[11px] px-2.5 py-1.5 rounded-lg border border-border/80 w-full outline-none bg-secondary/40"
-                  value={noteName}
-                  onChange={(e) => setNoteName(e.target.value)}
-                />
-                <textarea 
-                  required
-                  placeholder="Paste manual note or list specifications here..."
-                  className="glass-input text-[11px] px-2.5 py-1.5 rounded-lg border border-border/80 w-full h-24 outline-none resize-none bg-secondary/40"
-                  value={noteContent}
-                  onChange={(e) => setNoteContent(e.target.value)}
-                />
-                <button
-                  type="submit"
-                  className="w-full bg-primary hover:bg-primary/95 text-white py-1.5 rounded-lg font-bold text-[10px] uppercase tracking-wider glow-primary transition-transform active:scale-95 cursor-pointer"
-                >
-                  Index Text Note
-                </button>
-              </form>
-            ) : (
-              /* PDF/TXT standard file picker */
-              <div 
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full border-2 border-dashed border-border/60 hover:border-primary/50 bg-secondary/10 hover:bg-primary/5 rounded-2xl p-6 transition-all cursor-pointer flex flex-col items-center gap-2 group"
-              >
-                <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  className="hidden" 
-                  accept=".pdf,.txt" 
-                  onChange={handleFileUpload}
-                />
-                <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                  <UploadCloud className="w-5 h-5 glow-primary" />
-                </div>
-                <div className="space-y-0.5">
-                  <span className="block text-[10px] font-black text-white uppercase group-hover:text-primary transition-colors">Select PDF or TXT</span>
-                  <span className="block text-[8px] text-gray-500">Maximum size limit is 10 MB.</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Knowledge Base Logs Cabinet */}
-          <div className="glass rounded-3xl border border-border/60 p-4 bg-card/25 flex-1 flex flex-col overflow-hidden text-left shadow-xl">
-            
-            <div className="flex-shrink-0 border-b border-border/30 pb-3 flex justify-between items-center">
-              <div>
-                <h3 className="text-xs font-black uppercase text-white tracking-wider flex items-center gap-1.5">
-                  <BookOpen className="w-4 h-4 text-primary" /> Knowledge Base ({documents.length})
-                </h3>
-                <p className="text-[9px] text-muted-foreground">Indexed sources queried by Chat Assistant.</p>
-              </div>
-              <button 
-                onClick={fetchDocuments}
-                className="p-1 text-gray-500 hover:text-white transition-colors cursor-pointer"
-                title="Sync Indices"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Roster Search Bar */}
-            <div className="flex-shrink-0 mt-3 mb-2 flex items-center gap-2 bg-secondary/30 border border-border/60 rounded-xl px-2.5 py-1">
-              <Search className="w-3.5 h-3.5 text-muted-foreground" />
-              <input 
-                type="text"
-                placeholder="Search indexed files..."
-                className="w-full bg-transparent border-0 outline-none focus:ring-0 text-[10px] text-white py-1"
-                value={searchDocQuery}
-                onChange={(e) => setSearchDocQuery(e.target.value)}
-              />
-            </div>
-
-            {/* Documents List */}
-            <div className="flex-1 overflow-y-auto space-y-2 mt-2 scrollbar-thin">
-              {documents.filter((d: any) => d.name.toLowerCase().includes(searchDocQuery.toLowerCase())).length === 0 ? (
-                <p className="text-[10px] text-center text-muted-foreground italic py-10">No indexed document logs found.</p>
-              ) : (
-                documents
-                  .filter((d: any) => d.name.toLowerCase().includes(searchDocQuery.toLowerCase()))
-                  .map((doc: any) => (
-                    <div key={doc.id} className="p-2.5 rounded-2xl border border-border/30 bg-secondary/15 hover:bg-secondary/35 flex justify-between items-center gap-2 group transition-all">
-                      <div className="overflow-hidden space-y-0.5 flex-1">
-                        <p className="text-[10px] font-black text-white truncate flex items-center gap-1">
-                          <FileText className="w-3 h-3 text-primary flex-shrink-0" />
-                          {doc.name}
-                        </p>
-                        <div className="flex items-center gap-1.5 text-[8px] font-black uppercase text-gray-500">
-                          <span>{doc.fileType}</span>
-                          <span>•</span>
-                          <span>{formatBytes(doc.fileSize)}</span>
+                          {/* DYNAMIC COMPONENT CARD RENDERING SECTION */}
+                          {!isUser && msg.toolData && (
+                            <div className="mt-3 animate-fade-in w-full overflow-x-auto scrollbar-thin">
+                              <DatabaseWidgets 
+                                toolExecuted={msg.toolExecuted} 
+                                toolData={msg.toolData} 
+                                msgId={msg.id} 
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleDeleteDocument(doc.id, doc.name)}
-                        className="text-muted-foreground hover:text-red-400 p-1 rounded-md hover:bg-red-500/10 cursor-pointer flex-shrink-0"
-                        title="Delete index chunks"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                     </div>
-                  ))
+                  );
+                })}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Real-time Voice Mode Subtitles Feed */}
+              {isVoiceModeActive && (subtitleFeedUser || subtitleFeedAi) && (
+                <div className="mx-6 mb-3 p-3.5 rounded-2xl border border-border/30 bg-slate-950/90 flex flex-col gap-2 shadow-2xl animate-fade-in text-left">
+                  {subtitleFeedUser && (
+                    <div className="flex gap-2.5 items-start text-xs">
+                      <span className="text-[8px] font-black uppercase bg-slate-800 text-white px-2 py-0.5 rounded-md border border-white/5 flex-shrink-0 mt-0.5 select-none">YOU</span>
+                      <p className="font-semibold text-gray-300 leading-relaxed">{subtitleFeedUser}</p>
+                    </div>
+                  )}
+                  {subtitleFeedAi && (
+                    <div className="flex gap-2.5 items-start text-xs border-t border-border/35 pt-2">
+                      <span className="text-[8px] font-black uppercase bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-md border border-cyan-500/30 flex-shrink-0 mt-0.5 select-none">AI</span>
+                      <p className="font-semibold text-cyan-300 leading-relaxed drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">{subtitleFeedAi}</p>
+                    </div>
+                  )}
+                </div>
               )}
+
+              {/* Scrolling Loading Indicator */}
+              {isLoadingChat && (
+                <div className="p-4 flex items-center justify-start gap-2.5 pl-6 border-t border-border/30 bg-secondary/5 text-xs text-muted-foreground select-none">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary glow-primary" />
+                  <span>AI calculations in progress...</span>
+                </div>
+              )}
+
+              {/* Quick Prompts Chips Feed */}
+              <div className="p-3 border-t border-border/30 bg-secondary/15 flex items-center gap-2 overflow-x-auto scrollbar-none flex-shrink-0">
+                <span className="text-[9px] font-black uppercase text-gray-500 tracking-wider flex items-center gap-1 whitespace-nowrap pl-2">
+                  <Sparkles className="w-3 h-3 text-primary animate-pulse" /> Try Quick Chip:
+                </span>
+                {suggestionChips.map((chip, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleChipClick(chip.text)}
+                    disabled={isLoadingChat}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-secondary/50 hover:bg-primary/10 border border-border/60 hover:border-primary/30 rounded-xl text-[10px] text-gray-300 hover:text-white transition-all cursor-pointer whitespace-nowrap disabled:opacity-50"
+                  >
+                    <chip.icon className="w-3.5 h-3.5 text-gray-400 group-hover:text-primary" />
+                    {chip.text}
+                  </button>
+                ))}
+              </div>
+
+              {/* Form input bar */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (isVoiceModeActive) return;
+                  executeChatQuery(userInput);
+                }}
+                className="p-4 border-t border-border/40 bg-secondary/20 flex gap-3.5 items-center flex-shrink-0 relative overflow-hidden"
+              >
+                {isVoiceModeActive ? (
+                  <>
+                    {/* Mute Mic Button */}
+                    <button
+                      type="button"
+                      onClick={() => setIsMuted(prev => !prev)}
+                      className={`p-3.5 rounded-2xl border transition-all duration-300 active:scale-95 cursor-pointer flex items-center justify-center ${
+                        isMuted 
+                          ? "bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse" 
+                          : "bg-secondary/40 border-border/60 text-gray-400 hover:text-white"
+                      }`}
+                      title={isMuted ? "Unmute Mic" : "Mute Mic"}
+                    >
+                      {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                    </button>
+     
+                    {/* Dynamic Waveform Visualizer - Slower and smooth oscillations */}
+                    <div className="flex-1 flex items-center justify-center gap-1.5 h-12 overflow-hidden px-4">
+                      {[...Array(10)].map((_, i) => {
+                        const barStyle = getWaveBarStyles(i);
+                        const colorClass = isMuted ? "bg-red-500/30" :
+                          voiceAgentState === 'LISTENING' ? "bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.5)]" :
+                          voiceAgentState === 'THINKING' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
+                          voiceAgentState === 'SPEAKING' ? "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" : "bg-cyan-500/40";
+                        return (
+                          <div 
+                            key={i} 
+                            className={`w-2 rounded-full ${colorClass} transition-all duration-[40ms]`} 
+                            style={barStyle} 
+                          />
+                        );
+                      })}
+                    </div>
+     
+                    {/* Call End / Disconnect Button (X layout) */}
+                    <button
+                      type="button"
+                      onClick={handleExitVoiceMode}
+                      className="bg-red-600 hover:bg-red-500 border border-red-500/30 text-white p-3.5 rounded-2xl shadow-[0_0_15px_rgba(220,38,38,0.3)] flex items-center justify-center flex-shrink-0 transition-all duration-300 active:scale-95 cursor-pointer"
+                      title="End Call"
+                    >
+                      <X className="w-5 h-5 animate-pulse" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* Language Switcher Dropdown */}
+                    <select
+                      disabled={isLoadingChat || isListening}
+                      value={speechLang}
+                      onChange={(e) => setSpeechLang(e.target.value)}
+                      className="px-2 py-2.5 bg-secondary/60 hover:bg-secondary border border-border/60 rounded-xl text-[10px] font-bold text-gray-200 outline-none transition-all cursor-pointer disabled:opacity-50 flex-shrink-0 appearance-none text-center"
+                      style={{ minWidth: "75px" }}
+                      title="Select Speech Input Language"
+                    >
+                      {SPEECH_LANGUAGES.map((lang) => (
+                        <option key={lang.code} value={lang.code} className="bg-card text-gray-200">
+                          {lang.flag} {lang.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="text"
+                      required
+                      disabled={isLoadingChat}
+                      placeholder={
+                        isListening
+                          ? `Listening in ${
+                              SPEECH_LANGUAGES.find((l) => l.code === speechLang)?.name || "selected language"
+                            }... Speak now!`
+                          : "Ask documents (RAG) or query live ERP Postgres tables..."
+                      }
+                      className="flex-1 glass-input pl-4.5 pr-4.5 py-3.5 rounded-2xl text-xs bg-secondary border border-border/60 outline-none text-white focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/45"
+                      value={userInput}
+                      onChange={(e) => setUserInput(e.target.value)}
+                    />
+
+                    {/* Zorvex Voice Live Toggle Button */}
+                    <button
+                      type="button"
+                      disabled={isLoadingChat}
+                      onClick={handleToggleVoiceMode}
+                      className="p-3.5 rounded-2xl border flex items-center justify-center flex-shrink-0 transition-all duration-300 active:scale-95 cursor-pointer bg-secondary/40 border-border/60 text-gray-400 hover:text-white hover:border-border/80"
+                      title="Zorvex Voice Live Mode"
+                    >
+                      <Volume2 className="w-5 h-5 text-gray-400 hover:text-primary" />
+                    </button>
+
+                    {/* Mic dictation button */}
+                    <button
+                      type="button"
+                      disabled={isLoadingChat}
+                      onClick={toggleListening}
+                      className={`p-3.5 rounded-2xl border flex items-center justify-center flex-shrink-0 transition-all active:scale-95 cursor-pointer ${
+                        isListening
+                          ? "bg-red-500/20 border-red-500/80 text-red-400 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.25)]"
+                          : "bg-secondary/40 border-border/60 text-gray-400 hover:text-white"
+                      }`}
+                      title={isListening ? "Stop dictation" : "Voice dictation"}
+                    >
+                      {isListening ? <X className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={isLoadingChat || !userInput.trim()}
+                      className="bg-primary hover:bg-primary/95 text-white p-3.5 rounded-2xl glow-primary flex items-center justify-center flex-shrink-0 transition-transform active:scale-95 disabled:opacity-50 disabled:scale-100 cursor-pointer"
+                    >
+                      <Send className="w-5 h-5" />
+                    </button>
+                  </>
+                )}
+              </form>
+
             </div>
 
-          </div>
+            {/* RIGHT SIDEBAR: Document Vault Manager (30%) */}
+            <div className={`${activeMobileTab === 'knowledge' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 flex-col gap-6 h-full overflow-hidden`}>
+              
+              {/* Drag & Drop Vector Upload Cabinet */}
+              <div className="glass rounded-3xl border border-border/60 p-4 bg-card/25 text-center flex flex-col justify-between items-center gap-4 relative overflow-hidden flex-shrink-0">
+                {isUploading && (
+                  <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-30 flex flex-col items-center justify-center gap-2">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary glow-primary" />
+                    <span className="text-[10px] font-black uppercase text-primary tracking-widest">Generating Embeddings...</span>
+                  </div>
+                )}
+                
+                <div className="space-y-1.5 text-left w-full border-b border-border/30 pb-2 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-xs font-black uppercase text-white tracking-wider flex items-center gap-1.5">
+                      <UploadCloud className="w-4 h-4 text-primary" /> Vector Upload Zone
+                    </h3>
+                    <p className="text-[9px] text-muted-foreground">Upload and index unstructured files inside RAG pipeline.</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowNoteUpload(!showNoteUpload)}
+                    className="text-[9px] font-black uppercase border border-border px-2 py-0.5 rounded bg-secondary/50 text-gray-400 hover:text-white transition-colors cursor-pointer"
+                  >
+                    {showNoteUpload ? "File Upload" : "Paste Note"}
+                  </button>
+                </div>
 
-        </div>
+                {/* Ingest paste note layout */}
+                {showNoteUpload ? (
+                  <form onSubmit={handleNoteUpload} className="w-full flex flex-col gap-2.5 text-left">
+                    <input 
+                      type="text"
+                      placeholder="Note Title (e.g. DHA Policy Changes)"
+                      className="glass-input text-[11px] px-2.5 py-1.5 rounded-lg border border-border/80 w-full outline-none bg-secondary/40"
+                      value={noteName}
+                      onChange={(e) => setNoteName(e.target.value)}
+                    />
+                    <textarea 
+                      required
+                      placeholder="Paste manual note or list specifications here..."
+                      className="glass-input text-[11px] px-2.5 py-1.5 rounded-lg border border-border/80 w-full h-24 outline-none resize-none bg-secondary/40"
+                      value={noteContent}
+                      onChange={(e) => setNoteContent(e.target.value)}
+                    />
+                    <button
+                      type="submit"
+                      className="w-full bg-primary hover:bg-primary/95 text-white py-1.5 rounded-lg font-bold text-[10px] uppercase tracking-wider glow-primary transition-transform active:scale-95 cursor-pointer"
+                    >
+                      Index Text Note
+                    </button>
+                  </form>
+                ) : (
+                  /* PDF/TXT standard file picker */
+                  <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-border/60 hover:border-primary/50 bg-secondary/10 hover:bg-primary/5 rounded-2xl p-6 transition-all cursor-pointer flex flex-col items-center gap-2 group"
+                  >
+                    <input 
+                      type="file" 
+                      ref={fileInputRef}
+                      className="hidden" 
+                      accept=".pdf,.txt" 
+                      onChange={handleFileUpload}
+                    />
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                      <UploadCloud className="w-5 h-5 glow-primary" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="block text-[10px] font-black text-white uppercase group-hover:text-primary transition-colors">Select PDF or TXT</span>
+                      <span className="block text-[8px] text-gray-500">Maximum size limit is 10 MB.</span>
+                    </div>
+                  </div>
+                )}
+              </div>
 
+              {/* Knowledge Base Logs Cabinet */}
+              <div className="glass rounded-3xl border border-border/60 p-4 bg-card/25 flex-1 flex flex-col overflow-hidden text-left shadow-xl">
+                
+                <div className="flex-shrink-0 border-b border-border/30 pb-3 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-xs font-black uppercase text-white tracking-wider flex items-center gap-1.5">
+                      <BookOpen className="w-4 h-4 text-primary" /> Knowledge Base ({documents.length})
+                    </h3>
+                    <p className="text-[9px] text-muted-foreground">Indexed sources queried by Chat Assistant.</p>
+                  </div>
+                  <button 
+                    onClick={fetchDocuments}
+                    className="p-1 text-gray-500 hover:text-white transition-colors cursor-pointer"
+                    title="Sync Indices"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Roster Search Bar */}
+                <div className="flex-shrink-0 mt-3 mb-2 flex items-center gap-2 bg-secondary/30 border border-border/60 rounded-xl px-2.5 py-1">
+                  <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                  <input 
+                    type="text"
+                    placeholder="Search indexed files..."
+                    className="w-full bg-transparent border-0 outline-none focus:ring-0 text-[10px] text-white py-1"
+                    value={searchDocQuery}
+                    onChange={(e) => setSearchDocQuery(e.target.value)}
+                  />
+                </div>
+
+                {/* Documents List */}
+                <div className="flex-1 overflow-y-auto space-y-2 mt-2 scrollbar-thin">
+                  {documents.filter((d: any) => d.name.toLowerCase().includes(searchDocQuery.toLowerCase())).length === 0 ? (
+                    <p className="text-[10px] text-center text-muted-foreground italic py-10">No indexed document logs found.</p>
+                  ) : (
+                    documents
+                      .filter((d: any) => d.name.toLowerCase().includes(searchDocQuery.toLowerCase()))
+                      .map((doc: any) => (
+                        <div key={doc.id} className="p-2.5 rounded-2xl border border-border/30 bg-secondary/15 hover:bg-secondary/35 flex justify-between items-center gap-2 group transition-all">
+                          <div className="overflow-hidden space-y-0.5 flex-1">
+                            <p className="text-[10px] font-black text-white truncate flex items-center gap-1">
+                              <FileText className="w-3 h-3 text-primary flex-shrink-0" />
+                              {doc.name}
+                            </p>
+                            <div className="flex items-center gap-1.5 text-[8px] font-black uppercase text-gray-500">
+                              <span>{doc.fileType}</span>
+                              <span>•</span>
+                              <span>{formatBytes(doc.fileSize)}</span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteDocument(doc.id, doc.name)}
+                            className="text-muted-foreground hover:text-red-400 p-1 rounded-md hover:bg-red-500/10 cursor-pointer flex-shrink-0"
+                            title="Delete index chunks"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))
+                  )}
+                </div>
+
+              </div>
+
+            </div>
+          </>
+        )}
       </div>
 
       {/* Zorvex VOICE LIVE SYSTEM OVERLAY */}

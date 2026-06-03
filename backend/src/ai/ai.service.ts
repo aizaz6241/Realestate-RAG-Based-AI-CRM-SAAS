@@ -448,15 +448,15 @@ INSTRUCTIONS:
 
       // SLOW LANE INTENT CLASSIFICATION
       const erpKeywords = [
-        "property", "properties", "apartment", "villa", "rent", "sale", "price", "location", "bedrooms",
-        "client", "buyer", "seller", "investor", "lead", "budget", "crm",
-        "employee", "staff", "designation", "department", "salary", "payroll", "joining",
-        "finance", "expense", "allowance", "deduction",
-        "meeting", "calendar", "event", "attendee", "absent",
-        "leave", "vacation", "sick", "annual",
-        "vehicle", "fleet", "logistics", "maintenance", "plate",
+        "property", "properties", "apartment", "villa", "rent", "sale", "price", "location", "bedrooms", "bathrooms",
+        "client", "buyer", "seller", "investor", "lead", "budget", "crm", "deal", "deals", "close", "closed", "closing", "transaction", "transactions",
+        "employee", "staff", "designation", "department", "salary", "payroll", "joining", "manager", "admin", "admins", "role", "roles", "super_admin",
+        "finance", "expense", "allowance", "deduction", "agent", "agents", "broker", "brokers",
+        "meeting", "calendar", "event", "attendee", "absent", "viewing", "viewings", "interest", "interests",
+        "leave", "vacation", "sick", "annual", "owner", "owners", "landlord", "landlords", "agreement", "agreements",
+        "vehicle", "fleet", "logistics", "maintenance", "plate", "driver", "drivers", "key", "keys", "tag",
         "attendance", "checkin", "checkout", "shift", "check-in", "check-out", "present", "late", "absent",
-        "query", "table", "database", "db", "search", "find", "list", "show", "get", "calculate", "how many", "how much", "total", "count", "number of",
+        "query", "table", "database", "db", "search", "find", "list", "show", "get", "calculate", "how many", "how much", "total", "count", "number of", "who", "which", "whom", "whose",
         "analytics", "chart", "graph", "report", "application", "request", "apply", "status", "profile", "record", "history"
       ];
       
@@ -672,6 +672,9 @@ You have access ONLY to the following 12 database tools:
       * Table "KeyCheckout" columns: "id", "checkoutDate", "returnDate", "notes", "keyId", "userId"
       * Table "LeadActivity" columns: "id", "type" (CALL | EMAIL | NOTES | STATUS_CHANGE), "description", "activityDate", "leadId"
       * Table "PropertyPriceHistory" columns: "id", "price", "changeDate", "propertyId"
+      * Table "ClientPropertyInterest" columns: "id", "clientId", "propertyId", "createdAt"
+      * Table "ClientViewing" columns: "id", "viewingDate", "feedback", "status" (SCHEDULED | COMPLETED | CANCELLED), "clientId", "propertyId", "createdAt"
+      * Table "ClientCommunication" columns: "id", "type" (CALL | EMAIL | MEETING | WHATSAPP), "summary", "date", "clientId"
 
     - DYNAMIC RELATIONAL & TEMPORAL MAPPING GUIDE (AUTONOMOUS THINKING):
       * **Dynamic Temporal Math**: Translate any user-specified duration dynamically (e.g. "unsold for X days", "joined in last Y months", "created Z weeks ago") by performing mathematical date comparisons relative to the current baseline date. E.g. '"createdAt" < NOW() - INTERVAL '\''25 days'\''' or '"joiningDate" >= NOW() - INTERVAL '\''3 months'\'''.
@@ -1118,13 +1121,8 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
 
       if (callPersona) {
         const extracted = this.extractFieldsFromCallJson(finalWritten);
-        if (extracted.writtenResponse || extracted.spokenResponse) {
-          if (extracted.writtenResponse) {
-            finalWritten = extracted.writtenResponse;
-          }
-          if (extracted.spokenResponse) {
-            finalSpoken = extracted.spokenResponse;
-          }
+        if (extracted.writtenResponse) {
+          finalWritten = extracted.writtenResponse;
         }
       }
 
@@ -1145,13 +1143,9 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 
-      // Prepare fallback spoken response if not explicitly set in JSON
-      if (callPersona && !finalSpoken) {
-        finalSpoken = finalWritten
-          .replace(/\*\*|__/g, "")
-          .replace(/#+\s+/g, "")
-          .replace(/-\s+/g, "")
-          .trim();
+      // Always run high-fidelity LLM summarizer if it is a call connection
+      if (callPersona) {
+        finalSpoken = await this.generateSpokenSummary(cleanedWritten, userMessage);
       }
 
       // Asynchronously extract and store insights in the long-term organizational memory
@@ -1174,6 +1168,36 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
         toolData: null,
         citations: []
       };
+    }
+  }
+
+  private async generateSpokenSummary(writtenResponse: string, userQuery: string): Promise<string> {
+    const systemPrompt = `You are a high-fidelity Text-to-Speech (TTS) summarization engine for a CRM ERP voice assistant call.
+The user asked: "${userQuery}"
+The system generated this comprehensive written response:
+"""
+${writtenResponse}
+"""
+
+Your task is to generate a natural, conversational, spoken-audio response (spokenResponse) that:
+1. Directly answers the user's query.
+2. Summarizes ALL key points, categories, and actions mentioned in the written response (do NOT omit key sections like task management, client management, or logistics if they are mentioned).
+3. Keeps the response concise, engaging, and suitable for speech (at most 3 sentences).
+4. Matches the language of the user's query (e.g., if the query is in English, write in English; if it is in Roman Urdu, write in Roman Urdu; if it is in Urdu script, write in Urdu script).
+5. Uses warm, professional human filler words (like "Aizaz bhai", "Ji bilkul", "Suno", "Acha", "Koi masla nahi") to sound natural on a phone call.
+6. Does NOT output any markdown, brackets, checkboxes, code, headings, or json wrapper. Return ONLY the plain text to be spoken.`;
+
+    try {
+      const summary = await this.callLLM(systemPrompt, "Summarize the above written response for natural speech.", [], false);
+      return (summary || '').trim();
+    } catch (err) {
+      this.logger.error(`Failed to generate spoken summary: ${err.message}`);
+      // Fallback to basic clean text
+      return writtenResponse
+        .replace(/\*\*|__/g, "")
+        .replace(/#+\s+/g, "")
+        .replace(/-\s+/g, "")
+        .trim();
     }
   }
 

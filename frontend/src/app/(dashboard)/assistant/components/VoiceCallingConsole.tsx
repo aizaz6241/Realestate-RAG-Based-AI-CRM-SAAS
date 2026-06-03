@@ -17,6 +17,7 @@ interface VoiceCallingConsoleProps {
   onVoiceRateChange: (rate: number) => void;
   voicePitch: number;
   onVoicePitchChange: (pitch: number) => void;
+  voiceStatusText?: string;
 }
 
 export const VoiceCallingConsole: React.FC<VoiceCallingConsoleProps> = ({
@@ -34,7 +35,8 @@ export const VoiceCallingConsole: React.FC<VoiceCallingConsoleProps> = ({
   voiceRate,
   onVoiceRateChange,
   voicePitch,
-  onVoicePitchChange
+  onVoicePitchChange,
+  voiceStatusText
 }) => {
   const [amplitude, setAmplitude] = useState<number>(0);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -286,7 +288,16 @@ export const VoiceCallingConsole: React.FC<VoiceCallingConsoleProps> = ({
             </div>
           )}
 
-          {!subtitleFeedUser && !subtitleFeedAi && (
+          {voiceAgentState === 'THINKING' && (
+            <div className="flex gap-3 items-center justify-center bg-emerald-950/80 p-3 rounded-2xl border border-emerald-500/20 shadow-inner animate-pulse">
+              <Loader2 className="w-4 h-4 text-emerald-400 animate-spin flex-shrink-0" />
+              <p className="text-xs font-black uppercase text-emerald-400 tracking-wider">
+                {voiceStatusText || "⚡ AI calculation in progress..."}
+              </p>
+            </div>
+          )}
+
+          {!subtitleFeedUser && !subtitleFeedAi && voiceAgentState !== 'THINKING' && (
             <p className="text-xs text-cyan-400/80 font-extrabold italic text-center py-6 animate-pulse uppercase tracking-wider">
               {voiceAgentState === 'LISTENING' ? "🎙️ Actively listening. Speak now..." : "📞 Connecting to Operational Core..."}
             </p>
