@@ -188,7 +188,7 @@ export class CalendarService implements OnModuleInit {
       if (!systemRoom) {
         systemRoom = await this.prisma.chatRoom.create({
           data: {
-            name: "RENS System Bot",
+            name: "Nexora System Bot",
             isGroup: false,
             isSystem: true,
             systemUserId: targetUserId,
@@ -199,7 +199,7 @@ export class CalendarService implements OnModuleInit {
 
         await this.prisma.message.create({
           data: {
-            content: "🤖 Welcome to RENS System Notifications! You will receive live automated alerts here for task assignments, meetings, or fleet updates.",
+            content: "🤖 Welcome to Nexora System Notifications! You will receive live automated alerts here for task assignments, meetings, or fleet updates.",
             isSystem: true,
             chatRoomId: systemRoom.id
           }
@@ -277,7 +277,7 @@ export class CalendarService implements OnModuleInit {
           if (!systemRoom) {
             systemRoom = await this.prisma.chatRoom.create({
               data: {
-                name: "RENS System Bot",
+                name: "Nexora System Bot",
                 isGroup: false,
                 isSystem: true,
                 systemUserId: invitee.id,
@@ -289,7 +289,7 @@ export class CalendarService implements OnModuleInit {
             // Welcome message
             await this.prisma.message.create({
               data: {
-                content: "🤖 Welcome to RENS System Notifications! You will receive live automated alerts here for task assignments, meetings, or fleet updates.",
+                content: "🤖 Welcome to Nexora System Notifications! You will receive live automated alerts here for task assignments, meetings, or fleet updates.",
                 isSystem: true,
                 chatRoomId: systemRoom.id
               }

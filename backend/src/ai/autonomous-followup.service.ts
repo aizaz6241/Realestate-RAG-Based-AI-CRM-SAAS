@@ -1,6 +1,6 @@
 import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { RensGateway } from './rens.gateway';
+import { NexoraGateway } from './nexora.gateway';
 
 @Injectable()
 export class AutonomousFollowUpService implements OnApplicationBootstrap {
@@ -8,11 +8,11 @@ export class AutonomousFollowUpService implements OnApplicationBootstrap {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly rensGateway: RensGateway
+    private readonly nexoraGateway: NexoraGateway
   ) {}
 
   onApplicationBootstrap() {
-    this.logger.log('⏰ RENS Autonomous Follow-Up background worker started!');
+    this.logger.log('⏰ Nexora Autonomous Follow-Up background worker started!');
     // Run follow-up audit every hour (3600000 ms)
     setInterval(() => {
       this.auditDelayedWorkflows().catch(err => {
@@ -54,7 +54,7 @@ export class AutonomousFollowUpService implements OnApplicationBootstrap {
 
       const employeeId = task.assignedTo.id;
       const employeeName = `${task.assignedTo.firstName} ${task.assignedTo.lastName || ''}`.trim();
-      const messageText = `⏰ RENS Operational Alert: Task "${task.title}" has had no updates for over 8 hours. Please update your status checklist in the Command Center.`;
+      const messageText = `⏰ Nexora Operational Alert: Task "${task.title}" has had no updates for over 8 hours. Please update your status checklist in the Command Center.`;
 
       // Dispatch in-app system notification
       let room = await this.prisma.chatRoom.findFirst({
@@ -62,7 +62,7 @@ export class AutonomousFollowUpService implements OnApplicationBootstrap {
       });
       if (!room) {
         room = await this.prisma.chatRoom.create({
-          data: { name: "RENS Operational Brain", isSystem: true, systemUserId: employeeId, organizationId: task.organizationId }
+          data: { name: "Nexora Operational Brain", isSystem: true, systemUserId: employeeId, organizationId: task.organizationId }
         });
       }
 
@@ -75,7 +75,7 @@ export class AutonomousFollowUpService implements OnApplicationBootstrap {
       });
 
       // Emit WebSocket real-time broadcast
-      this.rensGateway.broadcastToOrganization(task.organizationId, 'alert_sync', {
+      this.nexoraGateway.broadcastToOrganization(task.organizationId, 'alert_sync', {
         action: 'create',
         message: messageText,
         recipientId: employeeId,

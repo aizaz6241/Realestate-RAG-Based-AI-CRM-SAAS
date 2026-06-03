@@ -19,7 +19,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
       await this.$connect();
       console.log("🟢 Successfully connected to database via Prisma.");
     } catch (err) {
-      console.warn("⚠️ [RENS Startup Alert] Database is unreachable at module initialization.");
+      console.warn("⚠️ [Nexora Startup Alert] Database is unreachable at module initialization.");
       console.warn("⚠️ NestJS will continue starting up. Prisma will reconnect automatically on the first query.");
       console.warn(err);
     }

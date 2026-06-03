@@ -544,7 +544,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h2 className="text-sm font-black tracking-widest uppercase text-white flex items-center gap-1.5">
-                  RENS Operations Advisor
+                  Nexora Operations Advisor
                   <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 </h2>
                 <p className="text-[10px] text-muted-foreground mt-0.5">Augmented Real-Time Cognitive Analytics Core</p>

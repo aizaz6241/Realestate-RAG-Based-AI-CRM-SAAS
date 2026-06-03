@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CalendarService } from '../calendar/calendar.service';
-import { RensGateway } from './rens.gateway';
+import { NexoraGateway } from './nexora.gateway';
 
 @Injectable()
 export class AiDatabaseToolsService {
@@ -10,7 +10,7 @@ export class AiDatabaseToolsService {
   constructor(
     private prisma: PrismaService,
     private calendarService: CalendarService,
-    private rensGateway: RensGateway
+    private nexoraGateway: NexoraGateway
   ) {}
 
   // Fuzzy matching name resolution helper for EmployeeProfiles
@@ -956,7 +956,7 @@ export class AiDatabaseToolsService {
             };
           }
 
-          this.rensGateway.broadcastToOrganization(organizationId, 'task_sync', {
+          this.nexoraGateway.broadcastToOrganization(organizationId, 'task_sync', {
             action: 'create',
             task: {
               id: task.id,
@@ -999,7 +999,7 @@ export class AiDatabaseToolsService {
             };
           }
 
-          this.rensGateway.broadcastToOrganization(organizationId, 'task_sync', {
+          this.nexoraGateway.broadcastToOrganization(organizationId, 'task_sync', {
             action: 'update',
             task: {
               id: task.id,
@@ -1038,7 +1038,7 @@ export class AiDatabaseToolsService {
           if (!room) {
             room = await this.prisma.chatRoom.create({
               data: {
-                name: "RENS System Bot",
+                name: "Nexora System Bot",
                 isGroup: false,
                 isSystem: true,
                 systemUserId: employeeId,
@@ -1063,7 +1063,7 @@ export class AiDatabaseToolsService {
             data: { updatedAt: new Date() },
           });
 
-          this.rensGateway.broadcastToOrganization(organizationId, 'alert_sync', {
+          this.nexoraGateway.broadcastToOrganization(organizationId, 'alert_sync', {
             action: 'create',
             message: messageText,
             recipientId: employeeId,
@@ -1207,7 +1207,7 @@ export class AiDatabaseToolsService {
             if (!room) {
               room = await this.prisma.chatRoom.create({
                 data: {
-                  name: "RENS System Bot",
+                  name: "Nexora System Bot",
                   isGroup: false,
                   isSystem: true,
                   systemUserId: admin.id,
@@ -1230,7 +1230,7 @@ export class AiDatabaseToolsService {
               data: { updatedAt: new Date() }
             });
 
-            this.rensGateway.broadcastToOrganization(organizationId, 'alert_sync', {
+            this.nexoraGateway.broadcastToOrganization(organizationId, 'alert_sync', {
               action: 'create',
               message: escalationMsg,
               recipientId: admin.id
@@ -1309,7 +1309,7 @@ export class AiDatabaseToolsService {
               filename,
               downloadUrl,
               summary: data.summary,
-              message: `Successfully generated premium executive RENS Operational ${typeUpper} report. You can download or view it at ${downloadUrl}`
+              message: `Successfully generated premium executive Nexora Operational ${typeUpper} report. You can download or view it at ${downloadUrl}`
             };
           } catch (err) {
             this.logger.error(`Error in generateBrandedHtmlReport: ${err.message}`);
@@ -1335,7 +1335,7 @@ export class AiDatabaseToolsService {
       fs.mkdirSync(reportsDir, { recursive: true });
     }
 
-    const filename = `RENS_Enterprise_${reportType}_${Date.now()}.html`;
+    const filename = `Nexora_Enterprise_${reportType}_${Date.now()}.html`;
     const filePath = path.join(reportsDir, filename);
 
     // Build premium dark-themed, glassmorphic layout
@@ -1346,7 +1346,7 @@ export class AiDatabaseToolsService {
 
   private buildReportHtml(reportType: string, data: any, organizationId: string): string {
     let accentGradient = 'linear-gradient(135deg, #3B82F6, #8B5CF6)';
-    let reportTitle = 'RENS Enterprise Operations Report';
+    let reportTitle = 'Nexora Enterprise Operations Report';
     let summaryCardsHtml = '';
     let tableHeadersHtml = '';
     let tableRowsHtml = '';
@@ -1354,7 +1354,7 @@ export class AiDatabaseToolsService {
 
     if (reportType === 'FINANCE') {
       accentGradient = 'linear-gradient(135deg, #3B82F6, #8B5CF6)';
-      reportTitle = 'RENS Financial Operations & Payroll Report';
+      reportTitle = 'Nexora Financial Operations & Payroll Report';
       summaryCardsHtml = `
         <div class="card">
           <div class="card-icon" style="background: rgba(59, 130, 246, 0.1); color: #3B82F6;">💵</div>
@@ -1407,7 +1407,7 @@ export class AiDatabaseToolsService {
       `;
     } else if (reportType === 'INVENTORY') {
       accentGradient = 'linear-gradient(135deg, #10B981, #059669)';
-      reportTitle = 'RENS Real Estate Inventory & Assets Report';
+      reportTitle = 'Nexora Real Estate Inventory & Assets Report';
       summaryCardsHtml = `
         <div class="card">
           <div class="card-icon" style="background: rgba(16, 185, 129, 0.1); color: #10B981;">🏢</div>
@@ -1458,7 +1458,7 @@ export class AiDatabaseToolsService {
       `;
     } else if (reportType === 'TASKS') {
       accentGradient = 'linear-gradient(135deg, #F59E0B, #D97706)';
-      reportTitle = 'RENS Enterprise Task Board & Kanban Report';
+      reportTitle = 'Nexora Enterprise Task Board & Kanban Report';
       summaryCardsHtml = `
         <div class="card">
           <div class="card-icon" style="background: rgba(245, 158, 11, 0.1); color: #F59E0B;">📋</div>
@@ -1804,13 +1804,13 @@ export class AiDatabaseToolsService {
   <div class="container">
     <header>
       <div class="logo-section">
-        <h1>RENS COGNITIVE CORE</h1>
+        <h1>NEXORA COGNITIVE CORE</h1>
         <p>AOS v5.0 • Live Enterprise Intelligence Hub</p>
       </div>
       <div class="meta-section">
         <p>Generated: <strong>${new Date().toLocaleString()}</strong></p>
         <p>Report Type: <strong>${reportType} REPORT</strong></p>
-        <p>Organization Context: <strong>RENS Portal</strong></p>
+        <p>Organization Context: <strong>Nexora Portal</strong></p>
       </div>
     </header>
 
@@ -1844,7 +1844,7 @@ export class AiDatabaseToolsService {
     </div>
 
     <footer>
-      <p>&copy; ${new Date().getFullYear()} RENS Ecosystem ERP. Confidential Operations Document. Powered by RENS-AOS 5.0 Orchestrator.</p>
+      <p>&copy; ${new Date().getFullYear()} Nexora Ecosystem ERP. Confidential Operations Document. Powered by Nexora-AOS 5.0 Orchestrator.</p>
     </footer>
   </div>
 </body>

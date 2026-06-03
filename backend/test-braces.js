@@ -1,6 +1,6 @@
 const fs = require('fs');
 
-const content = fs.readFileSync('e:/Projects/RENS Ecosystem ERP/frontend/src/app/(dashboard)/assistant/page.tsx', 'utf8');
+const content = fs.readFileSync('e:/Projects/Nexora Ecosystem ERP/frontend/src/app/(dashboard)/assistant/page.tsx', 'utf8');
 
 const lines = content.split('\n');
 

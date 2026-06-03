@@ -8,7 +8,7 @@ import { AiController } from './ai.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CalendarModule } from '../calendar/calendar.module';
 import { AutonomousFollowUpService } from './autonomous-followup.service';
-import { RensGateway } from './rens.gateway';
+import { NexoraGateway } from './nexora.gateway';
 
 @Module({
   imports: [PrismaModule, CalendarModule],
@@ -20,7 +20,7 @@ import { RensGateway } from './rens.gateway';
     AiAgentsService,
     AiDatabaseToolsService,
     AutonomousFollowUpService,
-    RensGateway,
+    NexoraGateway,
   ],
   exports: [
     AiService,
@@ -28,7 +28,7 @@ import { RensGateway } from './rens.gateway';
     AiValidationService,
     AiAgentsService,
     AiDatabaseToolsService,
-    RensGateway,
+    NexoraGateway,
   ],
 })
 export class AiModule {}

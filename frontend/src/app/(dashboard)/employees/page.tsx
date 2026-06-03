@@ -44,7 +44,7 @@ export default function EmployeesPage() {
           id: "mock1",
           firstName: "Ahmed",
           lastName: "Raza",
-          email: "ahmed.raza@rens.com",
+          email: "ahmed.raza@nexora.com",
           role: "AGENT",
           employeeProfile: {
             department: "Residential Sales",
@@ -57,7 +57,7 @@ export default function EmployeesPage() {
           id: "mock2",
           firstName: "Ayesha",
           lastName: "Khan",
-          email: "ayesha.k@rens.com",
+          email: "ayesha.k@nexora.com",
           role: "HR",
           employeeProfile: {
             department: "Human Resources",
@@ -70,7 +70,7 @@ export default function EmployeesPage() {
           id: "mock3",
           firstName: "Hamza",
           lastName: "Ali",
-          email: "hamza.ali@rens.com",
+          email: "hamza.ali@nexora.com",
           role: "ADMIN",
           employeeProfile: {
             department: "Operations",

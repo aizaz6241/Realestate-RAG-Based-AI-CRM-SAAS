@@ -1350,7 +1350,7 @@ export default function EmployeeCommandCenter() {
                   <div>
                     <p className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">Brokerage Split Ratio</p>
                     <h3 className="text-2xl font-black text-white mt-1.5">70/30 Split</h3>
-                    <p className="text-xs text-gray-400 mt-1 font-semibold">70% Agent / 30% RENS</p>
+                    <p className="text-xs text-gray-400 mt-1 font-semibold">70% Agent / 30% Nexora</p>
                   </div>
                   <div className="w-10 h-10 bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 rounded-xl flex items-center justify-center">
                     <TrendingUp className="w-5 h-5" />
@@ -1554,7 +1554,7 @@ export default function EmployeeCommandCenter() {
                 <Lock className="w-8 h-8" />
               </div>
               <div className="space-y-2">
-                <h3 className="text-xl font-black text-white uppercase tracking-wider">RENS Secure Vault Lock</h3>
+                <h3 className="text-xl font-black text-white uppercase tracking-wider">Nexora Secure Vault Lock</h3>
                 <p className="text-xs text-gray-400 leading-relaxed max-w-sm">
                   This transaction represents an audited brokerage payout. Financial adjustments and split releases are strictly locked under enterprise permission clearances.
                 </p>
@@ -1568,7 +1568,7 @@ export default function EmployeeCommandCenter() {
                   Pending Payout Amount: <span className="text-primary font-black">PKR 936,500</span>
                 </p>
                 <p className="text-gray-400 font-bold flex justify-between">
-                  Security Code Required: <span className="text-cyan-400 font-black">RENS-VAULT-ACTIVE</span>
+                  Security Code Required: <span className="text-cyan-400 font-black">Nexora-VAULT-ACTIVE</span>
                 </p>
               </div>
 

@@ -25,7 +25,7 @@ export class ChatService {
     if (!systemRoom) {
       systemRoom = await this.prisma.chatRoom.create({
         data: {
-          name: "RENS System Bot",
+          name: "Nexora System Bot",
           isGroup: false,
           isSystem: true,
           systemUserId: userId,
@@ -45,7 +45,7 @@ export class ChatService {
       // Insert initial welcome message from the system bot
       await this.prisma.message.create({
         data: {
-          content: "🤖 Welcome to RENS System Notifications! You will receive live automated alerts here for any task assignments, audit cycles, or listing updates related to you.",
+          content: "🤖 Welcome to Nexora System Notifications! You will receive live automated alerts here for any task assignments, audit cycles, or listing updates related to you.",
           isSystem: true,
           chatRoomId: systemRoom.id,
         },
@@ -100,7 +100,7 @@ export class ChatService {
       // Initial message
       await this.prisma.message.create({
         data: {
-          content: "👋 Welcome to the General Team Chat! This channel is open to all RENS employees for collaborative coordination.",
+          content: "👋 Welcome to the General Team Chat! This channel is open to all Nexora employees for collaborative coordination.",
           chatRoomId: generalRoom.id,
         },
       });
@@ -263,7 +263,7 @@ export class ChatService {
     if (!systemRoom) {
       systemRoom = await this.prisma.chatRoom.create({
         data: {
-          name: "RENS System Bot",
+          name: "Nexora System Bot",
           isGroup: false,
           isSystem: true,
           systemUserId: targetUserId,

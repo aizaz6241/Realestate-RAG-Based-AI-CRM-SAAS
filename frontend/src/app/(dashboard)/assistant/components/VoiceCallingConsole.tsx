@@ -198,10 +198,10 @@ export const VoiceCallingConsole: React.FC<VoiceCallingConsoleProps> = ({
 
       {/* Header branding */}
       <div className="space-y-2 mt-4 text-center">
-        <span className="text-[10px] font-black uppercase text-primary tracking-widest animate-pulse">RENS Voice Live 2.0</span>
+        <span className="text-[10px] font-black uppercase text-primary tracking-widest animate-pulse">Nexora Voice Live 2.0</span>
         <h2 className="text-xl font-black text-white flex items-center gap-2.5 justify-center">
           <span className="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
-          RENS AI Live Calling Center
+          Nexora AI Live Calling Center
         </h2>
         <p className="text-[10px] text-gray-400 font-bold uppercase mt-1 tracking-wider">
           Line 1: {activeCallPersona === 'ORCHESTRATOR' ? 'Operational Core' : `${activeCallPersona} Specialised`} Agent • Connected

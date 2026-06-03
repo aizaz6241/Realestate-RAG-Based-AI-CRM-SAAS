@@ -116,7 +116,7 @@ Validation Details:
 - Consistency Score: ${a.validation.consistencyScore} (Inconsistencies: ${a.validation.inconsistencies.join(', ') || 'None'})
 `).join('\n');
 
-    const systemPrompt = `You are the RENS Multi-Agent Consensus Alignment Engine.
+    const systemPrompt = `You are the Nexora Multi-Agent Consensus Alignment Engine.
 Your job is to read observations from specialized domain agents (HR, Finance, Property, Sales, Logistics), identify logical contradictions, resolve conflicts, and synthesize a consistent, unified set of operational insights.
 
 USER QUERY: "${userQuery}"

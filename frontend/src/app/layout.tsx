@@ -8,7 +8,7 @@ import { CurrencyProvider } from "@/context/CurrencyContext";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "RENS Ecosystem | Real Estate ERP",
+  title: "Nexora Ecosystem | Real Estate ERP",
   description: "Premium SaaS Platform for Real Estate Brokerages",
 };
 
