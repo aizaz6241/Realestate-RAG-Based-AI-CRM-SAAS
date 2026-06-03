@@ -36,3 +36,11 @@ Thumbs.db
 Ollama/
 **/Ollama/
 
+# Landing Page Build & Cache
+landing-page/.output/
+landing-page/.vinxi/
+landing-page/.tanstack/
+landing-page/.wrangler/
+landing-page/.nitro/
+landing-page/.netlify/
+
