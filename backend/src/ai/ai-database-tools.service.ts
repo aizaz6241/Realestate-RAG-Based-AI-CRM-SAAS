@@ -13,6 +13,20 @@ export class AiDatabaseToolsService {
     private zorvexGateway: ZorvexGateway
   ) {}
 
+  stripGenericName(name: string): string | undefined {
+    if (!name) return undefined;
+    const cleanName = name.trim().toLowerCase();
+    const genericKeywords = [
+      'employee', 'employees', 'staff', 'we', 'all', 'everyone', 'people', 'team',
+      'members', 'member', 'active', 'list', 'who', 'show', 'find', 'get', 'search', 'us',
+      'any employee', 'any', 'kisi', 'kisi bhi', 'har', 'sab', 'sabhi', 'anyone', 'someone'
+    ];
+    if (genericKeywords.includes(cleanName) || cleanName.match(/^(any\s+employee|all\s+staff|everyone|anyone)$/i)) {
+      return undefined;
+    }
+    return name;
+  }
+
   // Fuzzy matching name resolution helper for EmployeeProfiles
   async findEmployeeProfileIdByName(name: string, organizationId: string): Promise<string | null> {
     if (!name) return null;
@@ -183,16 +197,26 @@ export class AiDatabaseToolsService {
           const { location, minPrice, maxPrice, bedrooms, bathrooms, type, listingType, status } = params || {};
           let searchLocation = location;
           if (searchLocation) {
+            // Clean phonetic spelling for Dubai Marina & Downtown
+            searchLocation = searchLocation.replace(/meri\s*na/gi, 'marina');
+            searchLocation = searchLocation.replace(/down\s*town/gi, 'downtown');
+            
             const cleanLoc = searchLocation.trim().toLowerCase();
             const genericKeywords = ['property', 'properties', 'apartment', 'apartments', 'villa', 'villas', 'all', 'any', 'where', 'show', 'list', 'find', 'get', 'search'];
             if (genericKeywords.includes(cleanLoc)) {
               searchLocation = undefined;
             }
           }
+
+          const parsedBedrooms = bedrooms ? parseInt(bedrooms) : undefined;
+          const parsedBathrooms = bathrooms ? parseInt(bathrooms) : undefined;
+
           return this.prisma.property.findMany({
             where: {
               organizationId,
-              status: status || undefined,
+              status: status === 'AVAILABLE'
+                ? { in: ['PUBLISHED', 'AVAILABLE'] } as any
+                : (status || undefined),
               type: type || undefined,
               listingType: listingType || undefined,
               location: searchLocation ? { contains: searchLocation, mode: 'insensitive' } : undefined,
@@ -200,8 +224,8 @@ export class AiDatabaseToolsService {
                 gte: minPrice ? parseFloat(minPrice) : undefined,
                 lte: maxPrice ? parseFloat(maxPrice) : undefined,
               } : undefined,
-              bedrooms: bedrooms ? parseInt(bedrooms) : undefined,
-              bathrooms: bathrooms ? parseInt(bathrooms) : undefined,
+              bedrooms: (parsedBedrooms && parsedBedrooms > 0) ? parsedBedrooms : undefined,
+              bathrooms: (parsedBathrooms && parsedBathrooms > 0) ? parsedBathrooms : undefined,
             },
             include: {
               owner: {
@@ -240,14 +264,7 @@ export class AiDatabaseToolsService {
           const { name, designation, department } = params || {};
           const canViewSalaries = ['SUPER_ADMIN', 'ADMIN', 'HR', 'FINANCE'].includes(userRole);
 
-          let searchName = name;
-          if (searchName) {
-            const cleanName = searchName.trim().toLowerCase();
-            const genericKeywords = ['employee', 'employees', 'staff', 'we', 'all', 'everyone', 'people', 'team', 'members', 'member', 'active', 'list', 'who', 'show', 'find', 'get', 'search', 'us'];
-            if (genericKeywords.includes(cleanName)) {
-              searchName = undefined;
-            }
-          }
+          const searchName = this.stripGenericName(name);
 
           if (searchName) {
             const matches = await this.findEmployeeFuzzy(searchName, organizationId);
@@ -359,7 +376,7 @@ export class AiDatabaseToolsService {
 
         case 'getTasksBoard': {
           const { status, name, employeeName } = params || {};
-          const filterName = name || employeeName;
+          const filterName = this.stripGenericName(name || employeeName);
 
           const whereClause: any = {
             organizationId,
@@ -537,7 +554,8 @@ export class AiDatabaseToolsService {
         }
 
         case 'getLeaveRequests': {
-          const { name, status } = params || {};
+          const { name: rawName, status } = params || {};
+          const name = this.stripGenericName(rawName);
           
           const canViewAllLeaves = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(userRole);
 
@@ -598,7 +616,8 @@ export class AiDatabaseToolsService {
         }
 
         case 'getAttendanceRecord': {
-          const { name, status } = params || {};
+          const { name: rawName, status } = params || {};
+          const name = this.stripGenericName(rawName);
           
           const canViewAllAttendance = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(userRole);
 

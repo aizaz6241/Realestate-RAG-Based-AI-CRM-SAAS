@@ -361,7 +361,8 @@ INSTRUCTIONS:
 2. If the user's latest message has pronouns or references like "his", "her", "him", "them", "he", "she", "iski", "uski", "in dono ki", "unki", "unka", "is employee ko", "us property ko", resolve them by replacing them with the explicit name(s) or ID of the entity discussed. For example, rewrite "list his designation" to "List Aizaz Khan's designation" if Aizaz Khan is the active employee.
 3. If the user mentions department names colloquially (e.g. "sales wale", "hr ka staff", "finance wale", "logistics wale"), expand them to their database equivalent department names (e.g., "Sales", "Human Resources", "Finance", "Logistics").
 4. If the user requests charts (e.g. "line graph me dikhao", "pie chart me", "compare visually"), ensure the rewritten message explicitly states the chart type requested.
-5. Output ONLY the refined, fully-explicit, and resolved query in the exact same language (e.g. English, Urdu, Roman Urdu) as the user's query. Do not add any preamble, conversational text, quotes, or markdown. Start directly with the resolved text.`;
+5. If the user refers to locations in Roman Urdu or phonetic spelling like "meri na", "meri na dubai", or "marina", resolve them explicitly as "Dubai Marina". Similarly, map "down town" or "down town dubai" to "Downtown Dubai". Do NOT resolve them as Urdu pronouns or conversational fillers (like resolving "meri na" as a pronoun chatter meaning "mine, right?").
+6. Output ONLY the refined, fully-explicit, and resolved query in the exact same language (e.g. English, Urdu, Roman Urdu) as the user's query. Do not add any preamble, conversational text, quotes, or markdown. Start directly with the resolved text.`;
 
     try {
       const refined = await this.llmService.callLLM(systemPrompt, `Latest User Message: "${userMessage}"`, []);
@@ -629,6 +630,12 @@ If you need to retrieve or write any operational data, employee information, att
   "params": { ... }
 }
 
+CRITICAL PARAMETER GENERATION RULE:
+- Do NOT include optional query parameters in your tool JSON block if they have empty, zero, or default values (like 0, "0", null, undefined, or empty string "") unless the user explicitly requested them in their query. For example:
+  * For "bedrooms" or "bathrooms", if the user does NOT explicitly specify a count, do NOT generate "bedrooms": 0 or "bedrooms": "0" — omit the parameter completely.
+  * For employee or client names, if the user asks for "any employee", "everyone", "staff", or leaves the name open, do NOT pass "name": "any employee" or "name": "" — omit the "name" parameter completely so the database filters are not restricted.
+
+
 You have access ONLY to the following 12 database tools:
 1. "searchEmployees": Search for employee names, profiles, department, or designation.
    - Params: { "name": "Fuzzy employee name", "designation": "Designation", "department": "Department" }
@@ -860,9 +867,9 @@ ${memoryPromptContext}`;
   - Do NOT output any other text, greetings, explanations, or written/spoken responses in this round!
 - **IF YOU CAN ANSWER DIRECTLY WITHOUT ANY TOOL**:
   - You MUST output your response as a valid, parsable JSON block containing exactly two fields:
-    1. "writtenResponse": (Comprehensive details) This will be displayed in the user's text chat screen history. Include all rich markdown tables, graphs, checklists, and professional guidelines.
-    2. "spokenResponse": (Ultra-natural speech) This will be synthesized as spoken audio. Keep it extremely concise, natural, warm, and friendly (at most 2 or 3 short sentences).
-  - Use smooth, natural Roman Urdu or English matching the user's query language. Include human conversational filler phrases (like "Aizaz bhai", "Ji bilkul", "Suno", "Haan", "Acha", "Koi masla nahi") to make it sound exactly like a warm, supportive human colleague on a live phone call!
+    1. "writtenResponse": (Comprehensive details) This will be displayed in the user's text chat screen history. Include all rich markdown tables, graphs, checklists, and professional guidelines. It MUST be strictly professional, structured, and free of conversational fillers (DO NOT use "bhai", "yaar", "suno", "acha", "ji bilkul", etc. in the written response).
+    2. "spokenResponse": (Ultra-natural speech) This will be synthesized as spoken audio. Keep it extremely concise, natural, warm, and friendly (at most 2 or 3 short sentences). You MUST include conversational filler phrases here (like "Aizaz bhai", "Ji bilkul", "Suno", "Haan", "Acha", "Koi masla nahi") to sound natural.
+  - Use smooth, natural Roman Urdu or English matching the user's query language.
   - Example output format for direct answer:
     \`\`\`json
     {
@@ -874,14 +881,35 @@ ${memoryPromptContext}`;
       }
 
       // Step C: LLM decision round
-      const initialLLMResponse = await this.llmService.callLLM(systemPrompt, refinedMessage, history);
+      let initialLLMResponse = await this.llmService.callLLM(systemPrompt, refinedMessage, history);
+      
+      // Strict Tool Enforcer: If database tools are allowed for this query,
+      // and the LLM did not generate a tool call, we re-prompt it to force a tool call!
+      let jsonBlock = this.extractJsonBlock(initialLLMResponse.trim());
+      let hasToolCall = jsonBlock && jsonBlock.includes('"tool"');
+      
+      if (allowDbTools && !hasToolCall) {
+        this.logger.warn(`Tool Enforcer: LLM did not generate a tool call for database-related query. Re-prompting to force tool output...`);
+        const forceToolPrompt = `You must use one of the available live database tools to answer the user's query: "${userMessage}". 
+Do NOT write natural language text, explanations, or guess the data. 
+Output ONLY a single raw JSON block matching the tool structure:
+{
+  "tool": "TOOL_NAME",
+  "params": { ... }
+}`;
+        const secondTryResponse = await this.llmService.callLLM(systemPrompt, forceToolPrompt, history);
+        const secondJsonBlock = this.extractJsonBlock(secondTryResponse.trim());
+        if (secondJsonBlock && secondJsonBlock.includes('"tool"')) {
+          initialLLMResponse = secondTryResponse;
+          jsonBlock = secondJsonBlock;
+        }
+      }
       
       let toolExecuted: string | null = null;
       let toolData: any = null;
       let finalResponseText = initialLLMResponse;
 
       const cleanResponse = initialLLMResponse.trim();
-      const jsonBlock = this.extractJsonBlock(cleanResponse);
 
       if (jsonBlock && jsonBlock.includes('"tool"')) {
         if (!allowDbTools) {
@@ -1044,6 +1072,13 @@ ${consensusReport.contradictionsResolved.map(c => `  * ${c}`).join('\n') || '  *
 ${consensusReport.proactiveActions.map(a => `  * ${a}`).join('\n') || '  * None'}
 ${consensusReport.reducedCertaintyWarning ? `- REDUCED CERTAINTY WARNING (Low Confidence): ${consensusReport.reducedCertaintyWarning}` : ''}
 
+STRICT TRUTH ENGINE RULES (PREVENT HALLUCINATION - NON-NEGOTIABLE):
+1. NEVER assume, guess, or invent numbers, names, dates, or events.
+2. Calculate counts and statistics by strictly counting the records in the retrieved JSON tool data above. For example, if the tool returned an array of 4 property items, we have EXACTLY 4 properties in the database. Never say we have 150 properties or any other number.
+3. If the tool data is an empty array '[]' or null, it means there are exactly 0 records in the database. You must state that no records were found. Never assume, guess, or pretend records exist.
+4. Conversation history is NOT a database. If the history says "I scheduled a meeting for tomorrow at 10:00 AM", but the live database tool output for meetings is empty '[]', you MUST NOT say that the meeting is scheduled. You must state that there are no meetings in the database. Never repeat or build upon past hallucinated claims.
+5. If the user asks to perform an action (e.g. schedule a meeting, create a task, send reminders, or check in/out), and the corresponding database write tool (like createTask) was NOT executed in this turn, you MUST state that the action was NOT completed. Do NOT pretend it has been scheduled or completed.
+
 Provide a beautiful, friendly, completely human-like natural language response summarizing these results.
 CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
 1. EVERY response MUST follow this exact 4-layer structure (Rule 6):
@@ -1092,9 +1127,9 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
                 finalSystemPrompt += `
 \n🚨 DYNAMIC PHONE CALL CONVERSATIONAL REINFORCEMENT (FINAL ROUND):
 - Since the database query has completed, you MUST now output your final response as a valid, parsable JSON block containing exactly two fields:
-  1. "writtenResponse": (Comprehensive details) This will be displayed in the user's text chat screen history. Include all rich markdown tables, graphs, checklists, and professional guidelines.
-  2. "spokenResponse": (Ultra-natural speech) This will be synthesized as spoken audio. Keep it extremely concise, natural, warm, and friendly (at most 2 or 3 short sentences).
-- Use smooth, natural Roman Urdu or English matching the user's query language. Include human conversational filler phrases (like "Aizaz bhai", "Ji bilkul", "Suno", "Haan", "Acha", "Koi masla nahi") to make it sound exactly like a warm, supportive human colleague on a live phone call!
+  1. "writtenResponse": (Comprehensive details) This will be displayed in the user's text chat screen history. Include all rich markdown tables, graphs, checklists, and professional guidelines. It MUST be strictly professional, structured, and free of conversational fillers (DO NOT use "bhai", "yaar", "suno", "acha", "ji bilkul", etc. in the written response).
+  2. "spokenResponse": (Ultra-natural speech) This will be synthesized as spoken audio. Keep it extremely concise, natural, warm, and friendly (at most 2 or 3 short sentences). You MUST include conversational filler phrases here (like "Aizaz bhai", "Ji bilkul", "Suno", "Haan", "Acha", "Koi masla nahi") to sound natural.
+- Use smooth, natural Roman Urdu or English matching the user's query language.
 - You MUST strictly output this JSON block. Never output raw plain text, markdown, or tool calls outside the JSON!
 - Example output format:
   \`\`\`json
