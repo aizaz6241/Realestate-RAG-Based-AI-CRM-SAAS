@@ -253,7 +253,7 @@ export default function DashboardLayout({
                 {
                   id: "welcome-float",
                   role: "model",
-                  content: "🤖 Salam! Main aapka Nexora ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database ko query kar sakta hoon.\n\nKuch puchna chahenge?",
+                  content: "🤖 Salam! Main aapka Zorvex ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database ko query kar sakta hoon.\n\nKuch puchna chahenge?",
                   createdAt: new Date().toISOString(),
                 }
               ]);
@@ -275,7 +275,7 @@ export default function DashboardLayout({
               {
                 id: "welcome-float",
                 role: "model",
-                content: "🤖 Salam! Main aapka Nexora ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database ko query kar sakta hoon.\n\nKuch puchna chahenge?",
+                content: "🤖 Salam! Main aapka Zorvex ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database ko query kar sakta hoon.\n\nKuch puchna chahenge?",
                 createdAt: new Date().toISOString(),
               }
             ]);
@@ -343,7 +343,7 @@ export default function DashboardLayout({
       setAiMessages(prev => [...prev, {
         id: `ai-err-${Date.now()}`,
         role: "model",
-        content: "🤖 System Alert: Nexora AI is currently experiencing API connection delays. Please verify your keys and network status.",
+        content: "🤖 System Alert: Zorvex AI is currently experiencing API connection delays. Please verify your keys and network status.",
         createdAt: new Date().toISOString(),
       }]);
     } finally {
@@ -373,7 +373,7 @@ export default function DashboardLayout({
           const sorted = [...messagesData].reverse();
           setNotifications(sorted.slice(0, 8)); // Top 8 recent alerts
 
-          const lastViewedStr = localStorage.getItem("nexora_notifications_last_viewed");
+          const lastViewedStr = localStorage.getItem("zorvex_notifications_last_viewed");
           const lastViewed = lastViewedStr ? new Date(lastViewedStr) : new Date(0);
           
           const newAlerts = messagesData.filter((m: any) => new Date(m.createdAt) > lastViewed);
@@ -410,7 +410,7 @@ export default function DashboardLayout({
     return () => clearTimeout(timer);
   }, [activeToast]);
 
-  // Establish real-time WebSocket connection to the Nexora Autonomous OS Brain
+  // Establish real-time WebSocket connection to the Zorvex Autonomous OS Brain
   useEffect(() => {
     if (!token || !user?.organizationId) return;
 
@@ -432,7 +432,7 @@ export default function DashboardLayout({
     };
 
     socket.on('connect', () => {
-      console.log('⚡ Connected to Nexora-AOS socket server');
+      console.log('⚡ Connected to Zorvex-AOS socket server');
       socket.emit('join', { organizationId: user.organizationId, userId: user.id });
     });
 
@@ -456,14 +456,14 @@ export default function DashboardLayout({
       console.log('📬 WebSocket: alert_sync received', data);
       const isMe = data.recipientId === user.id || data.recipientName === `${user.firstName} ${user.lastName || ''}`.trim();
       if (isMe) {
-        triggerToast('⏰ Nexora Brain System Reminder', data.message, 'alert');
+        triggerToast('⏰ Zorvex Brain System Reminder', data.message, 'alert');
       } else {
-        triggerToast('⏰ Nexora Cognitive Alert', `Alert sent to ${data.recipientName || 'team member'}: ${data.message}`, 'alert');
+        triggerToast('⏰ Zorvex Cognitive Alert', `Alert sent to ${data.recipientName || 'team member'}: ${data.message}`, 'alert');
       }
     });
 
     socket.on('disconnect', () => {
-      console.log('❌ Disconnected from Nexora-AOS socket server');
+      console.log('❌ Disconnected from Zorvex-AOS socket server');
     });
 
     return () => {
@@ -701,7 +701,7 @@ export default function DashboardLayout({
         {/* Logo Area */}
         <div className="h-20 flex items-center justify-between px-6 border-b border-border flex-shrink-0">
           <div className={`font-bold text-gradient text-xl whitespace-nowrap overflow-hidden transition-all ${!isSidebarOpen && "lg:opacity-0"}`}>
-            Nexora ERP
+            Zorvex ERP
           </div>
           <button 
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -873,7 +873,7 @@ export default function DashboardLayout({
                     setIsNotifOpen(!isNotifOpen);
                     // Mark notifications as read when opening
                     if (!isNotifOpen) {
-                      localStorage.setItem("nexora_notifications_last_viewed", new Date().toISOString());
+                      localStorage.setItem("zorvex_notifications_last_viewed", new Date().toISOString());
                       setUnreadNotifCount(0);
                     }
                   }}
@@ -899,7 +899,7 @@ export default function DashboardLayout({
                       </h4>
                       <button 
                         onClick={() => {
-                          localStorage.setItem("nexora_notifications_last_viewed", new Date().toISOString());
+                          localStorage.setItem("zorvex_notifications_last_viewed", new Date().toISOString());
                           setUnreadNotifCount(0);
                           setIsNotifOpen(false);
                         }}
@@ -1075,7 +1075,7 @@ export default function DashboardLayout({
             {miniTab === "ai" ? (
               <span className="font-black text-xs uppercase tracking-wider text-white flex items-center gap-1.5 animate-pulse">
                 <Bot className="w-4 h-4 text-primary glow-primary" />
-                Nexora AI Assistant
+                Zorvex AI Assistant
               </span>
             ) : miniActiveRoom ? (
               <div className="flex items-center gap-2">
@@ -1096,7 +1096,7 @@ export default function DashboardLayout({
             ) : (
               <span className="font-black text-xs uppercase tracking-wider text-white flex items-center gap-1.5">
                 <MessageSquare className="w-4 h-4 text-primary" />
-                Mini Nexora Chat
+                Mini Zorvex Chat
               </span>
             )}
             <button 
@@ -1115,7 +1115,7 @@ export default function DashboardLayout({
               <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
                 {aiMessages.length === 0 ? (
                   <p className="text-[10px] text-center text-muted-foreground italic py-10">
-                    🤖 Salam! Main aapka Nexora ERP Intelligent AI Assistant hoon. Kuch poochhna chahenge?
+                    🤖 Salam! Main aapka Zorvex ERP Intelligent AI Assistant hoon. Kuch poochhna chahenge?
                   </p>
                 ) : (
                   aiMessages.map((msg, index) => {
@@ -1129,7 +1129,7 @@ export default function DashboardLayout({
                       >
                         {!isUser && (
                           <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wide">
-                            Nexora Cognitive Core
+                            Zorvex Cognitive Core
                           </span>
                         )}
                         <div className={`p-3 rounded-2xl border text-[10.5px] whitespace-pre-wrap shadow-md ${
@@ -1184,7 +1184,7 @@ export default function DashboardLayout({
                       ? `Listening (${
                           SPEECH_LANGUAGES.find((l) => l.code === aiSpeechLang)?.label || "selected"
                         })...`
-                      : "Ask Nexora AI Assistant..."
+                      : "Ask Zorvex AI Assistant..."
                   }
                   value={aiInput}
                   onChange={(e) => setAiInput(e.target.value)}
@@ -1310,7 +1310,7 @@ export default function DashboardLayout({
                         : "bg-secondary/40 border-border/30 text-muted-foreground hover:text-white"
                     }`}
                   >
-                    {t === "ai" ? "🤖 Nexora AI" : t}
+                    {t === "ai" ? "🤖 Zorvex AI" : t}
                   </button>
                 ))}
               </div>

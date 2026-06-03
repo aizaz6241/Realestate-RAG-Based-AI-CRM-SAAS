@@ -68,11 +68,11 @@ export default function ChatPage() {
         setRooms([
           { 
             id: "room-sys", 
-            name: "Nexora System Bot", 
+            name: "Zorvex System Bot", 
             isGroup: false, 
             isSystem: true, 
             systemUserId: currentUser?.id,
-            messages: [{ content: "🤖 Welcome to Nexora System Notifications! You will receive live automated alerts here.", isSystem: true, createdAt: new Date() }] 
+            messages: [{ content: "🤖 Welcome to Zorvex System Notifications! You will receive live automated alerts here.", isSystem: true, createdAt: new Date() }] 
           },
           { 
             id: "room-gen", 
@@ -104,12 +104,12 @@ export default function ChatPage() {
       // Mock Messages
       if (roomId === "room-sys") {
         setMessages([
-          { id: "m1", content: "🤖 Welcome to Nexora System Notifications! You will receive live automated alerts here for any task assignments, audit cycles, or listing updates related to you.", isSystem: true, createdAt: new Date(Date.now() - 3600 * 1000) },
+          { id: "m1", content: "🤖 Welcome to Zorvex System Notifications! You will receive live automated alerts here for any task assignments, audit cycles, or listing updates related to you.", isSystem: true, createdAt: new Date(Date.now() - 3600 * 1000) },
           { id: "m2", content: "📢 Task Assignment Alert: A new operational task has been allocated to you: 'Review DHA Phase 6 Villa files' due on May 28, 2026. Please check your Tasks Board to execute.", isSystem: true, createdAt: new Date() }
         ]);
       } else {
         setMessages([
-          { id: "m3", content: "👋 Welcome to the General Team Chat! This channel is open to all Nexora employees for collaborative coordination.", createdAt: new Date(Date.now() - 3600 * 1000) },
+          { id: "m3", content: "👋 Welcome to the General Team Chat! This channel is open to all Zorvex employees for collaborative coordination.", createdAt: new Date(Date.now() - 3600 * 1000) },
           { id: "m4", content: "Hey team! Let's check out the new property listings we registered today.", sender: { firstName: "Ali", role: "AGENT" }, createdAt: new Date() }
         ]);
       }
@@ -262,7 +262,7 @@ export default function ChatPage() {
   });
 
   function getRoomDisplayName(room: any) {
-    if (room.isSystem) return "Nexora System Bot";
+    if (room.isSystem) return "Zorvex System Bot";
     if (room.isGroup) return room.name || "Team Channel";
     
     // For direct chats, return the recipient's name (the member who isn't the logged in user)
@@ -429,7 +429,7 @@ export default function ChatPage() {
                   <div className="text-left space-y-0.5">
                     <h3 className="font-black text-sm text-white tracking-wide">{getRoomDisplayName(activeRoom)}</h3>
                     <span className="text-[8px] font-black tracking-widest uppercase text-gray-400 px-2 py-0.5 rounded bg-secondary border border-border">
-                      {activeRoom.isSystem ? "Nexora Automated Notification Core" :
+                      {activeRoom.isSystem ? "Zorvex Automated Notification Core" :
                        activeRoom.isGroup ? "Universal Organization Channel" :
                        "Private Direct DM Session"}
                     </span>
@@ -530,7 +530,7 @@ export default function ChatPage() {
               {/* Chat Input form box */}
               {activeRoom.isSystem ? (
                 <div className="p-4 border-t border-border/40 bg-secondary/5 text-center text-xs text-muted-foreground flex-shrink-0 select-none">
-                  🤖 The Nexora System Bot notifications drawer is read-only. Responses cannot be sent.
+                  🤖 The Zorvex System Bot notifications drawer is read-only. Responses cannot be sent.
                 </div>
               ) : (
                 <form

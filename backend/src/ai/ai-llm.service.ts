@@ -76,7 +76,7 @@ export class AiLlmService {
     if (openrouterKey) {
       headers['Authorization'] = `Bearer ${openrouterKey}`;
       headers['HTTP-Referer'] = 'http://localhost:3000';
-      headers['X-Title'] = 'Nexora ERP Chatbot';
+      headers['X-Title'] = 'Zorvex ERP Chatbot';
     }
  
     const attempts = 2;
@@ -510,6 +510,6 @@ export class AiLlmService {
       this.logger.error(`Last resort Local/OpenRouter LLM fallback failed: ${err.message}`);
     }
 
-    return "🤖 System Alert: Nexora AI is currently experiencing API connection delays. Please verify your keys and network status.";
+    return "🤖 System Alert: Zorvex AI is currently experiencing API connection delays. Please verify your keys and network status.";
   }
 }

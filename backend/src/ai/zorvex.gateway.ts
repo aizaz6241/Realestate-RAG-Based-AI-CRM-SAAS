@@ -15,11 +15,11 @@ import { Logger } from '@nestjs/common';
     origin: '*',
   },
 })
-export class NexoraGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ZorvexGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  private readonly logger = new Logger(NexoraGateway.name);
+  private readonly logger = new Logger(ZorvexGateway.name);
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);

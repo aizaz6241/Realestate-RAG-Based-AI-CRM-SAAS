@@ -105,7 +105,7 @@ export default function LogisticsPage() {
         { id: "car2", modelName: "Honda Civic Sedan", plateNumber: "KHI-8293", status: "MAINTENANCE", maintenanceRequests: [{ id: "m1", description: "Engine Tuning", cost: 12000, status: "PENDING" }] }
       ]);
       setSchedules([
-        { id: "sched1", visitDate: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), pickupLocation: "Nexora Office, Gulberg", dropLocation: "DHA Phase 6 Block B", status: "SCHEDULED", driver: { employeeProfile: { user: { firstName: "Abid", lastName: "Shah" } } }, vehicle: { modelName: "Toyota Corolla S", plateNumber: "LEA-4902" } }
+        { id: "sched1", visitDate: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), pickupLocation: "Zorvex Office, Gulberg", dropLocation: "DHA Phase 6 Block B", status: "SCHEDULED", driver: { employeeProfile: { user: { firstName: "Abid", lastName: "Shah" } } }, vehicle: { modelName: "Toyota Corolla S", plateNumber: "LEA-4902" } }
       ]);
       setKeys([
         { id: "key1", keyTag: "KEY-DHA6-B42", status: "IN_OFFICE", property: { title: "DHA Phase 6 Villa", location: "DHA Phase 6" }, checkouts: [] },

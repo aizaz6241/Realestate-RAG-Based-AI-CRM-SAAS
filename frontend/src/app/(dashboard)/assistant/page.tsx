@@ -348,7 +348,7 @@ export default function AssistantPage() {
   const [speechLang, setSpeechLang] = useState("en-US");
   const recognitionRef = useRef<any>(null);
 
-  // Nexora Voice Live: Real-Time Spoken AI Agent States
+  // Zorvex Voice Live: Real-Time Spoken AI Agent States
   const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
   const [voiceAgentState, setVoiceAgentState] = useState<'IDLE' | 'LISTENING' | 'THINKING' | 'SPEAKING'>('IDLE');
   const [voiceGender, setVoiceGender] = useState<'female' | 'male'>('female');
@@ -702,7 +702,7 @@ export default function AssistantPage() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // Nexora Voice Live Speech-to-Text Orchestrator Effect (Continuous single-instance loop with instant interim barge-in support)
+  // Zorvex Voice Live Speech-to-Text Orchestrator Effect (Continuous single-instance loop with instant interim barge-in support)
   useEffect(() => {
     if (typeof window === "undefined" || !isVoiceModeActive) return;
 
@@ -874,7 +874,7 @@ export default function AssistantPage() {
     } else {
       setIsVoiceModeActive(true);
       setVoiceAgentState("THINKING");
-      setSubtitleFeedUser("Nexora Core Calling Desk... Dialing...");
+      setSubtitleFeedUser("Zorvex Core Calling Desk... Dialing...");
       setSubtitleFeedAi("");
       AudioSynthesizer.playDialTone();
 
@@ -891,8 +891,8 @@ export default function AssistantPage() {
           lastChimeTimeRef.current = Date.now();
           setVoiceAgentState("LISTENING");
           setSubtitleFeedUser("");
-          setSubtitleFeedAi("Nexora Operational Intelligence System is connected and ready. Speak now!");
-          speakText("Welcome! Nexora Cognitive Core system is connected. Speak naturally now.");
+          setSubtitleFeedAi("Zorvex Operational Intelligence System is connected and ready. Speak now!");
+          speakText("Welcome! Zorvex Cognitive Core system is connected. Speak naturally now.");
         }
       }, 3500);
     }
@@ -924,7 +924,7 @@ export default function AssistantPage() {
     {
       id: "welcome",
       role: "model",
-      content: "🤖 Salam! Main aapka Nexora ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database (Properties, CRM Clients, Employees, Finances, Tasks) ko query kar sakta hoon.\n\nKuch puchna chahenge? Neeche diye gaye quick prompts try karein!",
+      content: "🤖 Salam! Main aapka Zorvex ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database (Properties, CRM Clients, Employees, Finances, Tasks) ko query kar sakta hoon.\n\nKuch puchna chahenge? Neeche diye gaye quick prompts try karein!",
       createdAt: new Date().toISOString(),
     }
   ]);
@@ -1004,7 +1004,7 @@ export default function AssistantPage() {
             {
               id: "welcome",
               role: "model",
-              content: "🤖 Salam! Main aapka Nexora ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database (Properties, CRM Clients, Employees, Finances, Tasks) ko query kar sakta hoon.\n\nKuch puchna chahenge? Neeche diye gaye quick prompts try karein!",
+              content: "🤖 Salam! Main aapka Zorvex ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database (Properties, CRM Clients, Employees, Finances, Tasks) ko query kar sakta hoon.\n\nKuch puchna chahenge? Neeche diye gaye quick prompts try karein!",
               createdAt: new Date().toISOString(),
             }
           ]);
@@ -1037,7 +1037,7 @@ export default function AssistantPage() {
           {
             id: "welcome",
             role: "model",
-            content: "🤖 Salam! Main aapka Nexora ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database (Properties, CRM Clients, Employees, Finances, Tasks) ko query kar sakta hoon.\n\nKuch puchna chahenge? Neeche diye gaye quick prompts try karein!",
+            content: "🤖 Salam! Main aapka Zorvex ERP Intelligent AI Assistant hoon. Main aapke corporate documents (RAG) se sawal-jawab kar sakta hoon aur live database (Properties, CRM Clients, Employees, Finances, Tasks) ko query kar sakta hoon.\n\nKuch puchna chahenge? Neeche diye gaye quick prompts try karein!",
             createdAt: new Date().toISOString(),
           }
         ]);
@@ -1154,7 +1154,7 @@ export default function AssistantPage() {
       console.error(err);
       const errMsg = err.message === "SESSION_EXPIRED"
         ? "🔒 Session Expired: Aapka security login session expire ho chuka hai. Please dynamic dashboard menu se LOGOUT karein aur dobara LOGIN karein taaki live database aur AI RAG features safely access ho sakein!"
-        : "🤖 System Alert: Nexora AI is currently experiencing API connection delays. Please verify your keys and network status.";
+        : "🤖 System Alert: Zorvex AI is currently experiencing API connection delays. Please verify your keys and network status.";
       setMessages(prev => [...prev, {
         id: `err-${Date.now()}`,
         role: "model",
@@ -1393,7 +1393,7 @@ export default function AssistantPage() {
                   {/* Conversation Bubble Content */}
                   <div className="space-y-2 text-left min-w-0 flex-1 w-full">
                     {!isUser && (
-                      <span className="block text-[8px] font-black uppercase text-gray-500 tracking-wider">Nexora Cognitive Core</span>
+                      <span className="block text-[8px] font-black uppercase text-gray-500 tracking-wider">Zorvex Cognitive Core</span>
                     )}
 
                     <div className={`p-4 rounded-2xl border text-sm leading-relaxed shadow-lg ${
@@ -1580,13 +1580,13 @@ export default function AssistantPage() {
                   onChange={(e) => setUserInput(e.target.value)}
                 />
 
-                {/* Nexora Voice Live Toggle Button */}
+                {/* Zorvex Voice Live Toggle Button */}
                 <button
                   type="button"
                   disabled={isLoadingChat}
                   onClick={handleToggleVoiceMode}
                   className="p-3.5 rounded-2xl border flex items-center justify-center flex-shrink-0 transition-all duration-300 active:scale-95 cursor-pointer bg-secondary/40 border-border/60 text-gray-400 hover:text-white hover:border-border/80"
-                  title="Nexora Voice Live Mode"
+                  title="Zorvex Voice Live Mode"
                 >
                   <Volume2 className="w-5 h-5 text-gray-400 hover:text-primary" />
                 </button>
@@ -1763,7 +1763,7 @@ export default function AssistantPage() {
 
       </div>
 
-      {/* Nexora VOICE LIVE SYSTEM OVERLAY */}
+      {/* Zorvex VOICE LIVE SYSTEM OVERLAY */}
       {false && (
         <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-center justify-center animate-fade-in transition-all">
           <div className="w-88 p-6 rounded-3xl glass border border-primary/20 bg-card/95 flex flex-col items-center text-center shadow-[0_10px_60px_rgba(0,0,0,0.55)] relative overflow-hidden backdrop-blur-2xl">
@@ -1785,10 +1785,10 @@ export default function AssistantPage() {
 
             {/* Header branding */}
             <div className="space-y-1.5 mt-2">
-              <span className="text-[9px] font-black uppercase text-primary tracking-widest animate-pulse">Nexora Voice Live 2.0</span>
+              <span className="text-[9px] font-black uppercase text-primary tracking-widest animate-pulse">Zorvex Voice Live 2.0</span>
               <h3 className="text-sm font-extrabold text-white flex items-center gap-1.5 justify-center">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-                Nexora Cognitive Call Room
+                Zorvex Cognitive Call Room
               </h3>
             </div>
 
@@ -1894,7 +1894,7 @@ export default function AssistantPage() {
                 )}
 
                 {!subtitleFeedUser && !subtitleFeedAi && (
-                  <p className="text-[10px] text-gray-500 italic text-center py-4">Silence detected. Speak to talk with Nexora AI...</p>
+                  <p className="text-[10px] text-gray-500 italic text-center py-4">Silence detected. Speak to talk with Zorvex AI...</p>
                 )}
               </div>
             </div>
@@ -1974,7 +1974,7 @@ export default function AssistantPage() {
                       
                       setTimeout(() => {
                         setVoiceAgentState("LISTENING");
-                        const greeting = `Direct call line established with Nexora ${agent.label} Agent. How can I help you?`;
+                        const greeting = `Direct call line established with Zorvex ${agent.label} Agent. How can I help you?`;
                         setSubtitleFeedAi(greeting);
                         speakText(greeting);
                       }, 2000);

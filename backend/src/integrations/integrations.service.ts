@@ -116,8 +116,8 @@ export class IntegrationsService {
     compiled = compiled.replace(/\{\{leadName\}\}/g, lead?.name || 'Client');
     compiled = compiled.replace(/\{\{leadEmail\}\}/g, lead?.email || 'N/A');
     compiled = compiled.replace(/\{\{leadPhone\}\}/g, lead?.phone || 'N/A');
-    compiled = compiled.replace(/\{\{agentName\}\}/g, agent?.firstName ? `${agent.firstName} ${agent.lastName || ''}`.trim() : 'Nexora Representative');
-    compiled = compiled.replace(/\{\{agentEmail\}\}/g, agent?.email || 'support@nexoraecosystem.com');
+    compiled = compiled.replace(/\{\{agentName\}\}/g, agent?.firstName ? `${agent.firstName} ${agent.lastName || ''}`.trim() : 'Zorvex Representative');
+    compiled = compiled.replace(/\{\{agentEmail\}\}/g, agent?.email || 'support@zorvex.com');
     return compiled;
   }
 
@@ -128,7 +128,7 @@ export class IntegrationsService {
     });
     if (!lead) throw new NotFoundException('Lead profile not found');
 
-    let subject = customSubject || 'Nexora Ecosystem Real Estate';
+    let subject = customSubject || 'Zorvex Real Estate';
     let body = customBody || '';
 
     if (templateId) {
@@ -148,7 +148,7 @@ export class IntegrationsService {
 
     const payload = {
       to: lead.email || 'unknown@client.com',
-      from: lead.assignedTo?.email || 'agent@nexoraecosystem.com',
+      from: lead.assignedTo?.email || 'agent@zorvex.com',
       subject,
       body,
     };
@@ -264,7 +264,7 @@ export class IntegrationsService {
       phoneNumberId: creds?.phoneNumberId || 'simulated-phone-id',
       variableValues: {
         leadName: lead.name,
-        agentName: lead.assignedTo?.firstName || 'Nexora Representative',
+        agentName: lead.assignedTo?.firstName || 'Zorvex Representative',
       },
     };
 
@@ -306,11 +306,11 @@ export class IntegrationsService {
       const transcripts = [
         `[Vapi AI]: Hello, am I speaking with ${lead.name}?`,
         `[Lead]: Yes, speaking. Who is this?`,
-        `[Vapi AI]: Hi, this is the AI assistant calling on behalf of Nexora Real Estate Ecosystem. I saw you recently showed interest in our active listings in Dubai. I wanted to ask if you are actively looking to buy or rent?`,
+        `[Vapi AI]: Hi, this is the AI assistant calling on behalf of Zorvex Real Estate Ecosystem. I saw you recently showed interest in our active listings in Dubai. I wanted to ask if you are actively looking to buy or rent?`,
         `[Lead]: Ah yes! I am actually looking to buy a 3-bedroom apartment or villa in Dubai Marina or Palm Jumeirah. My budget is around 4.5 million Dirhams.`,
         `[Vapi AI]: Beautiful! Palm Jumeirah is an exceptional choice. Are you planning to move in immediately, or is this an investment?`,
         `[Lead]: It is for personal use, so immediate move-in is preferred.`,
-        `[Vapi AI]: Perfect! I have flagged your preference. An elite Realtor from Nexora, ${lead.assignedTo?.firstName || 'our agent team'}, will send you exclusive, unlisted options directly to your email shortly. Does that work?`,
+        `[Vapi AI]: Perfect! I have flagged your preference. An elite Realtor from Zorvex, ${lead.assignedTo?.firstName || 'our agent team'}, will send you exclusive, unlisted options directly to your email shortly. Does that work?`,
         `[Lead]: Yes, absolutely! Thank you.`,
         `[Vapi AI]: Wonderful, thank you for your time and have a fantastic day! Goodbye.`,
       ];
@@ -459,7 +459,7 @@ export class IntegrationsService {
 
     properties.forEach((prop) => {
       xml += `  <property>\n`;
-      xml += `    <reference_number>Nexora-${prop.id.substring(0, 8).toUpperCase()}</reference_number>\n`;
+      xml += `    <reference_number>Zorvex-${prop.id.substring(0, 8).toUpperCase()}</reference_number>\n`;
       xml += `    <title><![CDATA[${prop.title}]]></title>\n`;
       xml += `    <description><![CDATA[${prop.description || ''}]]></description>\n`;
       xml += `    <property_type>${prop.type}</property_type>\n`;
@@ -471,8 +471,8 @@ export class IntegrationsService {
       xml += `    <size>${prop.areaSqft || 0}</size>\n`;
       xml += `    <amenities>${(prop.amenities || []).join(', ')}</amenities>\n`;
       xml += `    <agent>\n`;
-      xml += `      <name>${prop.assignedTo?.firstName || 'Nexora Team'} ${prop.assignedTo?.lastName || ''}</name>\n`;
-      xml += `      <email>${prop.assignedTo?.email || 'info@nexoraecosystem.com'}</email>\n`;
+      xml += `      <name>${prop.assignedTo?.firstName || 'Zorvex Team'} ${prop.assignedTo?.lastName || ''}</name>\n`;
+      xml += `      <email>${prop.assignedTo?.email || 'info@zorvex.com'}</email>\n`;
       xml += `    </agent>\n`;
       xml += `    <owner>\n`;
       xml += `      <name><![CDATA[${prop.owner?.name || 'Private landlord'}]]></name>\n`;
@@ -568,7 +568,7 @@ export class IntegrationsService {
       fileId: document.id,
       fileName: document.name,
       category: document.category,
-      driveFolder: `Nexora_ERP_SYNC/${document.category.toUpperCase()}`,
+      driveFolder: `Zorvex_ERP_SYNC/${document.category.toUpperCase()}`,
     };
 
     try {

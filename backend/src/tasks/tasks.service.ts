@@ -32,7 +32,7 @@ export class TasksService {
         if (!systemRoom) {
           systemRoom = await this.prisma.chatRoom.create({
             data: {
-              name: "Nexora System Bot",
+              name: "Zorvex System Bot",
               isGroup: false,
               isSystem: true,
               systemUserId: assignedToId,
@@ -46,7 +46,7 @@ export class TasksService {
           // Insert welcome message
           await this.prisma.message.create({
             data: {
-              content: "🤖 Welcome to Nexora System Notifications! You will receive live automated alerts here for any task assignments, audit cycles, or listing updates related to you.",
+              content: "🤖 Welcome to Zorvex System Notifications! You will receive live automated alerts here for any task assignments, audit cycles, or listing updates related to you.",
               isSystem: true,
               chatRoomId: systemRoom.id,
             },

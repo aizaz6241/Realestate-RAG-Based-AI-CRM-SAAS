@@ -66,8 +66,8 @@ export default function IntegrationsPage() {
 
   // WhatsApp Sandbox States
   const [waLeadId, setWaLeadId] = useState("");
-  const [waText, setWaText] = useState("Salam {{leadName}}! Main Nexora properties se baat kar raha hoon. Palm Jumeirah property details download karne ke liye is link pe click karein.");
-  const [waMediaUrl, setWaMediaUrl] = useState("https://nexoraecosystem.com/brochures/palm_jumeirah_villa.pdf");
+  const [waText, setWaText] = useState("Salam {{leadName}}! Main Zorvex properties se baat kar raha hoon. Palm Jumeirah property details download karne ke liye is link pe click karein.");
+  const [waMediaUrl, setWaMediaUrl] = useState("https://zorvex.com/brochures/palm_jumeirah_villa.pdf");
   const [waSending, setWaSending] = useState(false);
   const [waChatMessages, setWaChatMessages] = useState<any[]>([
     { role: "agent", text: "Salam! How can we help you today?", time: "10:30 AM" }
@@ -75,7 +75,7 @@ export default function IntegrationsPage() {
 
   // SMS Sandbox States
   const [smsLeadId, setSmsLeadId] = useState("");
-  const [smsText, setSmsText] = useState("Nexora Alert: Dear {{leadName}}, a meeting has been scheduled with your Agent. Please verify your OTP code: 8291.");
+  const [smsText, setSmsText] = useState("Zorvex Alert: Dear {{leadName}}, a meeting has been scheduled with your Agent. Please verify your OTP code: 8291.");
   const [smsSending, setSmsSending] = useState(false);
   const [smsSentLogs, setSmsSentLogs] = useState<any[]>([]);
 
@@ -94,9 +94,9 @@ export default function IntegrationsPage() {
   const [portalSelect, setPortalSelect] = useState("BAYUT");
   const [portalLeadData, setPortalLeadData] = useState({
     name: "Aizaz Ahmed",
-    email: "aizaz@nexoraecosystem.com",
+    email: "aizaz@zorvex.com",
     phone: "+971501234567",
-    propertyRef: "Nexora-PROP-101",
+    propertyRef: "Zorvex-PROP-101",
     message: "Hi, I am interested in this beautiful 3-bedroom Palm Jumeirah listing. Please call me back."
   });
   const [portalSyncing, setPortalSyncing] = useState(false);
@@ -979,7 +979,7 @@ export default function IntegrationsPage() {
                         <label className="text-xs font-bold text-gray-300">Subject</label>
                         <input 
                           type="text" 
-                          placeholder="Welcome to Nexora Ecosystem CRM" 
+                          placeholder="Welcome to Zorvex CRM" 
                           value={emailCustomSubject}
                           onChange={(e) => setEmailCustomSubject(e.target.value)}
                           className="w-full glass-input p-3.5 rounded-xl text-xs"
@@ -1175,7 +1175,7 @@ export default function IntegrationsPage() {
                             RE
                           </div>
                           <div>
-                            <p className="font-extrabold text-white text-[10px]">Nexora Business AI</p>
+                            <p className="font-extrabold text-white text-[10px]">Zorvex Business AI</p>
                             <span className="block text-[7px] text-emerald-400 font-bold uppercase tracking-wider">Official WhatsApp</span>
                           </div>
                         </div>
@@ -1384,7 +1384,7 @@ export default function IntegrationsPage() {
                     <div className="space-y-1">
                       <span className="text-[10px] font-black uppercase tracking-wider text-teal-400 bg-teal-500/10 border border-teal-500/20 px-2.5 py-0.5 rounded">Google Maps Platform</span>
                       <h3 className="text-lg font-bold text-white">Dynamic Geocoding Sync</h3>
-                      <p className="text-xs text-muted-foreground leading-relaxed">Geocode listing addresses dynamically, resolving locations to precise latitudes and longitudes. This coordinates mapping systems inside Nexora listing pages.</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">Geocode listing addresses dynamically, resolving locations to precise latitudes and longitudes. This coordinates mapping systems inside Zorvex listing pages.</p>
                     </div>
 
                     <div className="space-y-4 text-xs">
@@ -1829,7 +1829,7 @@ export default function IntegrationsPage() {
                 <textarea 
                   rows={5}
                   required
-                  placeholder="Salam {{leadName}}! Welcome aboard to Nexora ERP..."
+                  placeholder="Salam {{leadName}}! Welcome aboard to Zorvex ERP..."
                   value={newTemplate.content}
                   onChange={(e) => setNewTemplate(prev => ({ ...prev, content: e.target.value }))}
                   className="w-full glass-input p-3 rounded-lg text-xs font-mono"

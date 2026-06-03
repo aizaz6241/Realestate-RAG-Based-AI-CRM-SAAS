@@ -8,7 +8,7 @@ import { AiController } from './ai.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CalendarModule } from '../calendar/calendar.module';
 import { AutonomousFollowUpService } from './autonomous-followup.service';
-import { NexoraGateway } from './nexora.gateway';
+import { ZorvexGateway } from './zorvex.gateway';
 
 @Module({
   imports: [PrismaModule, CalendarModule],
@@ -20,7 +20,7 @@ import { NexoraGateway } from './nexora.gateway';
     AiAgentsService,
     AiDatabaseToolsService,
     AutonomousFollowUpService,
-    NexoraGateway,
+    ZorvexGateway,
   ],
   exports: [
     AiService,
@@ -28,7 +28,7 @@ import { NexoraGateway } from './nexora.gateway';
     AiValidationService,
     AiAgentsService,
     AiDatabaseToolsService,
-    NexoraGateway,
+    ZorvexGateway,
   ],
 })
 export class AiModule {}

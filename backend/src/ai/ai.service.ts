@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CalendarService } from '../calendar/calendar.service';
-import { NexoraGateway } from './nexora.gateway';
+import { ZorvexGateway } from './zorvex.gateway';
 import { AiLlmService } from './ai-llm.service';
 import { AiValidationService } from './ai-validation.service';
 import { AiAgentsService, AgentOutput } from './ai-agents.service';
@@ -15,7 +15,7 @@ export class AiService {
   constructor(
     private prisma: PrismaService,
     private calendarService: CalendarService,
-    private nexoraGateway: NexoraGateway,
+    private zorvexGateway: ZorvexGateway,
     private llmService: AiLlmService,
     private validationService: AiValidationService,
     private agentsService: AiAgentsService,
@@ -412,8 +412,8 @@ INSTRUCTIONS:
         });
         const name = userRecord ? userRecord.firstName : 'Admin';
         const greeting = normalizedMessage.includes("salam") || normalizedMessage.includes("aoa") 
-          ? `Walaikum Assalam ${name}! How can I assist you with your Nexora ERP operations today?`
-          : `Hello ${name}! Welcome to Nexora Cognitive Core. How can I assist you with your ERP operations today?`;
+          ? `Walaikum Assalam ${name}! How can I assist you with your Zorvex ERP operations today?`
+          : `Hello ${name}! Welcome to Zorvex Cognitive Core. How can I assist you with your ERP operations today?`;
         
         return {
           response: greeting,
@@ -619,7 +619,7 @@ ACTIVE CONVERSATIONAL REFERENCE MEMORY (Rule 7):
             .join('\n')}`
         : 'No past organizational memories relevant to this query found.';
 
-      let systemPrompt = `You are the Nexora Multi-Agent Real Estate Intelligence Operating System (Nexora-AOS 5.0) Orchestrator.
+      let systemPrompt = `You are the Zorvex Multi-Agent Real Estate Intelligence Operating System (Zorvex-AOS 5.0) Orchestrator.
 You are NOT a chatbot. You coordinate specialized AI domain agents and manage real estate operations utilizing live database insights.
 
 AVAILABLE LIVE DATABASE TOOLS (STRICT JSON FORMAT ONLY):
@@ -730,7 +730,7 @@ CURRENT USER SECURITY CONTEXT:
 ${memoryContext}
 
 PERSONALIZATION PROTOCOL:
-- You are communicating directly with ${userName}. Greet them contextually and professionally by name (e.g. "Salam ${userRecord?.firstName || 'Admin'}!" or "Hello ${userRecord?.firstName || 'Admin'}!") where appropriate, and keep the interaction highly personalized to their identity and role within the Nexora Ecosystem.
+- You are communicating directly with ${userName}. Greet them contextually and professionally by name (e.g. "Salam ${userRecord?.firstName || 'Admin'}!" or "Hello ${userRecord?.firstName || 'Admin'}!") where appropriate, and keep the interaction highly personalized to their identity and role within the Zorvex.
 
 STRICT ROLE-BASED ACCESS CONTROL (AI-RBAC) POLICY:
 1. Access to sensitive records is strictly cleared based on the Security Role (${userRole}):
@@ -755,9 +755,9 @@ STRICT INTENT ROUTING & REAL ESTATE INTELLIGENCE LAYER:
 3. MULTI-TABLE REASONING: You are allowed and expected to perform joins, aggregates, rankings, and trend analysis across multiple tables (using "runDatabaseQuery" SELECT queries or structured API results) to answer complex business questions (e.g., Owner + Property aggregation).
 4. NEVER mix intents. Do NOT execute a workflow action (like createTask) if the user is asking a database query (like searching employees).
 5. RESPONSE CONSISTENCY: Only respond based on user intent. Do NOT randomly show analytics, dashboards, or employee cards unless explicitly aligned to their intent!
-6. OUT-OF-SCOPE / UNRELATED QUERY PROTOCOL: If the user asks about concepts, sports players (e.g. 'how many players do we have'), gaming, movies, or entities not managed by the ERP system, you MUST NOT execute any database search tools. Answer directly in their language, politely clarifying that you are the Nexora ERP AI assistant managing properties, CRM clients, employees, tasks, finances, and logistics fleet. Ask if they meant to inquire about one of these instead. E.g. "We do not track players in our ERP database. I only manage properties, CRM clients, employees, finances, tasks, and vehicle fleet. Did you mean employees?" (Translate this politely to match the user's input language, e.g., Roman Urdu or Urdu script).
+6. OUT-OF-SCOPE / UNRELATED QUERY PROTOCOL: If the user asks about concepts, sports players (e.g. 'how many players do we have'), gaming, movies, or entities not managed by the ERP system, you MUST NOT execute any database search tools. Answer directly in their language, politely clarifying that you are the Zorvex ERP AI assistant managing properties, CRM clients, employees, tasks, finances, and logistics fleet. Ask if they meant to inquire about one of these instead. E.g. "We do not track players in our ERP database. I only manage properties, CRM clients, employees, finances, tasks, and vehicle fleet. Did you mean employees?" (Translate this politely to match the user's input language, e.g., Roman Urdu or Urdu script).
 
-NEXORA COGNITIVE CORE DYNAMIC REASONING ENGINE RULES:
+ZORVEX COGNITIVE CORE DYNAMIC REASONING ENGINE RULES:
 - CORE PRINCIPLE: All business logic must be derived dynamically from data distribution, time context, user intent semantics, comparative analysis, and statistical baselines. You are a reasoning analyst, not a rule-based system.
 - RULE 1: NO HARD CODED BUSINESS LOGIC: Never assume fixed days (like 90, 30), fixed scores (like 70, 50), or fixed counts (like 8 tasks). Instead, derive thresholds dynamically using percentile ranking, moving averages, historical comparison, and deviation from mean.
 - RULE 2: NATURAL LANGUAGE ➔ SEMANTIC TRANSLATION: Convert user input into Entity, Intent, Temporal meaning, Comparative meaning, Risk/Opportunity signal. (Example: "25 days se unsold properties" ➔ Entity: Property, Signal: stagnation, Time: dynamic interval of 25 days, Condition: deviation from normal selling cycle).
@@ -848,7 +848,7 @@ ${memoryPromptContext}`;
         systemPrompt += `
 \n🚨 DYNAMIC PHONE CALL CONVERSATIONAL REINFORCEMENT (FIRST ROUND):
 - You are currently speaking with the user in a continuous real-time audio PHONE CALL.
-- The user is using their Nexora Voice Live Calling Console to dial the central **Nexora Operational Intelligence AI Agent** directly.
+- The user is using their Zorvex Voice Live Calling Console to dial the central **Zorvex Operational Intelligence AI Agent** directly.
 - **IF YOU NEED TO RUN A DATABASE QUERY OR CALL A TOOL**:
   - You MUST output ONLY the raw tool JSON block (e.g. {"tool": "...", "params": {...}}).
   - Do NOT output any other text, greetings, explanations, or written/spoken responses in this round!
@@ -1169,7 +1169,7 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
     } catch (err) {
       this.logger.error(`Complete breakdown in main Cognitive Chat pipeline: ${err.message}`);
       return {
-        response: "🤖 System Alert: An operational bottleneck has interrupted Nexora AI. Please verify data parameters and retry.",
+        response: "🤖 System Alert: An operational bottleneck has interrupted Zorvex AI. Please verify data parameters and retry.",
         toolExecuted: null,
         toolData: null,
         citations: []
@@ -1212,7 +1212,7 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
       .map((c: any) => `[${c.role}] ${c.senderName}: ${c.text}`)
       .join('\n');
 
-    const systemPrompt = `You are the Nexora Cognitive Core AI Conference Analyst.
+    const systemPrompt = `You are the Zorvex Cognitive Core AI Conference Analyst.
 Your job is to read the raw multi-lingual spoken transcripts of a video conference meeting, analyze the topics, and synthesize a highly professional, structured, executive-level business summary report.
 
 STRICT SYNTHESIS RULES:

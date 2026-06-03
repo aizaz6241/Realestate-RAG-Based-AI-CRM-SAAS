@@ -514,12 +514,12 @@ export default function CalendarPage() {
         "ru": ["есть ли у вас сотрудник по имени сара", "у вас есть сотрудник по имени сара"],
         "tr": ["sara adında bir çalışanınız var mı", "sara adında çalışan var mı"]
       },
-      "assign task to sara to verify nexora property documents till sunday": {
-        "en": ["assign task to sara to verify nexora property documents till sunday", "assign task to sara to verify nexora property documents by sunday"],
+      "assign task to sara to verify zorvex property documents till sunday": {
+        "en": ["assign task to sara to verify zorvex property documents till sunday", "assign task to sara to verify zorvex property documents by sunday"],
         "ur": ["اتوار تک رینس پراپرٹی کے دستاویزات کی تصدیق کے لیے سارہ کو ٹاسک تفویض کریں", "اتوار تک رینس پراپرٹی کے دستاویزات کی تصدیق کے لیے سارہ کو ٹاسک دیں"],
-        "ur-roman": ["sundey tak nexora property documents verify karne ke liye sara ko task assign karein", "sunday tak nexora property ke documents verify karne ke liye sara ko task assign karein", "sara ko task assign karein nexora property documents verify karne ke liye sunday tak"],
-        "ru": ["поручить саре проверить документы на недвижимость nexora до воскресенья", "нагрузить сару верификацией документов nexora до воскресенья"],
-        "tr": ["sara'ya pazar gününe kadar nexora gayrimenkul belgelerini doğrulaması için görev ata", "sara'ya pazar gününe kadar nexora gayrimenkul belgelerini doğrulamak için görev ver"]
+        "ur-roman": ["sundey tak zorvex property documents verify karne ke liye sara ko task assign karein", "sunday tak zorvex property ke documents verify karne ke liye sara ko task assign karein", "sara ko task assign karein zorvex property documents verify karne ke liye sunday tak"],
+        "ru": ["поручить саре проверить документы на недвижимость zorvex до воскресенья", "нагрузить сару верификацией документов zorvex до воскресенья"],
+        "tr": ["sara'ya pazar gününe kadar zorvex gayrimenkul belgelerini doğrulaması için görev ata", "sara'ya pazar gününe kadar zorvex gayrimenkul belgelerini doğrulamak için görev ver"]
       },
       "how many meetings we have today": {
         "en": ["how many meetings we have today", "how many meetings do we have today"],
@@ -2065,7 +2065,7 @@ export default function CalendarPage() {
                 {selectedEvent.location?.startsWith("VIRTUAL:") && (
                   <div className="flex items-center gap-1.5 text-xs text-cyan-400 bg-cyan-500/10 px-2.5 py-1.5 rounded-lg border border-cyan-500/20 w-fit animate-pulse">
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"></span>
-                    <span className="font-extrabold uppercase text-[10px] tracking-wider">Nexora Virtual Call Active</span>
+                    <span className="font-extrabold uppercase text-[10px] tracking-wider">Zorvex Virtual Call Active</span>
                   </div>
                 )}
               </div>
@@ -2355,7 +2355,7 @@ export default function CalendarPage() {
                     type="button"
                     onClick={() => {
                       const roomCode = Math.random().toString(36).substring(2, 10).toUpperCase();
-                      setFormData(prev => ({ ...prev, location: `VIRTUAL: https://nexora.meet/${roomCode}` }));
+                      setFormData(prev => ({ ...prev, location: `VIRTUAL: https://zorvex.meet/${roomCode}` }));
                     }}
                     className={`py-2 rounded-xl border text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer ${
                       formData.location.startsWith("VIRTUAL:")
@@ -2545,7 +2545,7 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {/* Nexora Virtual Conference Hub Overlay (Immersive full-screen calling room) */}
+      {/* Zorvex Virtual Conference Hub Overlay (Immersive full-screen calling room) */}
       {isCallActive && callRoomEvent && (
         <div className="fixed inset-0 z-50 bg-slate-950/98 backdrop-blur-2xl flex flex-col justify-between text-white animate-fade-in select-none">
           {/* Header */}
@@ -2560,7 +2560,7 @@ export default function CalendarPage() {
                   </span>
                 </h2>
                 <p className="text-[10px] text-gray-400 font-semibold mt-0.5">
-                  Secure Call Room ID: <span className="text-cyan-400 select-all font-mono font-bold">{callRoomEvent.location?.replace("VIRTUAL: https://nexora.meet/", "").replace("VIRTUAL:", "")}</span>
+                  Secure Call Room ID: <span className="text-cyan-400 select-all font-mono font-bold">{callRoomEvent.location?.replace("VIRTUAL: https://zorvex.meet/", "").replace("VIRTUAL:", "")}</span>
                 </p>
               </div>
             </div>
@@ -2917,7 +2917,7 @@ export default function CalendarPage() {
                   <History className="w-5 h-5 text-primary glow-primary" />
                   Past Meetings Ledger
                 </h3>
-                <p className="text-[9px] text-muted-foreground mt-0.5">Audited log history of Nexora conference sessions.</p>
+                <p className="text-[9px] text-muted-foreground mt-0.5">Audited log history of Zorvex conference sessions.</p>
               </div>
               <button 
                 onClick={() => setIsHistoryOpen(false)}
@@ -3003,7 +3003,7 @@ export default function CalendarPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-black uppercase tracking-wider text-cyan-400">
-                    Nexora Cognitive Core AI Conference Report
+                    Zorvex Cognitive Core AI Conference Report
                   </h3>
                   <p className="text-[10px] text-gray-400 font-semibold">{summaryData.title}</p>
                 </div>
@@ -3147,7 +3147,7 @@ export default function CalendarPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center p-8 bg-slate-950/30 border border-white/5 rounded-2xl text-center">
                   <div className="w-10 h-10 rounded-full border-2 border-white/10 border-t-cyan-400 animate-spin mb-3"></div>
-                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider animate-pulse">Nexora Cognitive Core Synthesizing Executive Summary...</p>
+                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider animate-pulse">Zorvex Cognitive Core Synthesizing Executive Summary...</p>
                   <p className="text-[10px] text-gray-500 font-semibold mt-1">Analyzing transcripts log and generating role actions breakdown.</p>
                 </div>
               )}

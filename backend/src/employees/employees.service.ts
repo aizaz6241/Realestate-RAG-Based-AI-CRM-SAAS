@@ -12,7 +12,7 @@ export class EmployeesService {
 
   async create(organizationId: string, data: any) {
     const { email, password, firstName, lastName, role, department, designation, salary } = data;
-    const passwordHash = await bcrypt.hash(password || 'Nexora_ERP_123!', 10);
+    const passwordHash = await bcrypt.hash(password || 'Zorvex_ERP_123!', 10);
 
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({

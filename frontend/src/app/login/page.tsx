@@ -44,7 +44,7 @@ export default function LoginPage() {
             <Building2 className="text-white w-8 h-8" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight mb-2">
-            Welcome to <span className="text-gradient">Nexora</span>
+            Welcome to <span className="text-gradient">Zorvex</span>
           </h1>
           <p className="text-muted-foreground text-sm text-center">
             Sign in to your organization's workspace to manage properties, leads, and operations.
@@ -63,7 +63,7 @@ export default function LoginPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@nexora.com"
+                  placeholder="admin@zorvex.com"
                   className="w-full pl-10 pr-4 py-3 rounded-xl glass-input text-sm placeholder:text-gray-500"
                   required
                 />
@@ -115,7 +115,7 @@ export default function LoginPage() {
         {/* Footer info */}
         <p className="text-center text-xs text-muted-foreground mt-8 animate-fade-in opacity-0 delay-300">
           By signing in, you agree to our Terms of Service and Privacy Policy.
-          <br/>© 2026 Nexora Ecosystem.
+          <br/>© 2026 Zorvex.
         </p>
       </div>
     </div>

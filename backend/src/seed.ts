@@ -14,7 +14,7 @@ async function main() {
     // Test connection first with a real query to verify active database reachability (bypasses isolated build-time network blocks)
     await prisma.$queryRaw`SELECT 1`;
   } catch (err) {
-    console.warn("⚠️ [Nexora Deploy Alert] Database server is unreachable at this stage (possibly build-time isolated network on Render).");
+    console.warn("⚠️ [Zorvex Deploy Alert] Database server is unreachable at this stage (possibly build-time isolated network on Render).");
     console.warn("⚠️ Gracefully skipping database seeding to allow the build compilation to succeed.");
     return;
   }
@@ -81,8 +81,8 @@ async function main() {
   // 2. Create Organization
   const org = await prisma.organization.create({
     data: {
-      name: "Nexora Ecosystem",
-      domain: "nexora.com"
+      name: "Zorvex",
+      domain: "zorvex.com"
     }
   });
   console.log(`🏢 Created Organization: ${org.name}`);
@@ -92,13 +92,13 @@ async function main() {
 
   // 4. Create Users for all core Roles
   const usersData = [
-    { email: "admin@nexora.com", firstName: "Admin", lastName: "User", role: Role.SUPER_ADMIN },
+    { email: "admin@zorvex.com", firstName: "Admin", lastName: "User", role: Role.SUPER_ADMIN },
     { email: "aizazkhan6241@gmail.com", firstName: "Muhammad Aizaz", lastName: "Khan", role: Role.HR },
-    { email: "agent1@nexora.com", firstName: "John", lastName: "Agent", role: Role.AGENT },
-    { email: "agent2@nexora.com", firstName: "Sarah", lastName: "Agent", role: Role.AGENT },
-    { email: "manager@nexora.com", firstName: "Robert", lastName: "Manager", role: Role.SALES_MANAGER },
+    { email: "agent1@zorvex.com", firstName: "John", lastName: "Agent", role: Role.AGENT },
+    { email: "agent2@zorvex.com", firstName: "Sarah", lastName: "Agent", role: Role.AGENT },
+    { email: "manager@zorvex.com", firstName: "Robert", lastName: "Manager", role: Role.SALES_MANAGER },
     { email: "sijad@gmail.com", firstName: "Sijad", lastName: "Ullah", role: Role.LOGISTICS },
-    { email: "finance@nexora.com", firstName: "Faisal", lastName: "Finance", role: Role.FINANCE }
+    { email: "finance@zorvex.com", firstName: "Faisal", lastName: "Finance", role: Role.FINANCE }
   ];
 
   const users: { [key: string]: any } = {};
@@ -119,13 +119,13 @@ async function main() {
 
   // 5. Create Employee Profiles for each User
   const profilesData = [
-    { email: "admin@nexora.com", department: "Administration", designation: "Executive Director", salary: 35000 },
+    { email: "admin@zorvex.com", department: "Administration", designation: "Executive Director", salary: 35000 },
     { email: "aizazkhan6241@gmail.com", department: "Human Resources", designation: "HR Manager", salary: 15000 },
-    { email: "agent1@nexora.com", department: "Sales", designation: "Senior Property Consultant", salary: 12000 },
-    { email: "agent2@nexora.com", department: "Sales", designation: "Junior Property Consultant", salary: 10000 },
-    { email: "manager@nexora.com", department: "Sales", designation: "Sales Director", salary: 22000 },
+    { email: "agent1@zorvex.com", department: "Sales", designation: "Senior Property Consultant", salary: 12000 },
+    { email: "agent2@zorvex.com", department: "Sales", designation: "Junior Property Consultant", salary: 10000 },
+    { email: "manager@zorvex.com", department: "Sales", designation: "Sales Director", salary: 22000 },
     { email: "sijad@gmail.com", department: "Logistics", designation: "Logistics Lead & Driver", salary: 8500 },
-    { email: "finance@nexora.com", department: "Finance", designation: "Finance Controller", salary: 16000 }
+    { email: "finance@zorvex.com", department: "Finance", designation: "Finance Controller", salary: 16000 }
   ];
 
   const profiles: { [key: string]: any } = {};
@@ -216,7 +216,7 @@ async function main() {
         kycNotes: "Emirates ID and Signature Villa Title Deed verified on 2025-05-15.",
         commissionRate: 2.0,
         organizationId: org.id,
-        assignedToId: users["agent1@nexora.com"].id
+        assignedToId: users["agent1@zorvex.com"].id
       }
     }),
     await prisma.owner.create({
@@ -229,7 +229,7 @@ async function main() {
         kycNotes: "Passport Copy & Burj Penthouse Exclusivity verified.",
         commissionRate: 2.5,
         organizationId: org.id,
-        assignedToId: users["agent2@nexora.com"].id
+        assignedToId: users["agent2@zorvex.com"].id
       }
     }),
     await prisma.owner.create({
@@ -242,7 +242,7 @@ async function main() {
         kycNotes: "Awaiting title deed verification for Waterfront studio.",
         commissionRate: 5.0,
         organizationId: org.id,
-        assignedToId: users["manager@nexora.com"].id
+        assignedToId: users["manager@zorvex.com"].id
       }
     })
   ];
@@ -250,10 +250,10 @@ async function main() {
 
   // 11. Create Owner Documents & Communications
   await prisma.ownerDocument.create({
-    data: { name: "Emirates ID Card - Fahad", fileUrl: "https://nexora-erp.s3.amazonaws.com/docs/eid_fahad.pdf", ownerId: owners[0].id }
+    data: { name: "Emirates ID Card - Fahad", fileUrl: "https://zorvex-erp.s3.amazonaws.com/docs/eid_fahad.pdf", ownerId: owners[0].id }
   });
   await prisma.ownerDocument.create({
-    data: { name: "Title Deed - Palm Villa 14", fileUrl: "https://nexora-erp.s3.amazonaws.com/docs/title_deed_palm.pdf", ownerId: owners[0].id }
+    data: { name: "Title Deed - Palm Villa 14", fileUrl: "https://zorvex-erp.s3.amazonaws.com/docs/title_deed_palm.pdf", ownerId: owners[0].id }
   });
   await prisma.ownerCommunication.create({
     data: { type: "CALL", summary: "Discussed the Palm Villa exclusivity extension. Fahad agreed to 2% commission rate.", ownerId: owners[0].id }
@@ -277,7 +277,7 @@ async function main() {
         images: ["https://images.unsplash.com/photo-1613977257363-707ba9348227?auto=format&fit=crop&w=800&q=80"],
         amenities: ["Private Pool", "Beach Access", "Private Gym", "Smart Home Automation", "24/7 Security"],
         organizationId: org.id,
-        assignedToId: users["agent1@nexora.com"].id,
+        assignedToId: users["agent1@zorvex.com"].id,
         ownerId: owners[0].id
       }
     }),
@@ -296,7 +296,7 @@ async function main() {
         images: ["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80"],
         amenities: ["Burj Khalifa View", "Fountain View", "Shared Pool", "Concierge", "Valet Parking"],
         organizationId: org.id,
-        assignedToId: users["agent2@nexora.com"].id,
+        assignedToId: users["agent2@zorvex.com"].id,
         ownerId: owners[1].id
       }
     }),
@@ -315,7 +315,7 @@ async function main() {
         images: ["https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80"],
         amenities: ["Marina View", "Metro Access", "Shared Gym", "Shared Pool", "Built-in Wardrobes"],
         organizationId: org.id,
-        assignedToId: users["agent1@nexora.com"].id,
+        assignedToId: users["agent1@zorvex.com"].id,
         ownerId: owners[2].id
       }
     }),
@@ -334,7 +334,7 @@ async function main() {
         images: ["https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80"],
         amenities: ["Golf Course View", "Infinity Pool", "Private Cinema", "Staff Quarters", "Grand Foyer"],
         organizationId: org.id,
-        assignedToId: users["manager@nexora.com"].id,
+        assignedToId: users["manager@zorvex.com"].id,
         ownerId: owners[0].id
       }
     })
@@ -362,7 +362,7 @@ async function main() {
         budget: 15000000,
         preferences: "Looking for premium penthouse or villa in Palm Jumeirah or Downtown Dubai.",
         organizationId: org.id,
-        assignedToId: users["agent2@nexora.com"].id
+        assignedToId: users["agent2@zorvex.com"].id
       }
     }),
     await prisma.client.create({
@@ -375,7 +375,7 @@ async function main() {
         budget: 50000000,
         preferences: "Bulk purchase of multiple high-ROI apartments in Dubai Marina.",
         organizationId: org.id,
-        assignedToId: users["agent1@nexora.com"].id
+        assignedToId: users["agent1@zorvex.com"].id
       }
     }),
     await prisma.client.create({
@@ -388,7 +388,7 @@ async function main() {
         budget: 35000000,
         preferences: "Ultra-luxury beachfront villa with immediate handover.",
         organizationId: org.id,
-        assignedToId: users["manager@nexora.com"].id
+        assignedToId: users["manager@zorvex.com"].id
       }
     })
   ];
@@ -437,7 +437,7 @@ async function main() {
         status: "NEW",
         score: 35,
         organizationId: org.id,
-        assignedToId: users["agent1@nexora.com"].id
+        assignedToId: users["agent1@zorvex.com"].id
       }
     }),
     await prisma.lead.create({
@@ -449,7 +449,7 @@ async function main() {
         status: "ENGAGED",
         score: 85,
         organizationId: org.id,
-        assignedToId: users["agent2@nexora.com"].id
+        assignedToId: users["agent2@zorvex.com"].id
       }
     }),
     await prisma.lead.create({
@@ -461,7 +461,7 @@ async function main() {
         status: "CONTACTED",
         score: 50,
         organizationId: org.id,
-        assignedToId: users["agent1@nexora.com"].id
+        assignedToId: users["agent1@zorvex.com"].id
       }
     })
   ];
@@ -482,21 +482,21 @@ async function main() {
       data: {
         name: "Palm Villa Exclusivity Listing Agreement",
         category: "SALES",
-        fileUrl: "https://nexora-erp.s3.amazonaws.com/docs/exclusivity_palm.pdf",
+        fileUrl: "https://zorvex-erp.s3.amazonaws.com/docs/exclusivity_palm.pdf",
         accessRole: "AGENT",
         tags: ["exclusivity", "agreement", "palm jumeirah"],
-        createdById: users["admin@nexora.com"].id,
+        createdById: users["admin@zorvex.com"].id,
         organizationId: org.id
       }
     }),
     await prisma.document.create({
       data: {
-        name: "Nexora Corporate Employee Handbook 2026",
+        name: "Zorvex Corporate Employee Handbook 2026",
         category: "CORPORATE",
-        fileUrl: "https://nexora-erp.s3.amazonaws.com/docs/handbook.pdf",
+        fileUrl: "https://zorvex-erp.s3.amazonaws.com/docs/handbook.pdf",
         accessRole: "VIEWER",
         tags: ["handbook", "policies", "compliance"],
-        createdById: users["admin@nexora.com"].id,
+        createdById: users["admin@zorvex.com"].id,
         organizationId: org.id
       }
     }),
@@ -504,10 +504,10 @@ async function main() {
       data: {
         name: "Burj Khalifa Penthouse Title Deed Copy",
         category: "KYC",
-        fileUrl: "https://nexora-erp.s3.amazonaws.com/docs/title_deed_burj.pdf",
+        fileUrl: "https://zorvex-erp.s3.amazonaws.com/docs/title_deed_burj.pdf",
         accessRole: "ADMIN",
         tags: ["deed", "dld", "kyc", "downtown"],
-        createdById: users["admin@nexora.com"].id,
+        createdById: users["admin@zorvex.com"].id,
         organizationId: org.id
       }
     })
@@ -519,7 +519,7 @@ async function main() {
     data: {
       name: "Emirates ID Card - Muhammad Aizaz",
       category: "ID",
-      fileUrl: "https://nexora-erp.s3.amazonaws.com/docs/eid_aizaz.pdf",
+      fileUrl: "https://zorvex-erp.s3.amazonaws.com/docs/eid_aizaz.pdf",
       employeeProfileId: profiles["aizazkhan6241@gmail.com"].id
     }
   });
@@ -527,8 +527,8 @@ async function main() {
     data: {
       name: "Employment Contract - John Agent",
       category: "CONTRACT",
-      fileUrl: "https://nexora-erp.s3.amazonaws.com/docs/contract_john.pdf",
-      employeeProfileId: profiles["agent1@nexora.com"].id
+      fileUrl: "https://zorvex-erp.s3.amazonaws.com/docs/contract_john.pdf",
+      employeeProfileId: profiles["agent1@zorvex.com"].id
     }
   });
   console.log(`📎 Uploaded Employee HR credentials`);
@@ -560,7 +560,7 @@ async function main() {
       type: "ANNUAL",
       status: "PENDING",
       reason: "Visiting family overseas in Tbilisi, Georgia.",
-      employeeProfileId: profiles["agent2@nexora.com"].id
+      employeeProfileId: profiles["agent2@zorvex.com"].id
     }
   });
   await prisma.leaveRequest.create({
@@ -571,17 +571,17 @@ async function main() {
       status: "APPROVED",
       reason: "Severe dental procedure appointment.",
       approvedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
-      employeeProfileId: profiles["agent1@nexora.com"].id
+      employeeProfileId: profiles["agent1@zorvex.com"].id
     }
   });
   console.log(`🏖️ Created leave requests (pending annual & approved sick)`);
 
   // 23. Log Work Activities
   await prisma.activityLog.create({
-    data: { description: "Conducted sales negotiation meeting at Dubai Marina office.", category: "MEETING", duration: 90, employeeProfileId: profiles["agent1@nexora.com"].id }
+    data: { description: "Conducted sales negotiation meeting at Dubai Marina office.", category: "MEETING", duration: 90, employeeProfileId: profiles["agent1@zorvex.com"].id }
   });
   await prisma.activityLog.create({
-    data: { description: "Wrote property listing brochures for Palm Jumeirah signature villa.", category: "WORK", duration: 180, employeeProfileId: profiles["agent1@nexora.com"].id }
+    data: { description: "Wrote property listing brochures for Palm Jumeirah signature villa.", category: "WORK", duration: 180, employeeProfileId: profiles["agent1@zorvex.com"].id }
   });
   console.log(`💻 Logged employee work activities`);
 
@@ -590,16 +590,16 @@ async function main() {
     data: {
       rating: 5,
       feedback: "John has performed spectacularly this quarter. Successfully brought in beachfront properties and managed high-profile buyers flawlessly.",
-      reviewedById: users["admin@nexora.com"].id,
-      employeeProfileId: profiles["agent1@nexora.com"].id
+      reviewedById: users["admin@zorvex.com"].id,
+      employeeProfileId: profiles["agent1@zorvex.com"].id
     }
   });
   await prisma.performanceReview.create({
     data: {
       rating: 4,
       feedback: "Sarah shows incredible dedication to client viewing pipelines. Needs minor support on closed deals conversion rates.",
-      reviewedById: users["admin@nexora.com"].id,
-      employeeProfileId: profiles["agent2@nexora.com"].id
+      reviewedById: users["admin@zorvex.com"].id,
+      employeeProfileId: profiles["agent2@zorvex.com"].id
     }
   });
   console.log(`⭐ Seeded employee performance review cards`);
@@ -637,8 +637,8 @@ async function main() {
       status: "PENDING",
       dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
       organizationId: org.id,
-      assignedToId: users["agent1@nexora.com"].id,
-      createdById: users["admin@nexora.com"].id
+      assignedToId: users["agent1@zorvex.com"].id,
+      createdById: users["admin@zorvex.com"].id
     }
   });
   await prisma.task.create({
@@ -648,8 +648,8 @@ async function main() {
       status: "IN_PROGRESS",
       dueDate: new Date(),
       organizationId: org.id,
-      assignedToId: users["agent2@nexora.com"].id,
-      createdById: users["admin@nexora.com"].id
+      assignedToId: users["agent2@zorvex.com"].id,
+      createdById: users["admin@zorvex.com"].id
     }
   });
   await prisma.task.create({
@@ -659,8 +659,8 @@ async function main() {
       status: "COMPLETED",
       dueDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
       organizationId: org.id,
-      assignedToId: users["manager@nexora.com"].id,
-      createdById: users["admin@nexora.com"].id
+      assignedToId: users["manager@zorvex.com"].id,
+      createdById: users["admin@zorvex.com"].id
     }
   });
   console.log(`📋 Created Tasks Kanban Checklist`);
@@ -679,7 +679,7 @@ async function main() {
     data: {
       name: "SMS OTP Security Code",
       subject: "OTP Verification",
-      content: "Your Nexora Ecosystem secure verification code is: 582914. Valid for 5 minutes.",
+      content: "Your Zorvex secure verification code is: 582914. Valid for 5 minutes.",
       channel: "SMS",
       organizationId: org.id
     }
@@ -701,7 +701,7 @@ main()
       e?.code === 'P1017';
 
     if (isConnError) {
-      console.warn("⚠️ [Nexora Deploy Alert] Database connection failed during seeding.");
+      console.warn("⚠️ [Zorvex Deploy Alert] Database connection failed during seeding.");
       console.warn(errorMessage);
       console.warn("⚠️ Gracefully exiting with code 0 to allow build to succeed.");
       process.exit(0);
