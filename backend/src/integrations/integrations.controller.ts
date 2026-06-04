@@ -30,6 +30,13 @@ export class IntegrationsController {
   // -----------------------------------------------------------------------------
 
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'ADMIN', 'AGENT')
+  @Get('vapi/public-config')
+  async getVapiPublicConfig(@Request() req) {
+    return this.integrationsService.getVapiPublicConfig(req.user.organizationId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN', 'ADMIN')
   @Get('configs')
   async getConfigs(@Request() req) {

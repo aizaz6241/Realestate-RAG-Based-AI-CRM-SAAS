@@ -338,6 +338,8 @@ const summarizeForSpeech = (text: string): string => {
   return firstParagraph.trim();
 };
 
+const getApiUrl = () => process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
 export default function AssistantPage() {
   const router = useRouter();
   const { token, user: currentUser } = useAuth();
@@ -349,6 +351,21 @@ export default function AssistantPage() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+
+  // Vapi Voice Integration refs and state
+  const vapiInstanceRef = useRef<any>(null);
+  const [vapiConfig, setVapiConfig] = useState<{ isEnabled: boolean; publicKey: string | null; assistantId: string | null } | null>(null);
+
+  useEffect(() => {
+    if (token) {
+      fetch(`${getApiUrl()}/integrations/vapi/public-config`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(data => setVapiConfig(data))
+        .catch(err => console.error("Error loading Vapi public config:", err));
+    }
+  }, [token]);
 
   // Voice Input Speech Recognition States
   const [isListening, setIsListening] = useState(false);
@@ -875,15 +892,24 @@ export default function AssistantPage() {
     };
   }, [isVoiceModeActive, speechLang, voiceAgentState, isMuted]);
 
-  const handleToggleVoiceMode = () => {
+  const handleToggleMute = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    if (vapiInstanceRef.current) {
+      try {
+        vapiInstanceRef.current.setMuted(nextMuted);
+      } catch (err) {}
+    }
+  };
+
+  const handleToggleVoiceMode = async () => {
     if (isVoiceModeActive) {
       handleExitVoiceMode();
     } else {
       setIsVoiceModeActive(true);
       setVoiceAgentState("THINKING");
-      setSubtitleFeedUser("Zorvex Core Calling Desk... Dialing...");
+      setSubtitleFeedUser("Connecting to Vapi Voice Core...");
       setSubtitleFeedAi("");
-      AudioSynthesizer.playDialTone();
 
       if (isListening) {
         if (recognitionRef.current) {
@@ -892,16 +918,82 @@ export default function AssistantPage() {
         setIsListening(false);
       }
 
-      setTimeout(() => {
-        if (isVoiceModeActiveRef.current) {
-          AudioSynthesizer.playConnectionChime();
-          lastChimeTimeRef.current = Date.now();
-          setVoiceAgentState("LISTENING");
-          setSubtitleFeedUser("");
-          setSubtitleFeedAi("Zorvex Operational Intelligence System is connected and ready. Speak now!");
-          speakText("Welcome! Zorvex Cognitive Core system is connected. Speak naturally now.");
+      // Check if Vapi is enabled and has credentials
+      if (vapiConfig && vapiConfig.isEnabled && vapiConfig.publicKey && vapiConfig.assistantId) {
+        try {
+          const VapiSdk = (await import("@vapi-ai/web")).default;
+          const vapi = new VapiSdk(vapiConfig.publicKey);
+          vapiInstanceRef.current = vapi;
+
+          // Wire up event listeners
+          vapi.on("call-start", () => {
+            console.log("Vapi Call Started");
+            AudioSynthesizer.playConnectionChime();
+            lastChimeTimeRef.current = Date.now();
+            setVoiceAgentState("LISTENING");
+            setSubtitleFeedUser("");
+            setSubtitleFeedAi("Aisha is connected and ready. Speak naturally now!");
+          });
+
+          vapi.on("call-end", () => {
+            console.log("Vapi Call Ended");
+            setIsVoiceModeActive(false);
+            setVoiceAgentState("IDLE");
+            setSubtitleFeedUser("");
+            setSubtitleFeedAi("");
+            AudioSynthesizer.playHangupChime();
+            vapiInstanceRef.current = null;
+          });
+
+          vapi.on("volume-level", (level: number) => {
+            if (!isMutedRef.current) {
+              setAmplitude(level * 45); // Scale volume to match visualization
+            }
+          });
+
+          vapi.on("message", (msg: any) => {
+            if (msg.type === "transcript") {
+              if (msg.role === "assistant") {
+                setSubtitleFeedAi(msg.transcript);
+                setVoiceAgentState("SPEAKING");
+              } else {
+                setSubtitleFeedUser(msg.transcript);
+                setVoiceAgentState("LISTENING");
+              }
+            }
+          });
+
+          vapi.on("error", (err: any) => {
+            console.error("Vapi call error:", err);
+            handleExitVoiceMode();
+            alert("Vapi Call Error: " + (err.message || "Unknown error"));
+          });
+
+          // Start the call
+          AudioSynthesizer.playDialTone();
+          vapi.start(vapiConfig.assistantId);
+          if (isMuted) {
+            vapi.setMuted(true);
+          }
+        } catch (err: any) {
+          console.error("Vapi initialization error:", err);
+          handleExitVoiceMode();
+          alert("Failed to initialize Vapi Web SDK. Falling back to local browser mode.");
         }
-      }, 3500);
+      } else {
+        // FALLBACK TO SIMULATED SYSTEM VOICE MODE (existing local speech-synthesis agent)
+        AudioSynthesizer.playDialTone();
+        setTimeout(() => {
+          if (isVoiceModeActiveRef.current) {
+            AudioSynthesizer.playConnectionChime();
+            lastChimeTimeRef.current = Date.now();
+            setVoiceAgentState("LISTENING");
+            setSubtitleFeedUser("");
+            setSubtitleFeedAi("Zorvex Operational Intelligence System (Local Simulation) is connected and ready. Speak now!");
+            speakText("Welcome! Zorvex Cognitive Core system is connected. Speak naturally now.");
+          }
+        }, 3500);
+      }
     }
   };
 
@@ -912,6 +1004,14 @@ export default function AssistantPage() {
     setSubtitleFeedUser("");
     setSubtitleFeedAi("");
     
+    // Stop Vapi call if active
+    if (vapiInstanceRef.current) {
+      try {
+        vapiInstanceRef.current.stop();
+      } catch (err) {}
+      vapiInstanceRef.current = null;
+    }
+
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -1524,7 +1624,7 @@ export default function AssistantPage() {
                     {/* Mute Mic Button */}
                     <button
                       type="button"
-                      onClick={() => setIsMuted(prev => !prev)}
+                      onClick={handleToggleMute}
                       className={`p-3.5 rounded-2xl border transition-all duration-300 active:scale-95 cursor-pointer flex items-center justify-center ${
                         isMuted 
                           ? "bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse" 
@@ -1833,7 +1933,7 @@ export default function AssistantPage() {
             <div className="flex items-center gap-6 mt-6 relative justify-center">
               {/* Mute/Unmute Mic Button */}
               <button
-                onClick={() => setIsMuted(prev => !prev)}
+                onClick={handleToggleMute}
                 className={`p-3.5 rounded-full border transition-all duration-300 active:scale-95 cursor-pointer ${
                   isMuted 
                     ? "bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse" 

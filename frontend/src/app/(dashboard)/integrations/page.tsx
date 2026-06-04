@@ -1622,6 +1622,16 @@ export default function IntegrationsPage() {
                     />
                   </div>
                   <div className="space-y-1.5">
+                    <label className="font-bold text-gray-300">Vapi Public Key (For Web calls)</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g., public-key-uuid..."
+                      value={configCredentials.publicKey || ""}
+                      onChange={(e) => setConfigCredentials((prev: any) => ({ ...prev, publicKey: e.target.value }))}
+                      className="w-full glass-input p-3 rounded-lg text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
                     <label className="font-bold text-gray-300">Assistant ID</label>
                     <input 
                       type="text"

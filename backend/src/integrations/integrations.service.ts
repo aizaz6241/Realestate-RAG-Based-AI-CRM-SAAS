@@ -1,9 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ZorvexGateway } from '../ai/zorvex.gateway';
 
 @Injectable()
 export class IntegrationsService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(IntegrationsService.name);
+  constructor(
+    private prisma: PrismaService,
+    private zorvexGateway: ZorvexGateway
+  ) {}
+
 
   // -----------------------------------------------------------------------------
   // Configs & Settings Management
@@ -236,11 +242,26 @@ export class IntegrationsService {
     }
   }
 
+  async getVapiPublicConfig(organizationId: string) {
+    const config = await this.prisma.integrationConfig.findUnique({
+      where: { organizationId_type: { organizationId, type: 'VOICE' } },
+    });
+    if (!config || !config.isEnabled) {
+      return { isEnabled: false };
+    }
+    const creds = config.credentials as any || {};
+    return {
+      isEnabled: true,
+      publicKey: creds.publicKey || null,
+      assistantId: creds.assistantId || null,
+    };
+  }
+
   // -----------------------------------------------------------------------------
   // Vapi.ai Voice Call Engine Implementation
   // -----------------------------------------------------------------------------
 
-  async triggerVapiCall(organizationId: string, leadId: string) {
+  async triggerVapiCall(organizationId: string, leadId: string, isAutomated = false) {
     const lead = await this.prisma.lead.findFirst({
       where: { id: leadId, organizationId },
       include: { assignedTo: true },
@@ -346,100 +367,286 @@ export class IntegrationsService {
         },
       });
 
+      // If triggered automatically (not from integrations frontend playground), 
+      // trigger the webhook process on the backend after a small delay
+      if (isAutomated) {
+        setTimeout(() => {
+          this.handleVapiWebhook(simulatedWebhookPayload).catch(err => {
+            this.logger.error(`Automated simulated webhook trigger failed: ${err.message}`);
+          });
+        }, 1000);
+      }
+
       // To make the sandbox incredibly engaging, we will return the simulated payload
       // so the frontend can display the transcript, save to DB, and play the waveform instantly!
       return { success: true, live: false, simulatedWebhookPayload };
     }
   }
 
-  async handleVapiWebhook(payload: any) {
-    const message = payload?.message;
-    if (!message || message.type !== 'call-ended') {
-      return { success: true, message: 'Ignored non call-ended webhook events' };
-    }
-
-    const callDetails = message.call;
-    const customerPhone = callDetails?.customer?.number;
-    if (!customerPhone) {
-      return { success: false, message: 'Missing customer phone number in webhook payload' };
-    }
-
-    // Try finding the Lead matching this phone number across organizations
-    // To support multi-tenancy, we search for phone suffix match
-    const cleanPhone = customerPhone.replace(/\D/g, '');
-    const leads = await this.prisma.lead.findMany({
-      include: { organization: true },
-    });
-
-    const targetLead = leads.find((l) => {
+  private async findLeadByPhone(cleanPhone: string) {
+    const leads = await this.prisma.lead.findMany();
+    return leads.find((l) => {
       if (!l.phone) return false;
       const lp = l.phone.replace(/\D/g, '');
       return cleanPhone.endsWith(lp) || lp.endsWith(cleanPhone);
     });
-
-    if (!targetLead) {
-      return { success: false, message: `Could not find any Lead matching phone: ${customerPhone}` };
-    }
-
-    const transcript = callDetails.transcript || 'No transcript available.';
-    const recordingUrl = callDetails.recordingUrl || '';
-    const summary = callDetails.summary || 'AI Voice call completed.';
-    const isQualified = callDetails.analysis?.structuredData?.isQualified ?? true;
-    const budget = callDetails.analysis?.structuredData?.budget || 0;
-
-    const orgId = targetLead.organizationId;
-
-    // 1. Log incoming webhook transaction
-    await this.writeLog(orgId, 'VOICE', 'INBOUND', 'SUCCESS', payload, null, targetLead.id);
-
-    // 2. Add Activity Log to Lead
-    await this.prisma.leadActivity.create({
-      data: {
-        leadId: targetLead.id,
-        type: 'CALL',
-        description: `Vapi.ai Voice Call Completed. Recording: ${recordingUrl || 'N/A'}\n\nSummary: ${summary}\n\nTranscript Preview: "${transcript.substring(0, 150)}..."`,
-      },
-    });
-
-    // 3. Automated Qualification and Scoring
-    let updatedStatus = targetLead.status;
-    let scoreBump = 0;
-
-    if (isQualified) {
-      updatedStatus = 'ENGAGED';
-      scoreBump = 35; // Significant bump
-    } else {
-      updatedStatus = 'DISQUALIFIED';
-      scoreBump = -20;
-    }
-
-    const newScore = Math.min(100, Math.max(0, targetLead.score + scoreBump));
-
-    await this.prisma.lead.update({
-      where: { id: targetLead.id },
-      data: {
-        status: updatedStatus,
-        score: newScore,
-      },
-    });
-
-    // Add status timeline logging
-    await this.prisma.leadActivity.create({
-      data: {
-        leadId: targetLead.id,
-        type: 'STATUS_CHANGE',
-        description: `Lead status updated to ${updatedStatus} and AI quality score adjusted to ${newScore}% based on Vapi.ai voice analysis.`,
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Vapi call-ended webhook processed successfully',
-      leadId: targetLead.id,
-      updatedStatus,
-      newScore,
-    };
   }
+
+  private async resolveOrgIdFromCall(callDetails: any): Promise<string> {
+    const metadata = callDetails?.metadata || {};
+    if (metadata.organizationId) return metadata.organizationId;
+    if (metadata.leadId) {
+      const lead = await this.prisma.lead.findUnique({ where: { id: metadata.leadId } });
+      if (lead) return lead.organizationId;
+    }
+    const customerPhone = callDetails?.customer?.number;
+    if (customerPhone) {
+      const cleanPhone = customerPhone.replace(/\D/g, '');
+      const lead = await this.findLeadByPhone(cleanPhone);
+      if (lead) return lead.organizationId;
+    }
+    const org = await this.prisma.organization.findFirst();
+    return org?.id || '';
+  }
+
+  async handleVapiWebhook(payload: any) {
+    const message = payload?.message || payload;
+    if (!message) {
+      return { success: false, message: 'Empty payload received' };
+    }
+
+    const type = message.type;
+    this.logger.log(`Received Vapi Webhook event of type: "${type}"`);
+
+    // 1. HANDLE REAL-TIME TRANSCRIPTS
+    if (type === 'transcript') {
+      const callDetails = message.call;
+      const customerPhone = callDetails?.customer?.number;
+      if (customerPhone) {
+        const cleanPhone = customerPhone.replace(/\D/g, '');
+        const targetLead = await this.findLeadByPhone(cleanPhone);
+        if (targetLead) {
+          this.zorvexGateway.broadcastToOrganization(targetLead.organizationId, 'vapi_call_sync', {
+            leadId: targetLead.id,
+            role: message.role, // 'customer' or 'assistant'
+            transcript: message.transcript,
+            transcriptType: message.transcriptType // 'partial' or 'final'
+          });
+        }
+      }
+      return { success: true, message: 'Transcript stream processed' };
+    }
+
+    // 2. HANDLE TOOL CALLS (get_property_details, search_properties, schedule_viewing)
+    if (type === 'tool-calls') {
+      const results: any[] = [];
+      const toolCallList = message.toolCallList || message.toolCalls || [];
+      this.logger.log(`Processing ${toolCallList.length} tool calls from Vapi`);
+
+      for (const toolCall of toolCallList) {
+        const funcName = toolCall.function?.name;
+        const args = toolCall.function?.arguments || {};
+        const callDetails = message.call;
+
+        if (funcName === 'get_property_details') {
+          const propertyId = args.propertyId;
+          this.logger.log(`Tool call 'get_property_details' for ID: ${propertyId}`);
+          try {
+            const property = await this.prisma.property.findUnique({
+              where: { id: propertyId }
+            });
+            results.push({
+              toolCallId: toolCall.id,
+              result: property ? {
+                title: property.title,
+                description: property.description || '',
+                type: property.type,
+                listingType: property.listingType,
+                price: property.price,
+                location: property.location,
+                bedrooms: property.bedrooms,
+                bathrooms: property.bathrooms,
+                areaSqft: property.areaSqft,
+                amenities: property.amenities
+              } : { error: 'Property not found' }
+            });
+          } catch (err) {
+            results.push({
+              toolCallId: toolCall.id,
+              result: { error: `Failed to fetch property details: ${err.message}` }
+            });
+          }
+        }
+
+        else if (funcName === 'search_properties') {
+          this.logger.log(`Tool call 'search_properties' with arguments: ${JSON.stringify(args)}`);
+          try {
+            const organizationId = callDetails?.metadata?.organizationId || (await this.resolveOrgIdFromCall(callDetails));
+            const matches = await this.prisma.property.findMany({
+              where: {
+                organizationId,
+                status: 'PUBLISHED',
+                location: args.location ? { contains: args.location, mode: 'insensitive' } : undefined,
+                listingType: args.listingType ? args.listingType.toUpperCase() : undefined,
+                price: args.maxBudget ? { lte: parseFloat(args.maxBudget) } : undefined,
+                bedrooms: args.bedrooms ? parseInt(args.bedrooms) : undefined,
+              },
+              take: 3
+            });
+            results.push({
+              toolCallId: toolCall.id,
+              result: matches.map(p => ({
+                title: p.title,
+                price: p.price,
+                location: p.location,
+                bedrooms: p.bedrooms,
+                listingType: p.listingType,
+                amenities: p.amenities
+              }))
+            });
+          } catch (err) {
+            results.push({
+              toolCallId: toolCall.id,
+              result: { error: `Search failed: ${err.message}` }
+            });
+          }
+        }
+
+        else if (funcName === 'schedule_viewing') {
+          const { leadId, title, startTime, endTime, location, description } = args;
+          this.logger.log(`Tool call 'schedule_viewing' for lead ${leadId}`);
+          try {
+            const targetLead = await this.prisma.lead.findUnique({
+              where: { id: leadId }
+            });
+            if (!targetLead) {
+              throw new Error('Lead profile not found');
+            }
+            
+            const event = await this.prisma.calendarEvent.create({
+              data: {
+                title: title || `Viewing with ${targetLead.name}`,
+                description: description || `Automated viewing booked via Renz Properties AI.`,
+                startTime: new Date(startTime),
+                endTime: new Date(endTime),
+                location: location || null,
+                isPrivate: false,
+                targetRoles: ['AGENT', 'ADMIN'],
+                targetUserIds: targetLead.assignedToId ? [targetLead.assignedToId] : [],
+                organizationId: targetLead.organizationId,
+                createdById: targetLead.assignedToId || 'system-uuid', 
+              }
+            });
+
+            await this.prisma.leadActivity.create({
+              data: {
+                leadId: targetLead.id,
+                type: 'NOTES',
+                description: `📅 Viewing Appointment Scheduled via AI: "${event.title}" on ${new Date(event.startTime).toLocaleString()} at ${event.location || 'N/A'}.`,
+              }
+            });
+
+            // Trigger WebSocket calendar reload notification
+            this.zorvexGateway.broadcastToOrganization(targetLead.organizationId, 'calendar_sync', {
+              action: 'create',
+              event
+            });
+
+            results.push({
+              toolCallId: toolCall.id,
+              result: { status: 'success', message: 'Viewing scheduled in CRM calendar', eventId: event.id }
+            });
+          } catch (err) {
+            results.push({
+              toolCallId: toolCall.id,
+              result: { error: `Scheduling failed: ${err.message}` }
+            });
+          }
+        }
+      }
+      return { results };
+    }
+
+    // 3. HANDLE END OF CALL REPORT
+    if (type === 'end-of-call-report' || type === 'call-ended') {
+      const callDetails = message.call;
+      const customerPhone = callDetails?.customer?.number;
+      if (!customerPhone) {
+        return { success: false, message: 'Missing customer phone number in webhook payload' };
+      }
+
+      const cleanPhone = customerPhone.replace(/\D/g, '');
+      const targetLead = await this.findLeadByPhone(cleanPhone);
+      if (!targetLead) {
+        return { success: false, message: `Could not find any Lead matching phone: ${customerPhone}` };
+      }
+
+      const transcript = callDetails.transcript || 'No transcript available.';
+      const recordingUrl = callDetails.recordingUrl || '';
+      const summary = callDetails.summary || 'AI Voice call completed.';
+      const isQualified = callDetails.analysis?.structuredData?.isQualified ?? true;
+
+      const orgId = targetLead.organizationId;
+
+      // Log inbound call completion in IntegrationsLog
+      await this.writeLog(orgId, 'VOICE', 'INBOUND', 'SUCCESS', payload, null, targetLead.id);
+
+      // Create Call Activity Timeline Log
+      await this.prisma.leadActivity.create({
+        data: {
+          leadId: targetLead.id,
+          type: 'CALL',
+          description: `Vapi.ai Voice Call Completed. Recording: ${recordingUrl || 'N/A'}\n\nSummary: ${summary}\n\nTranscript Preview: "${transcript.substring(0, 150)}..."`,
+        },
+      });
+
+      // Update Lead Status & Quality Score based on qualification structured details
+      let updatedStatus = targetLead.status;
+      let scoreBump = 0;
+      if (isQualified) {
+        updatedStatus = 'ENGAGED';
+        scoreBump = 35;
+      } else {
+        updatedStatus = 'DISQUALIFIED';
+        scoreBump = -20;
+      }
+      const newScore = Math.min(100, Math.max(0, targetLead.score + scoreBump));
+
+      await this.prisma.lead.update({
+        where: { id: targetLead.id },
+        data: {
+          status: updatedStatus,
+          score: newScore,
+        },
+      });
+
+      // Status change log entry
+      await this.prisma.leadActivity.create({
+        data: {
+          leadId: targetLead.id,
+          type: 'STATUS_CHANGE',
+          description: `Lead status updated to ${updatedStatus} and AI quality score adjusted to ${newScore}% based on Vapi.ai voice analysis.`,
+        },
+      });
+
+      // Send WebSocket notification trigger to frontend
+      this.zorvexGateway.broadcastToOrganization(orgId, 'lead_sync', {
+        action: 'update',
+        lead: { id: targetLead.id, name: targetLead.name, score: newScore, status: updatedStatus }
+      });
+
+      return {
+        success: true,
+        message: 'Vapi call-ended report processed successfully',
+        leadId: targetLead.id,
+        updatedStatus,
+        newScore,
+      };
+    }
+
+    return { success: true, message: `Ignored unhandled webhook message type: ${type}` };
+  }
+
 
   // -----------------------------------------------------------------------------
   // UAE Property Portals Feed Generator & Inbound Sync (Bayut & Dubizzle)
@@ -545,6 +752,11 @@ export class IntegrationsService {
         type: 'NOTES',
         description: `Lead synced directly from UAE portal: ${portal.toUpperCase()} referencing: ${propertyRef || 'General'}. AI scoring evaluated at: ${score}%. Assigned to Agent: ${agents.find(a => a.id === assignedToId)?.firstName || 'Office Pool'}.`,
       },
+    });
+
+    // Auto-trigger Vapi Call if integration is active
+    this.triggerVapiCall(organizationId, newLead.id, true).catch(err => {
+      this.logger.error(`Automated Vapi outbound trigger failed: ${err.message}`);
     });
 
     return {

@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { IntegrationsService } from '../integrations/integrations.service';
 
 @Injectable()
 export class LeadsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private integrationsService: IntegrationsService,
+  ) {}
 
   async create(data: any, organizationId: string, assignedToId?: string) {
     const { name, email, phone, source, description, status, notes } = data;
@@ -108,6 +112,15 @@ export class LeadsService {
         description: `Lead created from source: ${src}. Automated lead quality score evaluated at: ${score}%.`,
       },
     });
+
+    // Auto-trigger Vapi Call if VOICE integration is active
+    this.prisma.integrationConfig.findUnique({
+      where: { organizationId_type: { organizationId, type: 'VOICE' } },
+    }).then((voiceConfig) => {
+      if (voiceConfig && voiceConfig.isEnabled) {
+        this.integrationsService.triggerVapiCall(organizationId, lead.id).catch(() => {});
+      }
+    }).catch(() => {});
 
     return this.findOne(lead.id, organizationId);
   }

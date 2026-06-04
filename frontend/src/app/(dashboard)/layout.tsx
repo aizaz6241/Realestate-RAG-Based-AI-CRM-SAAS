@@ -31,7 +31,8 @@ import {
   Sun,
   Moon,
   Cable,
-  Coins
+  Coins,
+  PhoneCall
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -63,6 +64,7 @@ const isRouteAllowed = (href: string, role: string, userId?: string) => {
     href === "/chat" || 
     href === "/calendar" ||
     href === "/assistant" ||
+    href === "/assistant/call-logs" ||
     (userId && href === `/employees/${userId}`)
   ) {
     return true;
@@ -622,6 +624,7 @@ export default function DashboardLayout({
     { name: "Operations & Logistics", href: "/logistics", icon: Truck },
     { name: "Chat Terminal", href: "/chat", icon: MessageSquare },
     { name: "AI Chat Assistant", href: "/assistant", icon: Bot },
+    { name: "Vapi Call Logs", href: "/assistant/call-logs", icon: PhoneCall },
     { name: "Integrations Hub", href: "/integrations", icon: Cable },
   ];
   // Dynamic filtration of sidebar links
@@ -669,6 +672,7 @@ export default function DashboardLayout({
       items: [
         { name: "Operations & Logistics", href: "/logistics", icon: Truck },
         { name: "AI Chat Assistant", href: "/assistant", icon: Bot },
+        { name: "Vapi Call Logs", href: "/assistant/call-logs", icon: PhoneCall },
         { name: "Integrations Hub", href: "/integrations", icon: Cable },
       ]
     }
