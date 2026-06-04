@@ -999,6 +999,72 @@ export class AiDatabaseToolsService {
           };
         }
 
+        case 'createMeeting': {
+          const { title, description, startTime, endTime, location, targetUserIds, targetRoles } = params || {};
+          if (!title || !startTime || !endTime) {
+            return { error: 'MISSING_PARAMS', message: 'Meeting title, startTime, and endTime are required.' };
+          }
+
+          const event = await this.calendarService.create(userId, organizationId, {
+            title,
+            description: description || null,
+            startTime: new Date(startTime),
+            endTime: new Date(endTime),
+            location: location || `http://localhost:3000/call/${Math.random().toString(36).substring(2, 15)}`,
+            isPrivate: false,
+            targetRoles: targetRoles || [],
+            targetUserIds: targetUserIds || [],
+          });
+
+          const verifiedEvent = await this.prisma.calendarEvent.findUnique({
+            where: { id: event.id }
+          });
+
+          if (!verifiedEvent) {
+            this.logger.error(`Database validation failure: Meeting "${title}" was not verified in Postgres after write!`);
+            return {
+              error: 'DATABASE_SYNC_FAILURE',
+              message: 'Meeting could not be verified in the calendar index. Please try again.'
+            };
+          }
+
+          const employeeProfile = await this.prisma.employeeProfile.findFirst({
+            where: { userId, organizationId }
+          });
+          if (employeeProfile) {
+            await this.prisma.activityLog.create({
+              data: {
+                employeeProfileId: employeeProfile.id,
+                category: 'MEETING',
+                description: `Created meeting: "${title}". Location: ${verifiedEvent.location}.`
+              }
+            });
+          }
+
+          this.zorvexGateway.broadcastToOrganization(organizationId, 'calendar_sync', {
+            action: 'create',
+            event: {
+              id: event.id,
+              title: event.title,
+              startTime: event.startTime,
+              endTime: event.endTime,
+              location: event.location
+            }
+          });
+
+          return {
+            success: true,
+            status: 'SCHEDULED',
+            event: {
+              id: event.id,
+              title: event.title,
+              startTime: event.startTime,
+              endTime: event.endTime,
+              location: event.location
+            }
+          };
+        }
+
         case 'updateTask': {
           const { taskId, status } = params || {};
           const task = await this.prisma.task.update({

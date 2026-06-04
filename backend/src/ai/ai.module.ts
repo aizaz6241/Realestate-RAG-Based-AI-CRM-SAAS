@@ -9,6 +9,8 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { CalendarModule } from '../calendar/calendar.module';
 import { AutonomousFollowUpService } from './autonomous-followup.service';
 import { ZorvexGateway } from './zorvex.gateway';
+import { ExecutiveDecisionService } from './executive-decision.service';
+import { RealEstateIntelligenceService } from './real-estate-intelligence.service';
 
 @Module({
   imports: [PrismaModule, CalendarModule],
@@ -21,6 +23,8 @@ import { ZorvexGateway } from './zorvex.gateway';
     AiDatabaseToolsService,
     AutonomousFollowUpService,
     ZorvexGateway,
+    ExecutiveDecisionService,
+    RealEstateIntelligenceService,
   ],
   exports: [
     AiService,
@@ -29,6 +33,8 @@ import { ZorvexGateway } from './zorvex.gateway';
     AiAgentsService,
     AiDatabaseToolsService,
     ZorvexGateway,
+    ExecutiveDecisionService,
+    RealEstateIntelligenceService,
   ],
 })
 export class AiModule {}

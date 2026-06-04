@@ -29,6 +29,81 @@ export class AiAgentsService {
     private validationService: AiValidationService
   ) {}
 
+  // Specialist Context Modules: Formats domain-specific database records into structured contexts
+  getDomainContext(domain: string, rawData: any): string {
+    if (!rawData || (Array.isArray(rawData) && rawData.length === 0)) {
+      return `[${domain} Context]: No records found in the database.`;
+    }
+
+    let context = `[${domain} Context]:\n`;
+
+    if (domain === 'HR') {
+      if (Array.isArray(rawData)) {
+        context += rawData.map(r => 
+          `- Employee ${r.user?.firstName || ''} ${r.user?.lastName || ''} (Role: ${r.user?.role || 'None'}, Dept: ${r.department || 'None'}, Desig: ${r.designation || 'None'}, Status: ${r.status || 'ACTIVE'}, Salary: ${r.salary || 'Confidential'})`
+        ).join('\n');
+      } else {
+        context += JSON.stringify(rawData);
+      }
+    } else if (domain === 'Finance') {
+      if (rawData.totals) {
+        context += `- Net payout commitment: AED ${rawData.totals.netSalary}\n- Base salary budget: AED ${rawData.totals.baseSalary}\n- Allowances: AED ${rawData.totals.allowances}\n- Deductions: AED ${rawData.totals.deductions}`;
+      } else {
+        context += JSON.stringify(rawData);
+      }
+    } else if (domain === 'Property') {
+      if (Array.isArray(rawData)) {
+        context += rawData.map(r => 
+          `- Property: "${r.title}" in ${r.location} (Type: ${r.type}, Price: AED ${r.price}, Bed: ${r.bedrooms}, Bath: ${r.bathrooms}, Status: ${r.status}, Owner: ${r.owner?.name || 'Unassigned'})`
+        ).join('\n');
+      } else {
+        context += JSON.stringify(rawData);
+      }
+    } else if (domain === 'Sales') {
+      if (Array.isArray(rawData)) {
+        context += rawData.map(r => 
+          `- Client/Lead: "${r.name}" (Type: ${r.type || 'Lead'}, Stage/Status: ${r.stage || r.status || 'NEW'}, Budget: AED ${r.budget || 0}, Preferences: "${r.preferences || ''}")`
+        ).join('\n');
+      } else {
+        context += JSON.stringify(rawData);
+      }
+    } else if (domain === 'Logistics') {
+      if (rawData.vehicles) {
+        context += `- Active Vehicles Count: ${rawData.vehiclesCount}\n` + 
+          rawData.vehicles.map((v: any) => `  * Vehicle: ${v.modelName} (Plate: ${v.plateNumber}, Status: ${v.status}, Maintenance Cost: AED ${v.maintenanceCostTotal})`).join('\n');
+      } else {
+        context += JSON.stringify(rawData);
+      }
+    } else {
+      context += JSON.stringify(rawData);
+    }
+
+    return context;
+  }
+
+  // Specialist Reasoning: Runs a deep reasoning model call ONLY when the query is highly complex
+  async executeSpecialistReasoning(
+    domain: 'HR' | 'Finance' | 'Property' | 'Sales' | 'Logistics' | 'Executive',
+    data: any,
+    query: string
+  ): Promise<string> {
+    this.logger.log(`[Specialist Agent: ${domain}] Executing deep reasoning...`);
+    const systemPrompt = `You are the Zorvex Specialist ${domain} AI Reasoning Agent.
+Your job is to deeply analyze the given dataset and the user query to provide strategic, high-cognition insights, audit discrepancies, detect bottlenecks, and provide recommendations in the domain of ${domain}.
+Output only your reasoning and analytical insights directly. Be concise, executive-focused, and highly precise.`;
+
+    const userPrompt = `User Query: "${query}"
+Database Records:
+${JSON.stringify(data, null, 2)}`;
+
+    try {
+      return await this.llmService.callLLM(systemPrompt, userPrompt, [], true);
+    } catch (err) {
+      this.logger.error(`Specialist Reasoning Agent failed: ${err.message}`);
+      return `Failed to compute specialized reasoning: ${err.message}`;
+    }
+  }
+
   async executeDomainAgent(
     domain: 'HR' | 'Finance' | 'Property' | 'Sales' | 'Logistics',
     toolName: string,

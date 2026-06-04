@@ -6,6 +6,8 @@ import { AiLlmService } from './ai-llm.service';
 import { AiValidationService } from './ai-validation.service';
 import { AiAgentsService, AgentOutput } from './ai-agents.service';
 import { AiDatabaseToolsService } from './ai-database-tools.service';
+import { ExecutiveDecisionService } from './executive-decision.service';
+import { RealEstateIntelligenceService } from './real-estate-intelligence.service';
 
 @Injectable()
 export class AiService {
@@ -19,7 +21,9 @@ export class AiService {
     private llmService: AiLlmService,
     private validationService: AiValidationService,
     private agentsService: AiAgentsService,
-    private dbToolsService: AiDatabaseToolsService
+    private dbToolsService: AiDatabaseToolsService,
+    private executiveDecisionService: ExecutiveDecisionService,
+    private realEstateIntelligenceService: RealEstateIntelligenceService
   ) {}
 
   // -----------------------------------------------------------------------------
@@ -374,9 +378,14 @@ INSTRUCTIONS:
     }
   }
 
-  // -----------------------------------------------------------------------------
-  // Main Cognitive Chat Pipeline (RAG + SQL Tools)
-  // -----------------------------------------------------------------------------
+  private activeContexts = new Map<string, {
+    activeEmployee: any;
+    activeClient: any;
+    activeProperty: any;
+    activeLead: any;
+    activeMeeting: any;
+  }>();
+
   async chat(
     userMessage: string,
     userId: string,
@@ -386,46 +395,153 @@ INSTRUCTIONS:
     callPersona?: string
   ): Promise<any> {
     try {
+      this.logger.log(`Starting Zorvex-AOS 6.5 pipeline for message: "${userMessage}"`);
+
+      // Initialize or retrieve conversation state context (Layer 4)
+      let context = this.activeContexts.get(userId);
+      if (!context) {
+        context = {
+          activeEmployee: null,
+          activeClient: null,
+          activeProperty: null,
+          activeLead: null,
+          activeMeeting: null
+        };
+        this.activeContexts.set(userId, context);
+      }
+
       // -----------------------------------------------------------------------------
-      // STEP 1 & 2: INTENT CLASSIFICATION & DECIDE RESPONSE TYPE
+      // LAYER 1: COGNITIVE GATEWAY (Normalization, Roman Urdu mapping, entity checks)
       // -----------------------------------------------------------------------------
-      const normalizedMessage = userMessage.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
+      const gatewayPrompt = `You are the Zorvex AI Cognitive Gateway (Layer 1).
+Your task is to normalize the incoming user message:
+1. Detect input language (English, Urdu, Roman Urdu, etc.).
+2. Correct spelling and phonetic mistakes.
+3. Normalize Roman Urdu phrasing (e.g. "meri na" ➔ "Dubai Marina", "down town" ➔ "Downtown Dubai", "sarah" ➔ "Sarah Agent").
+4. Extract key target entities (employees, clients, properties, locations, dates).
 
-      const isVoiceCheckPhrase = [
-        "can you hear me", "are you there", "voice test", "mic check", "connection check",
-        "can you hear", "hear me", "you there", "are you listening", "testing testing",
-        "voice check", "mic test", "can you hear me now"
-      ].some(phrase => normalizedMessage.includes(phrase));
+Output strictly in JSON format matching this structure:
+{
+  "originalMessage": "original user text",
+  "normalizedMessage": "normalized, corrected text",
+  "language": "English | Urdu | Roman Urdu | ...",
+  "confidence": 0.95,
+  "entities": {
+    "employees": [],
+    "clients": [],
+    "properties": [],
+    "locations": [],
+    "dates": []
+  }
+}
+Do not write any markdown code blocks, preamble, or conversational text. Return ONLY the raw JSON block.`;
 
-      const isGreetingPhrase = [
-        "hello", "hi", "salam", "hey", "hola", "assalam o alaikum", "aoa", "salam alaikum"
-      ].some(phrase => normalizedMessage === phrase || normalizedMessage.startsWith(phrase + " "));
+      let gatewayResult = {
+        originalMessage: userMessage,
+        normalizedMessage: userMessage,
+        language: 'English',
+        confidence: 1.0,
+        entities: { employees: [], clients: [], properties: [], locations: [], dates: [] }
+      };
 
-      const isSimpleAckPhrase = [
-        "thank you", "thanks", "shukriya", "ok", "okay", "cool", "nice", "acha", "fine"
-      ].some(phrase => normalizedMessage === phrase);
+      try {
+        const gatewayResText = await this.llmService.callLLM(gatewayPrompt, `User Message: "${userMessage}"`, [], false);
+        const cleanGateway = gatewayResText.trim();
+        const jsonStart = cleanGateway.indexOf('{');
+        const jsonEnd = cleanGateway.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          gatewayResult = JSON.parse(cleanGateway.substring(jsonStart, jsonEnd + 1));
+        }
+      } catch (err) {
+        this.logger.warn(`Cognitive Gateway parser failed: ${err.message}. Using raw input.`);
+      }
 
-      // FAST LANE BYPASS
-      if (isGreetingPhrase) {
-        this.logger.log(`Fast Lane Match: Greeting detected ("${userMessage}"). Responding instantly with personalization.`);
-        const userRecord = await this.prisma.user.findUnique({
-          where: { id: userId }
-        });
-        const name = userRecord ? userRecord.firstName : 'Admin';
-        const greeting = normalizedMessage.includes("salam") || normalizedMessage.includes("aoa") 
-          ? `Walaikum Assalam ${name}! How can I assist you with your Zorvex ERP operations today?`
-          : `Hello ${name}! Welcome to Zorvex Cognitive Core. How can I assist you with your ERP operations today?`;
-        
+      const refinedMessage = gatewayResult.normalizedMessage;
+
+      // -----------------------------------------------------------------------------
+      // LAYER 2: INTENT UNDERSTANDING ENGINE
+      // -----------------------------------------------------------------------------
+      const intentPrompt = `You are the Zorvex Intent Understanding Engine (Layer 2).
+Analyze the normalized message and determine the user's objective and target department.
+Output strictly in JSON format:
+{
+  "intent": "meeting_creation | task_assignment | employee_search | property_search | lead_analytics | financial_audit | general_chat",
+  "department": "HR | Sales | Property | Finance | Operations | Executive",
+  "confidence": 95,
+  "actionExpected": true
+}
+Do not write any markdown code blocks, preamble, or conversational text. Return ONLY the raw JSON block.`;
+
+      let intentResult = {
+        intent: 'general_chat',
+        department: 'Executive',
+        confidence: 1.0,
+        actionExpected: false
+      };
+
+      try {
+        const intentResText = await this.llmService.callLLM(intentPrompt, `Normalized Message: "${refinedMessage}"`, [], false);
+        const cleanIntent = intentResText.trim();
+        const jsonStart = cleanIntent.indexOf('{');
+        const jsonEnd = cleanIntent.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          intentResult = JSON.parse(cleanIntent.substring(jsonStart, jsonEnd + 1));
+        }
+      } catch (err) {
+        this.logger.warn(`Intent Understanding Engine failed: ${err.message}`);
+      }
+
+      // -----------------------------------------------------------------------------
+      // LAYER 3: REQUEST CLASSIFICATION
+      // -----------------------------------------------------------------------------
+      const classificationPrompt = `You are the Zorvex Request Classifier (Layer 3).
+Classify the user intent into one of:
+- ASSISTANT: Information query only (no creation/update actions).
+- TASK: Action query only (creating tasks, meetings, updating leads).
+- HYBRID: Information query AND action (e.g. finding inactive leads and assigning follow-up tasks).
+
+Output strictly in JSON format:
+{
+  "classification": "ASSISTANT" | "TASK" | "HYBRID"
+}
+Do not write any markdown code blocks, preamble, or conversational text. Return ONLY the raw JSON block.`;
+
+      let classificationResult = { classification: 'ASSISTANT' };
+
+      try {
+        const classResText = await this.llmService.callLLM(classificationPrompt, `Normalized Message: "${refinedMessage}"`, [], false);
+        const cleanClass = classResText.trim();
+        const jsonStart = cleanClass.indexOf('{');
+        const jsonEnd = cleanClass.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          classificationResult = JSON.parse(cleanClass.substring(jsonStart, jsonEnd + 1));
+        }
+      } catch (err) {
+        this.logger.warn(`Request Classifier failed: ${err.message}`);
+      }
+
+      // Fast Lane Bypass for Greetings and Simple Voice Checks
+      const isVoiceCheck = [
+        "can you hear me", "voice test", "mic check", "connection check"
+      ].some(phrase => refinedMessage.toLowerCase().includes(phrase));
+
+      const isGreeting = [
+        "hello", "hi", "salam", "hey", "assalam o alaikum", "aoa"
+      ].some(phrase => refinedMessage.toLowerCase().trim() === phrase || refinedMessage.toLowerCase().trim().startsWith(phrase + " "));
+
+      if (isGreeting) {
+        const name = (await this.prisma.user.findUnique({ where: { id: userId } }))?.firstName || 'Admin';
         return {
-          response: greeting,
+          response: refinedMessage.toLowerCase().includes("salam") || refinedMessage.toLowerCase().includes("aoa")
+            ? `Walaikum Assalam ${name}! How can I assist you with your Zorvex ERP operations today?`
+            : `Hello ${name}! Welcome to Zorvex Cognitive Core. How can I assist you with your ERP operations today?`,
           toolExecuted: null,
           toolData: null,
           citations: []
         };
       }
 
-      if (isVoiceCheckPhrase) {
-        this.logger.log(`Fast Lane Match: Voice check detected ("${userMessage}"). Responding instantly.`);
+      if (isVoiceCheck) {
         return {
           response: "Yes, I can hear you clearly. How can I help you?",
           toolExecuted: null,
@@ -434,716 +550,327 @@ INSTRUCTIONS:
         };
       }
 
-      if (isSimpleAckPhrase) {
-        const isTaskConfirmationFlow = history.some(h => h.content.includes("ready to finalize") || h.content.includes("confirm"));
-        if (!isTaskConfirmationFlow) {
-          this.logger.log(`Fast Lane Match: Simple acknowledgement classified ("${userMessage}"). Responding instantly.`);
-          return {
-            response: "You're welcome! Let me know if you need help with any properties, tasks, or ERP operations.",
-            toolExecuted: null,
-            toolData: null,
-            citations: []
-          };
-        }
-      }
+      // -----------------------------------------------------------------------------
+      // LAYER 4: CONVERSATION STATE ENGINE (Reference and pronoun resolution)
+      // -----------------------------------------------------------------------------
+      const resolutionPrompt = `You are the Zorvex Conversation State Engine (Layer 4).
+Analyze the normalized query and conversation state history. Resolve references/pronouns (like "him", "it", "this property") into explicit target entities based on context.
+State Context:
+${JSON.stringify(context, null, 2)}
 
-      // SLOW LANE INTENT CLASSIFICATION
-      const erpKeywords = [
-        "property", "properties", "apartment", "villa", "rent", "sale", "price", "location", "bedrooms", "bathrooms",
-        "client", "buyer", "seller", "investor", "lead", "budget", "crm", "deal", "deals", "close", "closed", "closing", "transaction", "transactions",
-        "employee", "staff", "designation", "department", "salary", "payroll", "joining", "manager", "admin", "admins", "role", "roles", "super_admin",
-        "finance", "expense", "allowance", "deduction", "agent", "agents", "broker", "brokers",
-        "meeting", "calendar", "event", "attendee", "absent", "viewing", "viewings", "interest", "interests",
-        "leave", "vacation", "sick", "annual", "owner", "owners", "landlord", "landlords", "agreement", "agreements",
-        "vehicle", "fleet", "logistics", "maintenance", "plate", "driver", "drivers", "key", "keys", "tag",
-        "attendance", "checkin", "checkout", "shift", "check-in", "check-out", "present", "late", "absent",
-        "query", "table", "database", "db", "search", "find", "list", "show", "get", "calculate", "how many", "how much", "total", "count", "number of", "who", "which", "whom", "whose",
-        "analytics", "chart", "graph", "report", "application", "request", "apply", "status", "profile", "record", "history"
-      ];
-      
-      const hasErpKeywords = erpKeywords.some(kw => normalizedMessage.includes(kw)) ||
-        /kiraya|bechna|kharidna|daftar|mulazim|tankhaw|paisa|chutti|ghari|gari|haazri|hazri|kam|kitne|kitni|kitna|total/i.test(normalizedMessage);
+Output the rewritten resolved query directly in the same language. Do not add any headings, quotes, json tags, or preambles.`;
 
-      const isTaskAssignmentFlow = /assign|task|zimadari|kaam|duty|create task|task assign/i.test(normalizedMessage);
-
-      // Force live query execution for dynamic status check queries (Rule 2 Sync Fix)
-      const isDynamicStatusQuery = /status|haal|haalat|kya chal raha|complete|pending|approved|rejected|check-in|checkout/i.test(normalizedMessage);
-
-      const allowDbTools = hasErpKeywords || isTaskAssignmentFlow || isDynamicStatusQuery;
-      const skipRefine = !allowDbTools;
-
-      let refinedMessage = userMessage;
-      if (!skipRefine) {
-        refinedMessage = await this.refineQuery(userMessage, history);
+      let resolvedQuery = refinedMessage;
+      try {
+        const resolvedText = await this.llmService.callLLM(resolutionPrompt, `User Query: "${refinedMessage}"`, [], false);
+        resolvedQuery = resolvedText.trim() || refinedMessage;
+      } catch (err) {
+        this.logger.warn(`Reference resolution failed: ${err.message}`);
       }
 
       // -----------------------------------------------------------------------------
-      // MEMORY PERSISTENCE
+      // LAYER 5: EXECUTIVE ORCHESTRATOR (CEO decision round)
       // -----------------------------------------------------------------------------
-      let lastResolvedEmployee: any = null;
-      let lastResolvedClient: any = null;
-      let lastResolvedTask: any = null;
+      const orchestratorPrompt = `You are the Zorvex AI Orchestrator (Layer 5).
+Analyze the normalized user message and active entities context.
+Decide:
+1. Which tools need to be executed.
+2. Which specialist context modules should be loaded (HR, Sales, Property, Finance, Operations).
+3. The step-by-step execution plan.
 
-      // Retrieve stateful task draft from singleton Map
-      let activeTaskDraft = this.activeDrafts.get(userId);
-      if (!activeTaskDraft) {
-        activeTaskDraft = {
-          employeeName: null,
-          employeeId: null,
-          title: null,
-          dueDate: null,
-          priority: null
-        };
-        this.activeDrafts.set(userId, activeTaskDraft);
-      }
+Available Tools:
+- "searchEmployees" (params: { name, designation, department })
+- "getAttendanceRecord" (params: { name, status })
+- "getLeaveRequests" (params: { name, status })
+- "searchProperties" (params: { location, minPrice, maxPrice, bedrooms, bathrooms, type, listingType, status })
+- "searchClients" (params: { name, budget, preferences, type })
+- "getTasksBoard" (params: { status })
+- "getMeetingsAnalytics" (params: { type })
+- "getFinanceAnalytics" (params: {})
+- "getLogisticsAnalytics" (params: {})
+- "runDatabaseQuery" (params: { query }) -> Use strictly for complex joins, aggregates, counts.
+- "createTask" (params: { title, employeeName, description, dueDate, priority })
+- "createMeeting" (params: { title, description, startTime, endTime, location, targetUserIds, targetRoles })
+- "generateEnterpriseReport" (params: { reportType: "FINANCE" | "INVENTORY" | "TASKS" })
 
-      // 1. Scan conversational history to resolve entities and options
-      for (let i = history.length - 1; i >= 0; i--) {
-        const msg = history[i] as any;
-        if (msg.role === 'model') {
-          if (msg.toolExecuted === 'searchEmployees' && msg.toolData && Array.isArray(msg.toolData) && msg.toolData.length > 0) {
-            if (!lastResolvedEmployee) {
-              const emp = msg.toolData[0];
-              lastResolvedEmployee = {
-                id: emp.id,
-                userId: emp.userId,
-                name: emp.user ? `${emp.user.firstName} ${emp.user.lastName || ''}`.trim() : 'Employee',
-                department: emp.department,
-                designation: emp.designation
-              };
-              if (!activeTaskDraft.employeeName) {
-                activeTaskDraft.employeeName = lastResolvedEmployee.name;
-                activeTaskDraft.employeeId = lastResolvedEmployee.id;
-              }
-            }
-          }
-          if (msg.toolExecuted === 'searchClients' && msg.toolData && Array.isArray(msg.toolData) && msg.toolData.length > 0) {
-            if (!lastResolvedClient) {
-              const cl = msg.toolData[0];
-              lastResolvedClient = {
-                id: cl.id,
-                name: cl.name
-              };
-            }
-          }
-          if (msg.toolExecuted === 'createTask' && msg.toolData) {
-            if (!lastResolvedTask) {
-              lastResolvedTask = {
-                id: msg.toolData.id,
-                title: msg.toolData.title
-              };
-            }
-          }
-        } else if (msg.role === 'user') {
-          const text = msg.content.toLowerCase();
-          
-          if (!activeTaskDraft.dueDate) {
-            const dateMatch = text.match(/\b\d{4}-\d{2}-\d{2}\b/);
-            if (dateMatch) {
-              activeTaskDraft.dueDate = dateMatch[0];
-            } else if (text.includes("tomorrow") || text.includes("kal")) {
-              const tomorrow = new Date();
-              tomorrow.setDate(tomorrow.getDate() + 1);
-              activeTaskDraft.dueDate = tomorrow.toISOString().split('T')[0];
-            }
-          }
-          if (!activeTaskDraft.priority) {
-            if (text.includes("urgent") || text.includes("fori") || text.includes("zaroori")) {
-              activeTaskDraft.priority = "URGENT";
-            } else if (text.includes("high") || text.includes("ahmiyat")) {
-              activeTaskDraft.priority = "HIGH";
-            } else if (text.includes("standard") || text.includes("normal") || text.includes("aam")) {
-              activeTaskDraft.priority = "STANDARD";
-            }
-          }
-          const titleMatch = msg.content.match(/(?:title|title is|kaam hai|task is)\s+["']?([^"'\n]+)["']?/i);
-          if (titleMatch && !activeTaskDraft.title) {
-            activeTaskDraft.title = titleMatch[1].trim();
-          }
-        }
-      }
-
-      // 2. Parse potential properties from the latest user message to update draft
-      const textLower = userMessage.toLowerCase();
-      if (!activeTaskDraft.dueDate) {
-        const dateMatch = textLower.match(/\b\d{4}-\d{2}-\d{2}\b/);
-        if (dateMatch) {
-          activeTaskDraft.dueDate = dateMatch[0];
-        } else if (textLower.includes("tomorrow") || textLower.includes("kal")) {
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          activeTaskDraft.dueDate = tomorrow.toISOString().split('T')[0];
-        }
-      }
-      if (!activeTaskDraft.priority) {
-        if (textLower.includes("urgent") || textLower.includes("fori") || textLower.includes("zaroori")) {
-          activeTaskDraft.priority = "URGENT";
-        } else if (textLower.includes("high") || textLower.includes("ahmiyat")) {
-          activeTaskDraft.priority = "HIGH";
-        } else if (textLower.includes("standard") || textLower.includes("normal") || textLower.includes("aam")) {
-          activeTaskDraft.priority = "STANDARD";
-        }
-      }
-      const currentTitleMatch = userMessage.match(/(?:title|title is|kaam hai|task is)\s+["']?([^"'\n]+)["']?/i);
-      if (currentTitleMatch && !activeTaskDraft.title) {
-        activeTaskDraft.title = currentTitleMatch[1].trim();
-      }
-
-      // Save the updated stateful task draft
-      this.activeDrafts.set(userId, activeTaskDraft);
-
-      const memoryContext = `
-ACTIVE CONVERSATIONAL REFERENCE MEMORY (Rule 7):
-- Last Resolved Employee: ${lastResolvedEmployee ? `${lastResolvedEmployee.name} (${lastResolvedEmployee.designation} from ${lastResolvedEmployee.department}, Profile ID: ${lastResolvedEmployee.id})` : 'None'}
-- Last Resolved Client: ${lastResolvedClient ? `${lastResolvedClient.name} (ID: ${lastResolvedClient.id})` : 'None'}
-- Last Resolved Task: ${lastResolvedTask ? `"${lastResolvedTask.title}" (ID: ${lastResolvedTask.id})` : 'None'}
-- Active Task Draft State: ${JSON.stringify(activeTaskDraft)}
-`;
-
-      const userRecord = await this.prisma.user.findUnique({
-        where: { id: userId }
-      });
-      const userName = userRecord ? `${userRecord.firstName} ${userRecord.lastName || ''}`.trim() : 'User';
-
-      const matchingChunks = await this.llmService.searchUnstructuredKnowledge(refinedMessage, organizationId, 4);
-      
-      const documentContext = matchingChunks.length > 0
-        ? `UNSTRUCTURED KNOWLEDGE DOCUMENTS (RAG):\n${matchingChunks
-            .map((c, i) => `[Doc ${i + 1}]: ${c.content} (Source: ${c.documentName})`)
-            .join('\n\n')}`
-        : 'No unstructured knowledge documents relevant to this query found.';
-
-      const pastMemories = await this.retrieveRelevantMemories(refinedMessage, organizationId, 4);
-      const memoryPromptContext = pastMemories.length > 0
-        ? `PAST ORGANIZATIONAL MEMORIES & HISTORICAL PATTERNS (Rule 9):\n${pastMemories
-            .map((m, i) => `[Memory ${i + 1}] (${m.category}): ${m.content} (Recorded: ${new Date(m.createdAt).toLocaleDateString()})`)
-            .join('\n')}`
-        : 'No past organizational memories relevant to this query found.';
-
-      let systemPrompt = `You are the Zorvex Multi-Agent Real Estate Intelligence Operating System (Zorvex-AOS 5.0) Orchestrator.
-You are NOT a chatbot. You coordinate specialized AI domain agents and manage real estate operations utilizing live database insights.
-
-AVAILABLE LIVE DATABASE TOOLS (STRICT JSON FORMAT ONLY):
-If you need to retrieve or write any operational data, employee information, attendance, tasks, or metrics, you MUST output ONLY a single raw JSON block matching this exact structure, with NO surrounding text, no conversational disclaimers, and no markdown:
+Output strictly in JSON:
 {
-  "tool": "TOOL_NAME",
-  "params": { ... }
-}
-
-CRITICAL PARAMETER GENERATION RULE:
-- Do NOT include optional query parameters in your tool JSON block if they have empty, zero, or default values (like 0, "0", null, undefined, or empty string "") unless the user explicitly requested them in their query. For example:
-  * For "bedrooms" or "bathrooms", if the user does NOT explicitly specify a count, do NOT generate "bedrooms": 0 or "bedrooms": "0" — omit the parameter completely.
-  * For employee or client names, if the user asks for "any employee", "everyone", "staff", or leaves the name open, do NOT pass "name": "any employee" or "name": "" — omit the "name" parameter completely so the database filters are not restricted.
-
-
-You have access ONLY to the following 12 database tools:
-1. "searchEmployees": Search for employee names, profiles, department, or designation.
-   - Params: { "name": "Fuzzy employee name", "designation": "Designation", "department": "Department" }
-   - Example (Find 'Sara'): {"tool": "searchEmployees", "params": {"name": "Sara"}}
-2. "getAttendanceRecord": Fetch daily shift attendance check-ins, check-outs, and shift logs.
-   - Params: { "name": "Fuzzy employee name to filter", "status": "PRESENT | ABSENT | LATE | ON_LEAVE" }
-3. "getLeaveRequests": Fetch vacation, sick leave, or holiday requests.
-   - Params: { "name": "Fuzzy employee name to filter", "status": "PENDING | APPROVED | REJECTED" }
-4. "searchProperties": Search real estate property listings.
-   - Params: { "location": "Dubai Marina | Downtown | etc", "minPrice": 100000, "maxPrice": 50000000, "bedrooms": 3, "bathrooms": 4, "type": "VILLA | APARTMENT", "listingType": "SALE | RENT", "status": "PUBLISHED | DRAFT | SOLD" }
-5. "searchClients": Search CRM buyers, sellers, or investors.
-   - Params: { "name": "Fuzzy name", "budget": 10000000, "preferences": "3 Bed", "type": "BUYER | SELLER | INVESTOR" }
-6. "getTasksBoard": Get tasks list or Kanban board.
-   - Params: { "status": "PENDING | IN_PROGRESS | COMPLETED" }
-7. "getMeetingsAnalytics": Get calendar meetings, virtual/physical attendance, present/absent stats.
-   - Params: { "type": "VIRTUAL | PHYSICAL" }
-8. "getFinanceAnalytics": Get department payroll metrics, net vs base salaries. (Cleared for HR, Finance, Admin).
-   - Params: {}
-9. "getLogisticsAnalytics": Get fleet vehicles, maintenance costs, plate numbers, logistics schedules. (Cleared for Logistics, Admin).
-   - Params: {}
-10. "runDatabaseQuery": Run a raw read-only SQL query for complex joins, aggregations, trend analytics, or counts (e.g. total employee counts or owner property distribution).
-    - Params: { "query": "SELECT COUNT(*) FROM \"EmployeeProfile\" WHERE ... (Ensure proper double quotes on camelCase table/column names)" }
-    - SCHEMA REFERENCE FOR SQL QUERIES (CRITICAL):
-      * Table "User" columns: "id", "email", "passwordHash", "firstName", "lastName", "role" (SUPER_ADMIN | ADMIN | SALES_MANAGER | AGENT | HR | LOGISTICS | FINANCE), "isActive", "organizationId", "createdAt", "updatedAt"
-        (⚠️ IMPORTANT: "User" does NOT have a "name" column! You must use "firstName" and "lastName"! E.g. SELECT "firstName", "lastName" FROM "User")
-      * Table "EmployeeProfile" columns: "id", "userId", "department", "designation", "salary", "status" (ACTIVE | ON_LEAVE | TERMINATED), "organizationId", "joiningDate", "createdAt", "updatedAt"
-      * Table "Property" columns: "id", "title", "description", "type", "status" (DRAFT | PUBLISHED | SOLD | RENTED | AVAILABLE), "listingType" (SALE | RENT), "price", "location", "bedrooms", "bathrooms", "areaSqft", "images" (text array), "amenities" (text array), "ownerId", "assignedToId", "organizationId", "createdAt", "updatedAt"
-      * Table "Client" columns: "id", "name", "email", "phone", "type" (BUYER | SELLER | INVESTOR), "stage" (INQUIRY | VIEWING | OFFER | CLOSED), "budget", "preferences", "assignedToId", "organizationId", "createdAt", "updatedAt"
-      * Table "Lead" columns: "id", "name", "email", "phone", "source", "status" (NEW | CONTACTED | ENGAGED | DISQUALIFIED | CLOSED), "score", "isDuplicate" (boolean), "duplicateOfId", "notes", "assignedToId", "organizationId", "createdAt", "updatedAt"
-      * Table "Task" columns: "id", "title", "description", "status" (PENDING | IN_PROGRESS | COMPLETED), "dueDate", "assignedToId", "createdById", "organizationId", "createdAt", "updatedAt"
-      * Table "LeaveRequest" columns: "id", "startDate", "endDate", "type" (SICK | CASUAL | ANNUAL | UNPAID), "status" (PENDING | APPROVED | REJECTED), "reason", "approvedAt", "employeeProfileId", "createdAt", "updatedAt"
-      * Table "Attendance" columns: "id", "dateStr" (YYYY-MM-DD), "checkIn", "checkOut", "status" (PRESENT | LATE | ABSENT | ON_LEAVE), "checkoutSummary", "employeeProfileId", "createdAt", "updatedAt"
-      * Table "PerformanceReview" columns: "id", "reviewDate", "rating" (1-5), "feedback", "reviewedById", "employeeProfileId", "createdAt", "updatedAt"
-      * Table "Owner" columns: "id", "name", "email", "phone", "status" (ACTIVE | INACTIVE), "kycVerified" (boolean), "kycNotes", "commissionRate", "agreementExpiry", "assignedToId", "organizationId", "createdAt", "updatedAt"
-      * Table "Vehicle" columns: "id", "modelName", "plateNumber", "status" (ACTIVE | MAINTENANCE | OUT_OF_SERVICE), "organizationId", "createdAt", "updatedAt"
-      * Table "VehicleMaintenance" columns: "id", "description", "cost", "status" (PENDING | COMPLETED | CANCELLED), "requestDate", "completionDate", "vehicleId"
-      * Table "LogisticsSchedule" columns: "id", "visitDate", "pickupLocation", "dropLocation", "status" (SCHEDULED | IN_TRANSIT | COMPLETED | CANCELLED), "driverId", "vehicleId", "viewingId", "createdAt", "updatedAt"
-      * Table "Payroll" columns: "id", "month" (YYYY-MM), "baseSalary", "allowances", "deductions", "netSalary", "status" (UNPAID | PAID), "paidAt", "employeeProfileId", "createdAt", "updatedAt"
-      * Table "CalendarEvent" columns: "id", "title", "description", "startTime", "endTime", "location", "isPrivate", "targetRoles" (text array), "targetUserIds" (text array), "createdById", "organizationId", "createdAt", "updatedAt"
-      * Table "KeyTracker" columns: "id", "keyTag", "status" (IN_OFFICE | CHECKED_OUT | LOST), "propertyId", "createdAt", "updatedAt"
-      * Table "KeyCheckout" columns: "id", "checkoutDate", "returnDate", "notes", "keyId", "userId"
-      * Table "LeadActivity" columns: "id", "type" (CALL | EMAIL | NOTES | STATUS_CHANGE), "description", "activityDate", "leadId"
-      * Table "PropertyPriceHistory" columns: "id", "price", "changeDate", "propertyId"
-      * Table "ClientPropertyInterest" columns: "id", "clientId", "propertyId", "createdAt"
-      * Table "ClientViewing" columns: "id", "viewingDate", "feedback", "status" (SCHEDULED | COMPLETED | CANCELLED), "clientId", "propertyId", "createdAt"
-      * Table "ClientCommunication" columns: "id", "type" (CALL | EMAIL | MEETING | WHATSAPP), "summary", "date", "clientId"
-
-    - DYNAMIC RELATIONAL & TEMPORAL MAPPING GUIDE (AUTONOMOUS THINKING):
-      * **Dynamic Temporal Math**: Translate any user-specified duration dynamically (e.g. "unsold for X days", "joined in last Y months", "created Z weeks ago") by performing mathematical date comparisons relative to the current baseline date. E.g. '"createdAt" < NOW() - INTERVAL '\''25 days'\''' or '"joiningDate" >= NOW() - INTERVAL '\''3 months'\'''.
-      * **Dynamic Status & Boolean Deductions**: Match descriptive user terms (e.g., "unassigned", "duplicate", "available", "unpaid") dynamically to matching columns and statuses. E.g., unassigned leads/properties means '"assignedToId" IS NULL'; duplicate leads means '"isDuplicate" = true'; unpaid salary means '"status" = '\''UNPAID'\''' in the Payroll table.
-      * **Array Cardinality Checks**: If querying properties with "no images" or "no amenities", use PostgreSQL array functions. E.g., 'cardinality(images) = 0' or 'images IS NULL' or 'array_length(images, 1) IS NULL'.
-      * **Dynamic Aggregations & High-Cognition Joins**: Calculate indicators (like "low inquiries", "top performing", "overloaded", "at risk") by dynamically joining tables (e.g., Property + ClientPropertyInterest for interests, User + Lead for conversions) and grouping them with standard SQL aggregations (COUNT, SUM, AVG) ordered with 'LIMIT'.
-      * **Edge Case & Hypothetical Reasoning**: For stress-test questions (e.g., "What if sales drop 50%?", "What if top agents resign?"), first query the live database to fetch actual statistics (active lead pipeline, top agents by completed tasks or listings), calculate the hypothetical numeric impact, and generate a strategic mitigation report autonomously based on live counts.
-      * **Autonomous Parameter Parsing**: Do not rely on static values. Determine dates, budgets, thresholds, locations, and priorities dynamically from the user's natural query context.
-    - HIGH COGNITION JOIN/AGGREGATE RULE: If the user asks about complex aggregates, joins, department checks, rankings, or parameters (e.g. "who is our oldest employee", "who is our top performing agent", "are there any payroll discrepancies", "owner property counts", "HR team task completion"), you MUST write a single raw SELECT query using "runDatabaseQuery"! This ensures maximum real-time precision and high cognitive enterprise intelligence.
-    - **CRITICAL SCHEMA & POSTGRESQL RULES (CRITICAL)**:
-      1. **NEVER query a table named "Employee" or "PropertyInterest"**. The table for employees is strictly "EmployeeProfile". The table for property interests is strictly "ClientPropertyInterest".
-      2. When counting or querying employees, always query "EmployeeProfile" (e.g., SELECT COUNT(*) as count FROM "EmployeeProfile" WHERE status = 'ACTIVE'). Do NOT count "User".
-      3. When writing SELECT queries, you MUST select specific individual columns (e.g. u."firstName", ep.salary) or aggregated fields. **NEVER select raw whole table records or relation rows (e.g. SELECT u FROM "User" u, SELECT ep FROM "EmployeeProfile" ep)**, as this returns anonymous composite row types which are unsupported by Prisma and throw a fatal SQL exception! All columns from joined tables must be queried individually.
-    - SQL REFERENCE EXAMPLES FOR HIGH COGNITION QUERIES (CRITICAL):
-      * Oldest Employee (Minimum joining date):
-        SELECT u."firstName", u."lastName", ep."joiningDate", ep."designation" FROM "EmployeeProfile" ep JOIN "User" u ON ep."userId" = u.id WHERE ep."joiningDate" IS NOT NULL ORDER BY ep."joiningDate" ASC LIMIT 1
-      * Top Performing Agent (By completed tasks count):
-        SELECT u."firstName", u."lastName", COUNT(t.id) as "totalTasks", SUM(CASE WHEN t.status = 'COMPLETED' THEN 1 ELSE 0 END) as "completedTasks" FROM "User" u LEFT JOIN "Task" t ON t."assignedToId" = u.id WHERE u.role = 'AGENT' GROUP BY u.id, u."firstName", u."lastName" ORDER BY "completedTasks" DESC LIMIT 1
-      * Payroll Discrepancy Checks:
-        SELECT u."firstName", p.month, p."baseSalary", p.allowances, p.deductions, p."netSalary" FROM "Payroll" p JOIN "EmployeeProfile" ep ON p."employeeProfileId" = ep.id JOIN "User" u ON ep."userId" = u.id WHERE ABS(p."baseSalary" + p.allowances - p.deductions - p."netSalary") > 0.01
-      * Vehicle Maintenance Alert:
-        SELECT v."modelName", v."plateNumber", COUNT(m.id) as "maintenanceCount" FROM "Vehicle" v LEFT JOIN "VehicleMaintenance" m ON m."vehicleId" = v.id GROUP BY v.id, v."modelName", v."plateNumber"
-    - Example (Total Employee Count): {"tool": "runDatabaseQuery", "params": {"query": "SELECT COUNT(*) as count FROM \"EmployeeProfile\" WHERE status = 'ACTIVE'"}}
-11. "createTask": Create a new task. (Always follow the strict validation flow first!).
-    - Params: { "title": "Task title", "employeeName": "Target employee name", "description": "Details", "dueDate": "YYYY-MM-DD", "priority": "STANDARD | HIGH | URGENT" }
-12. "generateEnterpriseReport": Generate a premium, dark-themed, glassmorphic styled executive HTML report of operational metrics.
-    - Params: { "reportType": "FINANCE | INVENTORY | TASKS" }
-    - Example (Generate payroll/salary report): {"tool": "generateEnterpriseReport", "params": {"reportType": "FINANCE"}}
-
-MULTI-AGENT ARCHITECTURE BEHAVIOR:
-1. THE ORCHESTRATOR AI (Main Brain):
-   - Categorizes every user message into the correct domain.
-   - Delegates subtasks to specialized domain agents.
-   - Merges their deep analytical outputs into a single, cohesive, decision-ready insight.
-2. DEDICATED DOMAIN SPECIALIZED AGENTS:
-   - HR Agent: Reason deeply on employees, attendance patterns, leave histories, task load distributions, team bottlenecks, and performance rankings.
-   - Finance Agent: Audits department payrolls, Net salaries vs base scales, cost expenditures, cost analysis, and financial anomalies.
-   - Property Agent: Analyzes listings (SOLD, RENTED, AVAILABLE), owner property distributions, buyer interest tracking, inventory aging (unsold time), price changes, and location-based performance in popular Dubai locations (Dubai Marina, Downtown Dubai, Palm Jumeirah, Business Bay, Jumeirah).
-   - Sales Agent: Tracks leads, agent conversion rates, lead-to-sale funnel progress, monthly sales growth, and pipeline health.
-   - Logistics Agent: Audits vehicle fleet statuses, maintenance costs, pickup/drop schedules, and driver profiles.
-3. SHARED INTELLIGENCE LAYER:
-   - All agents read and write directly to the same centralized PostgreSQL database via live tools and raw SQL query aggregations. No duplicated contexts.
-
-STRICT OPERATIONAL INTEGRITY & SINGLE SOURCE OF TRUTH RULES:
-1. NO FAKE CONFIRMATIONS: Never confirm any action (task creation, update, assignment) unless the database returns a successful record with a valid ID. If no database confirmation exists, do NOT claim the action succeeded.
-2. SINGLE SOURCE OF TRUTH: All operational data, employee information, and task statuses must come ONLY from the live database. Never guess, assume, or hallucinate task or employee details.
-3. STRICT TASK CREATION FLOW: Always traverse the exact pipeline: Intent ➔ Entity Match ➔ Task Structuring ➔ DB Write ➔ DB Confirm ➔ Response. Never create incomplete tasks.
-4. ABSOLUTE TONE CONSISTENCY: Your tone must be strictly professional, clear, minimal, and friendly. You MUST NOT use any informal language, slang, or casual Urdu words (specifically the slang word "bhai" or "yaar").
-5. ERP BEHAVIOR: Behave strictly as a precise enterprise controller, database operator, and workflow manager rather than a talkative chatbot.
-6. HIDDEN OPERATIONAL LAYER (UI/UX RULE): All multi-agent delegation, domain routing, and department-specific reasoning MUST run silently behind the scenes. You MUST NEVER output any operational logs, delegating markers (such as "[Orchestrator] ➔ ..."), or direct agent dialogue quotes in the final response. The user must ONLY receive the polished, unified, decision-ready final business insight directly. Banish all background operational chatter from the visible response!
-
-CURRENT USER SECURITY CONTEXT:
-- Logged-in User ID: ${userId}
-- Security Role: ${userRole}
-- User Name: ${userName}
-- Current Local Date & Time: ${new Date().toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}
-  (System Clock Date: ${new Date().toISOString().split('T')[0]}, Today's Day: ${new Date().toLocaleDateString([], { weekday: 'long' })}. Any relative date reference from the user, such as 'tomorrow', 'this Sunday', 'till Sunday evening', or 'next Monday', MUST be resolved mathematically based on this system baseline!)
-
-${memoryContext}
-
-PERSONALIZATION PROTOCOL:
-- You are communicating directly with ${userName}. Greet them contextually and professionally by name (e.g. "Salam ${userRecord?.firstName || 'Admin'}!" or "Hello ${userRecord?.firstName || 'Admin'}!") where appropriate, and keep the interaction highly personalized to their identity and role within the Zorvex.
-
-STRICT ROLE-BASED ACCESS CONTROL (AI-RBAC) POLICY:
-1. Access to sensitive records is strictly cleared based on the Security Role (${userRole}):
-   - Finance aggregates, payroll, or individual salaries: CLEAR ONLY for "SUPER_ADMIN", "ADMIN", "HR", and "FINANCE". (All other roles are NOT cleared!)
-   - Leaves and attendance details of OTHER employees: CLEAR ONLY for "SUPER_ADMIN", "ADMIN", and "HR". (All other roles are NOT cleared!)
-   - A user's OWN leaves, profile, and tasks: EVERY role is fully cleared to query their own info! (e.g. an AGENT can check their own leaves, but NOT another employee's leaves).
-   - Logistics fleet details, plate numbers, active schedules, or maintenance costs: CLEAR ONLY for "SUPER_ADMIN", "ADMIN", and "LOGISTICS". (All other roles are NOT cleared!)
-2. CLEARANCE & FILLER POLICY:
-   - If the user asks for details that are NOT cleared for the Security Role (${userRole}), you MUST decline immediately in natural text without calling any tools!
-   - Decline politely in their query language: "Your profile is not cleared to access secure finance databases."
-   - **CRITICAL: If the user IS cleared (e.g. SUPER_ADMIN or ADMIN), you MUST NOT write any security checks, UAC notices, or talkative phrases like 'Aapka profile cleared hai'. Output ONLY the raw JSON tool call immediately without any natural text filler!**
-
-STRICT INTENT ROUTING & REAL ESTATE INTELLIGENCE LAYER:
-1. Every user query MUST be classified into one of these strict intelligence categories BEFORE calling any database tools:
-   - A) Property Intelligence: Queries about sold vs rented vs available properties, location-specific performance, price trend analyses, client interest level checks, or inventory aging analysis.
-   - B) Owner / Buyer Intelligence: Queries about top property owners by volume, high revenue clients, inactive clients, repeat buyers, or investor concentration.
-   - C) Sales / Inventory Intelligence: Queries about conversion rates (lead to sale), agent performance rankings, inventory turnover rates, or monthly sales trends.
-   - D) Employee / HR Intelligence: Queries about task loads per employee, productivity scores, team bottlenecks, and employee performance rankings.
-   - E) Financial Intelligence: Queries about aggregate payrolls, monthly salary budgets, and allowances/deductions.
-   - F) General Query: Contextual chit-chat, greetings, voice checks, general company policy clarifications.
-2. AI IS NOT A SIMPLE CHATBOT OR Relational Query System. You must act as a Real Estate Intelligence Engine that understands business intent and provides decision-ready insights.
-3. MULTI-TABLE REASONING: You are allowed and expected to perform joins, aggregates, rankings, and trend analysis across multiple tables (using "runDatabaseQuery" SELECT queries or structured API results) to answer complex business questions (e.g., Owner + Property aggregation).
-4. NEVER mix intents. Do NOT execute a workflow action (like createTask) if the user is asking a database query (like searching employees).
-5. RESPONSE CONSISTENCY: Only respond based on user intent. Do NOT randomly show analytics, dashboards, or employee cards unless explicitly aligned to their intent!
-6. OUT-OF-SCOPE / UNRELATED QUERY PROTOCOL: If the user asks about concepts, sports players (e.g. 'how many players do we have'), gaming, movies, or entities not managed by the ERP system, you MUST NOT execute any database search tools. Answer directly in their language, politely clarifying that you are the Zorvex ERP AI assistant managing properties, CRM clients, employees, tasks, finances, and logistics fleet. Ask if they meant to inquire about one of these instead. E.g. "We do not track players in our ERP database. I only manage properties, CRM clients, employees, finances, tasks, and vehicle fleet. Did you mean employees?" (Translate this politely to match the user's input language, e.g., Roman Urdu or Urdu script).
-
-ZORVEX COGNITIVE CORE DYNAMIC REASONING ENGINE RULES:
-- CORE PRINCIPLE: All business logic must be derived dynamically from data distribution, time context, user intent semantics, comparative analysis, and statistical baselines. You are a reasoning analyst, not a rule-based system.
-- RULE 1: NO HARD CODED BUSINESS LOGIC: Never assume fixed days (like 90, 30), fixed scores (like 70, 50), or fixed counts (like 8 tasks). Instead, derive thresholds dynamically using percentile ranking, moving averages, historical comparison, and deviation from mean.
-- RULE 2: NATURAL LANGUAGE ➔ SEMANTIC TRANSLATION: Convert user input into Entity, Intent, Temporal meaning, Comparative meaning, Risk/Opportunity signal. (Example: "25 days se unsold properties" ➔ Entity: Property, Signal: stagnation, Time: dynamic interval of 25 days, Condition: deviation from normal selling cycle).
-- RULE 3: TEMPORAL INTELLIGENCE ENGINE: Interpret time expressions dynamically:
-  * "recently" = last 7–14 days (context-based)
-  * "long time" = above median lifecycle
-  * "overdue" = beyond expected lifecycle (computed dynamically, not fixed)
-  * "fast/slow" = relative to dataset distribution
-- RULE 4: BEHAVIORAL ANALYTICS ENGINE: For humans (agents, leads), do NOT use fixed thresholds. Instead, compute percentile ranking, performance deviation, trend slope, and momentum score.
-- RULE 5: SELF-ADJUSTING SYSTEM: Continuous adjustment of what "hot lead", "overloaded agent", or "slow property" means based on last 30–90 days data, seasonal patterns, and company performance trends.
-
-STRICT ENTITY RESOLUTION & ERROR FLOW FIX:
-1. NEVER directly trust raw user names. For any employee lookup or task assignment query, trigger "searchEmployees" to verify their identity and evaluate their "similarityScore":
-   - Similarity Score > 0.85 (85%) ➔ High confidence! Auto-select the employee and proceed with the flow.
-   - Similarity Score between 0.60 and 0.85 (60%-85%) ➔ Medium confidence! You MUST stop and request user confirmation: "Did you mean Muhammad Aizaz Khan from Human Resources?" Do NOT auto-select or call "createTask" yet!
-   - Similarity Score < 0.60 (60%) or no match found ➔ Low confidence! You MUST suggest the closest match and ask: "Did you mean [Closest Match Name] from [Department]?" or request clarification.
-2. Never say "no employee found" or "not found" if a similar employee exists. Always keep the conversation flowing by offering closest options!
-3. Maintain persistent identity. When pronouns like "he", "she", "him", "her", "uski", "unko" are used, resolve them contextually to the active employee in the "ACTIVE CONVERSATIONAL REFERENCE MEMORY" block.
-
-STRICT LANGUAGE ALIGNMENT POLICY:
-1. **You MUST respond in the EXACT same language as the user's message.**
-   - If the user writes in English, your response MUST be in English.
-   - If the user writes in Urdu script, your response MUST be in Urdu script.
-   - If the user writes in Roman Urdu, your response MUST be in Roman Urdu.
-   - If the user writes in Persian, Russian, or Turkish, your response MUST be in that exact language.
-2. DO NOT mix languages, and never default to Roman Urdu if the user queried in English.
-3. **NEVER start your response with any preamble, disclaimer, translation note, or language declaration statement (such as 'Here is the response in the exact same language as...'). Directly start answering the user's question. Forbidding any preamble is absolute!**
-
-STRICT REAL-TIME ACCURACY & TOOL ENFORCEMENT:
-1. **You DO NOT know the actual metrics of this database internally.** For example, if the user asks "how many employees we have?", you DO NOT know the count until you execute the corresponding tool!
-2. You MUST call the live database tools for any property, task, employee, finance, meeting, client, or leave queries.
-3. NEVER guess, estimate, or hallucinate counts or names.
-4. If a previous turn in the history contains fake hallucinated numbers, ignore them and ALWAYS execute the live database tool to get the real, actual database records!
-5. STRICT ATTENDANCE VS LEAVE DIFFERENTIATION: If the user asks about daily shift attendance, check-in, check-out, or shift logs, you MUST execute "getAttendanceRecord". If they ask about vacations, sick days, or leaves, you MUST execute "getLeaveRequests". Do NOT mix them up!
-6. EMPTY DATABASE RESULTS RESOLUTION: If you query a tool like "getAttendanceRecord" or "getLeaveRequests" with a status filter like "ABSENT" or "ON_LEAVE" and it returns an empty array ([]), it means the employee was NEVER absent or on leave for that period! Do NOT claim that their records are incomplete, missing, or require Direct Verification from HR! Simply state clearly that they have no records of absences, meaning they have been fully present.
-
-CONVERSATIONAL RULES & WORKFLOWS:
-1. Respond completely like a professional, clear, minimal friendly Operations Coordinator / Executive Assistant. Avoid excessive informal language or chatty filler. Prohibit casual Urdu terms like "bhai" or "yaar" entirely. Keep responses professional, clear, minimal, and highly focused.
-2. CONCISE & DIRECT (CRITICAL): Only answer exactly what the user asked. If the user asks if an employee exists (e.g. "Do we have an employee named Sarah?"), reply with a brief, friendly confirmation and let them ask follow-up questions (e.g., "Yes! Sarah Agent is currently active in our Sales department as a Junior Property Consultant. Would you like me to pull up her attendance or leave details?"). Do NOT dump their salary, joining date, shift logs, or long recommendations unless explicitly asked!
-3. NO HALLUCINATED RECOMMENDATIONS: Do not propose random administrative tasks, workload audits, or lists of unverified staff names (like Bob, John, Jane) unless they are returned in the tool database records. Stick strictly to facts!
-4. PREMIUM VISUALS: Avoid ugly robotic markdown templates. Instead, write in a clean, beautifully spaced human layout with elegant line breaks and clean, meaningful emojis.
-4. FOLLOW-UP QUESTIONS: If the user asks a follow-up question and the relevant data is already present in history, you can answer from history ONLY for static company policies. For active operational statuses (like tasks status, vehicle check-ins, leave requests status, attendance, or pipelines), you MUST ALWAYS trigger the database tools to verify the live real-time status!
-5. NO ROBOTIC DIRECT-CREATION / STRICT TASK VALIDATION FLOW:
-   - NEVER create a task (i.e. do NOT call the "createTask" tool) automatically if important details like the task title/details are missing, or if the target employee has not been verified!
-   - DO NOT execute task creation immediately. Follow the step-by-step validation flow: Title/Details ➔ Deadline ➔ Priority ➔ Explicit Confirmation. Never create incomplete tasks!
-   - Follow this strict step-by-step operational workflow when the user requests task assignment:
-     - STEP 1 (Identify Employee): Call "searchEmployees" to verify the existence and profile of the target employee.
-     - STEP 2 (Fast-Track Summary): If the user's initial or recent message ALREADY contains the task title, description, or deadline, you MUST bypass the solicitation phase! Immediately present a clear, beautiful summary block of the task (Task, Employee, Priority, Deadline) and ask the user if they are ready to finalize it (STEP 4). Do NOT ask them to repeat details they already provided!
-     - STEP 3 (Solicit Missing Only): If important details (like task title or deadline) are genuinely missing, present the employee's name/department, and ask politely *only* for the specific missing fields.
-     - STEP 4 (Confirm Summary): Present a clear summary of the task details (Title, Assigned To, Deadline, Priority) and ask the user if they are ready to finalize it.
-     - STEP 5 (Finalize & Create): Trigger the "createTask" tool ONLY after the user explicitly confirms (e.g. "Yes", "Finalize it", "go ahead").
-6. ACTIVE ENTITY MEMORY SYSTEM:
-    - Actively parse previous turns in the "history" to sustain reference memory.
-    - If the user uses a pronoun (e.g. "his designation", "her salary", "is employee ko reminder bhejo"), map it to the active employee, client, or property discussed in the most recent turn. Never lose context immediately after retrieval.
- 7. FOLLOW-UP SUGGESTIONS: At the end of your response, always suggest 1 or 2 natural, context-sensitive follow-up questions to guide them nicely.
- 8. STRICT 4-LAYER DECISION RESPONSE LAYOUT (Rule 6):
-    If the query is business-related, database-related, or analytical, your response MUST follow this exact structure:
-
-    🟢 1. DIRECT ANSWER (Assistant Mode)
-    [Direct, precise answer based on live database records or RAG docs]
-
-    🧠 2. ANALYTICAL INSIGHT (Cognitive Layer)
-    [Provide high-cognition analysis of patterns, trends, anomalies, performance comparisons, risks, and opportunities from the live data. Explain WHY the data is shaped this way and the business/revenue impact.]
-
-    💡 3. DYNAMIC INTERPRETATION METHOD (Dynamic Baseline & Calculation Explanation)
-    [Provide the mathematical and statistical method used to dynamically determine the thresholds (e.g. median lifecycle, 75th percentile of listing age, 80th percentile of task loads, deviation from average). Do NOT assume or write hardcoded rules or fixed numbers (like 90, 30 days, or 8 tasks). Detail how the numbers in the direct answer align with the current dataset distribution.]
-
-    🎯 4. SUGGESTED ACTION (Actionable Advice & Autonomy Layer)
-    [Provide categorized actionable advice: Immediate, Short-term, and Strategic actions. You may also include execution options formatted as checkboxes to run direct operations: "- [ ] Run action: <command>". E.g., "- [ ] Create task: 'Verify documents for Zain'"]
-
-If the question CANNOT be answered by database tools, or the tool has already run, answer using:
-- The context from retrieved unstructured documents (RAG) attached below.
-- General ERP resources:
-${documentContext}
-
-${memoryPromptContext}`;
-
-      if (!allowDbTools) {
-        systemPrompt += `
-\nCRITICAL CONVERSATIONAL PROTOCOL (Rule 4):
-- The user is having a general conversational chat (e.g. greetings, simple questions, chit-chat) and has NOT explicitly requested database operations, attendance records, task assignments, CRM queries, or financial analytics.
-- **You MUST NOT call any database tools or SQL queries!**
-- Do NOT output any JSON tool blocks (like {"tool": "..."}).
-- Answer the user's question directly, concisely, and naturally in natural language text only.`;
-      }
-
-      if (callPersona) {
-        systemPrompt += `
-\n🚨 DYNAMIC PHONE CALL CONVERSATIONAL REINFORCEMENT (FIRST ROUND):
-- You are currently speaking with the user in a continuous real-time audio PHONE CALL.
-- The user is using their Zorvex Voice Live Calling Console to dial the central **Zorvex Operational Intelligence AI Agent** directly.
-- **IF YOU NEED TO RUN A DATABASE QUERY OR CALL A TOOL**:
-  - You MUST output ONLY the raw tool JSON block (e.g. {"tool": "...", "params": {...}}).
-  - Do NOT output any other text, greetings, explanations, or written/spoken responses in this round!
-- **IF YOU CAN ANSWER DIRECTLY WITHOUT ANY TOOL**:
-  - You MUST output your response as a valid, parsable JSON block containing exactly two fields:
-    1. "writtenResponse": (Comprehensive details) This will be displayed in the user's text chat screen history. Include all rich markdown tables, graphs, checklists, and professional guidelines. It MUST be strictly professional, structured, and free of conversational fillers (DO NOT use "bhai", "yaar", "suno", "acha", "ji bilkul", etc. in the written response).
-    2. "spokenResponse": (Ultra-natural speech) This will be synthesized as spoken audio. Keep it extremely concise, natural, warm, and friendly (at most 2 or 3 short sentences). You MUST include conversational filler phrases here (like "Aizaz bhai", "Ji bilkul", "Suno", "Haan", "Acha", "Koi masla nahi") to sound natural.
-  - Use smooth, natural Roman Urdu or English matching the user's query language.
-  - Example output format for direct answer:
-    \`\`\`json
+  "requiredAgents": ["HR", "Sales", "Property", "Finance", "Operations", "Executive"],
+  "requiredTools": ["toolName1", "toolName2"],
+  "executionPlan": "Plan description...",
+  "toolCalls": [
     {
-      "writtenResponse": "**Employees Found:** Muhammad Aizaz Khan from Human Resources... [detailed table]",
-      "spokenResponse": "Aizaz bhai, maine Muhammad Aizaz Khan ko HR department mein find kar liya hai! Main unki complete details aapke chat screen par load kar raha hoon. Aur kuch check karna hai?"
+      "tool": "toolName",
+      "params": { ... }
     }
-    \`\`\`
-  - You MUST strictly output this JSON block. Never output raw plain text or raw markdown outside the JSON!`;
+  ]
+}
+Do not write any markdown code blocks, preamble, or conversational text. Return ONLY the raw JSON block.`;
+
+      let orchestratorResult = {
+        requiredAgents: [] as string[],
+        requiredTools: [] as string[],
+        executionPlan: '',
+        toolCalls: [] as any[]
+      };
+
+      try {
+        const orchResText = await this.llmService.callLLM(orchestratorPrompt, `Resolved Query: "${resolvedQuery}"\nContext: ${JSON.stringify(context)}`, [], false);
+        const cleanOrch = orchResText.trim();
+        const jsonStart = cleanOrch.indexOf('{');
+        const jsonEnd = cleanOrch.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          orchestratorResult = JSON.parse(cleanOrch.substring(jsonStart, jsonEnd + 1));
+        }
+      } catch (err) {
+        this.logger.warn(`Executive Orchestrator planning failed: ${err.message}`);
       }
 
-      // Step C: LLM decision round
-      let initialLLMResponse = await this.llmService.callLLM(systemPrompt, refinedMessage, history);
-      
-      // Strict Tool Enforcer: If database tools are allowed for this query,
-      // and the LLM did not generate a tool call, we re-prompt it to force a tool call!
-      let jsonBlock = this.extractJsonBlock(initialLLMResponse.trim());
-      let hasToolCall = jsonBlock && jsonBlock.includes('"tool"');
-      
-      if (allowDbTools && !hasToolCall) {
-        this.logger.warn(`Tool Enforcer: LLM did not generate a tool call for database-related query. Re-prompting to force tool output...`);
-        const forceToolPrompt = `You must use one of the available live database tools to answer the user's query: "${userMessage}". 
-Do NOT write natural language text, explanations, or guess the data. 
-Output ONLY a single raw JSON block matching the tool structure:
-{
-  "tool": "TOOL_NAME",
-  "params": { ... }
-}`;
-        const secondTryResponse = await this.llmService.callLLM(systemPrompt, forceToolPrompt, history);
-        const secondJsonBlock = this.extractJsonBlock(secondTryResponse.trim());
-        if (secondJsonBlock && secondJsonBlock.includes('"tool"')) {
-          initialLLMResponse = secondTryResponse;
-          jsonBlock = secondJsonBlock;
+      // Check RBAC Clearance before calling tools
+      if (orchestratorResult.toolCalls.length > 0) {
+        for (const tc of orchestratorResult.toolCalls) {
+          const isAuthorized = this.dbToolsService.checkToolAuthorization(tc.tool, userRole);
+          if (!isAuthorized) {
+            return {
+              response: "Clearance Required: Your user profile is not cleared to access secure finance or operations databases.",
+              toolExecuted: null,
+              toolData: null,
+              citations: []
+            };
+          }
         }
       }
-      
+
+      // -----------------------------------------------------------------------------
+      // LAYER 7: PLANNING ENGINE (Missing parameters solicitation check)
+      // -----------------------------------------------------------------------------
+      if (classificationResult.classification === 'TASK' || classificationResult.classification === 'HYBRID') {
+        for (const tc of orchestratorResult.toolCalls) {
+          if (tc.tool === 'createTask') {
+            const { title, employeeName, dueDate, priority } = tc.params || {};
+            if (!title || !employeeName || !dueDate || !priority) {
+              return {
+                response: `Sure! I can help you schedule a new task. Could you please specify the details, target team member, deadline date, and priority level?`,
+                toolExecuted: null,
+                toolData: null,
+                citations: []
+              };
+            }
+          }
+          if (tc.tool === 'createMeeting') {
+            const { title, startTime, endTime } = tc.params || {};
+            if (!title || !startTime || !endTime) {
+              return {
+                response: `Sure! I can help you schedule a meeting. What is the title, start date/time, and end date/time?`,
+                toolExecuted: null,
+                toolData: null,
+                citations: []
+              };
+            }
+          }
+        }
+      }
+
+      // -----------------------------------------------------------------------------
+      // LAYER 8 & 9: AGENTIC EXECUTION & VERIFICATION ENGINE
+      // -----------------------------------------------------------------------------
       let toolExecuted: string | null = null;
       let toolData: any = null;
-      let finalResponseText = initialLLMResponse;
+      let verificationSuccess = true;
 
-      const cleanResponse = initialLLMResponse.trim();
+      if (orchestratorResult.toolCalls.length > 0) {
+        const primaryCall = orchestratorResult.toolCalls[0];
+        toolExecuted = primaryCall.tool;
+        this.logger.log(`Executing tool: ${toolExecuted}`);
 
-      if (jsonBlock && jsonBlock.includes('"tool"')) {
-        if (!allowDbTools) {
-          this.logger.warn(`AI attempted to execute tool "${jsonBlock}" but database tools are disabled for this query.`);
-          toolExecuted = null;
-          toolData = null;
-          finalResponseText = finalResponseText.replace(jsonBlock, '').trim();
-          if (!finalResponseText) {
-            finalResponseText = "I am here! How can I help you with our ERP operations, tasks, or properties?";
+        toolData = await this.dbToolsService.executeDatabaseTool(
+          primaryCall.tool,
+          primaryCall.params,
+          organizationId,
+          userRole,
+          userId
+        );
+
+        // Verification phase (Layer 9)
+        if (primaryCall.tool === 'createTask' || primaryCall.tool === 'createMeeting') {
+          if (!toolData || toolData.error || toolData.success === false) {
+            verificationSuccess = false;
+            this.logger.error(`Database Verification Failed for tool: ${primaryCall.tool}`);
           }
+        }
+
+        // Lock context variables from tool returns (Layer 4 updates)
+        if (primaryCall.tool === 'searchEmployees' && Array.isArray(toolData) && toolData.length > 0) {
+          const emp = toolData[0];
+          context.activeEmployee = {
+            id: emp.id,
+            name: emp.user ? `${emp.user.firstName} ${emp.user.lastName || ''}`.trim() : 'Employee',
+            department: emp.department,
+            designation: emp.designation
+          };
+        }
+        if (primaryCall.tool === 'searchClients' && Array.isArray(toolData) && toolData.length > 0) {
+          const cl = toolData[0];
+          context.activeClient = { id: cl.id, name: cl.name };
+        }
+        if (primaryCall.tool === 'searchProperties' && Array.isArray(toolData) && toolData.length > 0) {
+          const prop = toolData[0];
+          context.activeProperty = { id: prop.id, title: prop.title, location: prop.location };
+        }
+
+        this.activeContexts.set(userId, context);
+      }
+
+      // RAG and Memories lookup
+      const matchingChunks = await this.llmService.searchUnstructuredKnowledge(resolvedQuery, organizationId, 4);
+      const documentContext = matchingChunks.length > 0
+        ? matchingChunks.map((c, i) => `[Doc ${i + 1}]: ${c.content} (Source: ${c.documentName})`).join('\n\n')
+        : 'No relevant unstructured documents.';
+
+      const pastMemories = await this.retrieveRelevantMemories(resolvedQuery, organizationId, 4);
+      const memoryContext = pastMemories.length > 0
+        ? pastMemories.map((m, i) => `[Memory ${i + 1}]: ${m.content}`).join('\n')
+        : 'No relevant past memories.';
+
+      // Load Specialist Context Modules (Layer 6 Context Modules)
+      let specialistContext = '';
+      if (orchestratorResult.requiredAgents.length > 0) {
+        for (const agent of orchestratorResult.requiredAgents) {
+          if (agent !== 'Executive') {
+            specialistContext += this.agentsService.getDomainContext(agent, toolData) + '\n';
+          }
+        }
+      }
+
+      // -----------------------------------------------------------------------------
+      // LAYER 13: CONFIDENCE & TRUST ENGINE
+      // -----------------------------------------------------------------------------
+      let confidence = 85;
+      if (toolExecuted) {
+        if (!verificationSuccess || (toolData && toolData.error)) {
+          confidence = 30; // LOW
+        } else if (Array.isArray(toolData) && toolData.length === 0) {
+          confidence = 50; // LOW
         } else {
-          try {
-            const parsed = JSON.parse(jsonBlock);
-            if (parsed.tool) {
-              toolExecuted = parsed.tool;
-              
-              // 1. Primary Domain Classification
-              let domain: 'HR' | 'Finance' | 'Property' | 'Sales' | 'Logistics' = 'HR';
-              const tLower = parsed.tool.toLowerCase();
-              if (tLower.includes('property')) {
-                domain = 'Property';
-              } else if (tLower.includes('client') || tLower.includes('lead')) {
-                domain = 'Sales';
-              } else if (tLower.includes('finance')) {
-                domain = 'Finance';
-              } else if (tLower.includes('logistics')) {
-                domain = 'Logistics';
-              } else if (parsed.tool === 'runDatabaseQuery') {
-                const qLower = (parsed.params?.query || '').toLowerCase();
-                if (qLower.includes('payroll') || qLower.includes('salary')) {
-                  domain = 'Finance';
-                } else if (qLower.includes('property') || qLower.includes('owner')) {
-                  domain = 'Property';
-                } else if (qLower.includes('client') || qLower.includes('lead')) {
-                  domain = 'Sales';
-                } else if (qLower.includes('vehicle') || qLower.includes('logistics') || qLower.includes('driver')) {
-                  domain = 'Logistics';
-                }
-              }
+          confidence = 98; // HIGH
+        }
+      }
+      const confidenceLevel = confidence >= 90 ? 'HIGH' : (confidence >= 60 ? 'MEDIUM' : 'LOW');
 
-              const agents: AgentOutput[] = [];
-              
-              // 2. Execute Primary Domain Agent
-              const primaryAgentOutput = await this.agentsService.executeDomainAgent(domain, parsed.tool, parsed.params, organizationId, userRole, userId);
-              agents.push(primaryAgentOutput);
-              toolData = primaryAgentOutput.records;
+      if (confidenceLevel === 'LOW' && toolExecuted) {
+        return {
+          response: `I couldn't locate sufficient records in the system to answer your request accurately. Could you please specify different search parameters or verify details?`,
+          toolExecuted,
+          toolData,
+          citations: []
+        };
+      }
 
-              // Stateful draft integration: lock in resolved employee details
-              if (parsed.tool === 'searchEmployees' && Array.isArray(toolData) && toolData.length > 0) {
-                const emp = toolData[0];
-                const activeTaskDraft = this.activeDrafts.get(userId);
-                if (activeTaskDraft) {
-                  activeTaskDraft.employeeName = emp.user ? `${emp.user.firstName} ${emp.user.lastName || ''}`.trim() : 'Employee';
-                  activeTaskDraft.employeeId = emp.id;
-                  this.activeDrafts.set(userId, activeTaskDraft);
-                }
-              }
+      // -----------------------------------------------------------------------------
+      // LAYER 14 & REAL ESTATE INTELLIGENCE AGENT: EXECUTIVE DECISION ENGINE
+      // -----------------------------------------------------------------------------
+      let risks: string[] = [];
+      let opportunities: string[] = [];
+      let recommendations: string[] = [];
 
-              // 3. Proactive Cross-Department Intelligence check (Rule 7 & 8)
-              const msgLower = (userMessage + ' ' + refinedMessage).toLowerCase();
-              if (domain === 'HR' && (msgLower.includes('salary') || msgLower.includes('payroll') || msgLower.includes('paisa') || msgLower.includes('tankhaw') || msgLower.includes('finance'))) {
-                try {
-                  const financeOutput = await this.agentsService.executeDomainAgent('Finance', 'getFinanceAnalytics', {}, organizationId, userRole, userId);
-                  if (financeOutput && !financeOutput.records.error) {
-                    agents.push(financeOutput);
-                  }
-                } catch (e) {
-                  this.logger.warn(`Proactive Cross-Department Finance trigger failed: ${e.message}`);
-                }
-              }
+      if (toolData && !toolData.error) {
+        const execAnalysis = await this.executiveDecisionService.analyze(resolvedQuery, toolData, pastMemories);
+        risks = execAnalysis.risks;
+        opportunities = execAnalysis.opportunities;
+        recommendations = execAnalysis.recommendations;
 
-              if (domain === 'Property' && (msgLower.includes('client') || msgLower.includes('buyer') || msgLower.includes('investor') || msgLower.includes('lead') || msgLower.includes('sales'))) {
-                try {
-                  const salesOutput = await this.agentsService.executeDomainAgent('Sales', 'searchClients', {}, organizationId, userRole, userId);
-                  if (salesOutput && !salesOutput.records.error) {
-                    agents.push(salesOutput);
-                  }
-                } catch (e) {
-                  this.logger.warn(`Proactive Cross-Department Sales trigger failed: ${e.message}`);
-                }
-              }
+        // Real Estate Intelligence Module
+        const isREQuery = orchestratorResult.requiredAgents.includes('Property') || orchestratorResult.requiredAgents.includes('Sales');
+        if (isREQuery && Array.isArray(toolData)) {
+          const reAnalysis = await this.realEstateIntelligenceService.analyze(
+            orchestratorResult.requiredAgents.includes('Property') ? toolData : [],
+            [],
+            orchestratorResult.requiredAgents.includes('Sales') ? toolData : []
+          );
+          if (reAnalysis.listingHealth.length > 0) risks.push(...reAnalysis.listingHealth);
+          if (reAnalysis.inventoryAging.length > 0) risks.push(...reAnalysis.inventoryAging);
+          if (reAnalysis.leadConversion.length > 0) opportunities.push(...reAnalysis.leadConversion);
+          if (reAnalysis.areaIntelligence.length > 0) opportunities.push(...reAnalysis.areaIntelligence);
+        }
+      }
 
-              if (domain === 'HR' && (msgLower.includes('vehicle') || msgLower.includes('driver') || msgLower.includes('fleet') || msgLower.includes('logistics'))) {
-                try {
-                  const logisticsOutput = await this.agentsService.executeDomainAgent('Logistics', 'getLogisticsAnalytics', {}, organizationId, userRole, userId);
-                  if (logisticsOutput && !logisticsOutput.records.error) {
-                    agents.push(logisticsOutput);
-                  }
-                } catch (e) {
-                  this.logger.warn(`Proactive Cross-Department Logistics trigger failed: ${e.message}`);
-                }
-              }
+      // -----------------------------------------------------------------------------
+      // LAYER 15: AUTONOMOUS WORKFLOW ENGINE (Proactive workflow suggestions)
+      // -----------------------------------------------------------------------------
+      const workflowPrompt = `You are the Zorvex Autonomous Workflow Engine (Layer 15).
+Based on the intent, database records, and query, determine 2 to 3 logical next actions or follow-ups.
+Format them as natural conversational recommendations with checkboxes at the end of the text.
+Example format:
+"Would you like me to:
+• Assign follow-up tasks to the sales team?
+• Schedule a team briefing?"
+Output ONLY the workflow follow-ups. Do not add explanations.`;
 
-              // 4. Run Multi-Agent Consensus and Alignment Layer (Rule 3 & 6)
-              const consensusReport = await this.agentsService.runConsensusAndAlignment(agents, refinedMessage, history);
-              
-              // Handle database error interceptors
-              if (toolExecuted === 'createTask' || toolExecuted === 'updateTask') {
-                if (!toolData || (toolData as any).error || (toolData as any).success === false || (toolExecuted === 'createTask' && !(toolData as any).task?.id)) {
-                  this.logger.error(`Strict Verification Interceptor: Task action failed or could not be verified in Postgres!`);
-                  return {
-                    response: "Task could not be verified in the system. Please try again.",
-                    toolExecuted,
-                    toolData: toolData || { error: 'DATABASE_SYNC_FAILURE' },
-                    citations: [],
-                  };
-                } else if (toolExecuted === 'createTask') {
-                  this.activeDrafts.delete(userId);
-                  this.logger.log(`Task created successfully in database. Stateful draft buffer cleared for user ${userId}.`);
-                }
-              }
+      let proactiveSuggestions = '';
+      try {
+        proactiveSuggestions = await this.llmService.callLLM(workflowPrompt, `Query: "${resolvedQuery}"\nData: ${JSON.stringify(toolData)}`, [], false);
+      } catch (e) {
+        this.logger.warn(`Autonomous Workflow Engine suggestion failed: ${e.message}`);
+      }
 
-              if (toolExecuted === 'updateLeadStatus') {
-                if (!toolData || (toolData as any).error || (toolData as any).success === false) {
-                  this.logger.error(`Strict Verification Interceptor: Lead status update failed or could not be verified in Postgres!`);
-                  return {
-                    response: "Lead status update could not be verified in the system. Please try again.",
-                    toolExecuted,
-                    toolData: toolData || { error: 'DATABASE_SYNC_FAILURE' },
-                    citations: [],
-                  };
-                }
-              }
+      // -----------------------------------------------------------------------------
+      // LAYER 10: RESPONSE COMPOSER (Synthesize natural executive response)
+      // -----------------------------------------------------------------------------
+      const composerPrompt = `You are the Zorvex Response Composer (Layer 10).
+Compose the final user response based on the analysis.
+STRICT STYLE RULES:
+1. Speak in a natural, professional, human executive tone.
+2. Responds in the EXACT SAME LANGUAGE as the user's message (e.g. English, Roman Urdu, or Urdu).
+3. Do NOT use headers like "Direct Answer", "Analytical Insight", "Suggested Action", or markdown checkboxes. Banish all background operational JSON blocks, tools, column names, SQL references, and technical parameters.
+4. Integrate the executive decision insights (Risks: ${JSON.stringify(risks)}, Opportunities: ${JSON.stringify(opportunities)}, Recommendations: ${JSON.stringify(recommendations)}) and proactiveSuggestions naturally into conversational paragraphs.
+5. End with a warm follow-up question.`;
 
-              // Re-prompt LLM with the live database results
-              const isTaskAssignmentIntent = /assign|task|zimadari|kaam|duty/i.test(userMessage + ' ' + refinedMessage);
-              
-              let extraInstructions = '';
-              if (toolExecuted === 'searchEmployees' && isTaskAssignmentIntent) {
-                toolExecuted = null;
-                
-                extraInstructions = `
-CRITICAL CORE WORKFLOW INSTRUCTION:
-- The user's core intent is TASK ASSIGNMENT, NOT generic employee search. The employee search was called internally only to verify their existence and retrieve their profile.
-- You MUST prioritize the TASK CREATION FLOW. Do NOT ask unrelated questions like "Would you like me to list their designations?" or "Should I check their shift records?".
-- Do NOT display profile cards or focus on listing details unless explicitly requested.
-- Instead, naturally continue the task creation workflow: warmly inform the user that the employee was found, and ask for:
-  1. Task details / title
-  2. Deadline (due date)
-  3. Priority (standard / high / urgent)
-- Make it sound human and highly focused (e.g. "I found Muhammad Aizaz Khan from Human Resources. What task would you like me to assign to him?").`;
-              }
-
-              const databaseFeedPrompt = `The user asked: "${userMessage}" (Context resolved: "${refinedMessage}")
-You triggered the tool "${parsed.tool}" and retrieved the following live real-time records from Postgres:
-${JSON.stringify(toolData, null, 2)}
-
-UNSTRUCTURED BUSINESS CONTEXT & REGULATORY POLICIES (RAG):
+      const databaseFeedPrompt = `User Query: "${userMessage}"
+Retrieved Data: ${JSON.stringify(toolData)}
+Domain Context Module Data:
+${specialistContext}
+RAG Documents Context:
 ${documentContext}
+Memories Context:
+${memoryContext}
+Proactive Suggestions:
+${proactiveSuggestions}`;
 
-${memoryPromptContext}
+      let responseText = await this.llmService.callLLM(composerPrompt, databaseFeedPrompt, history);
+      let cleanedResponse = responseText.trim();
 
-MULTI-AGENT CONSENSUS & VALIDATION LAYER DETAILS (Rule 3, 4 & 6):
-- Combined System Confidence Rating: ${consensusReport.overallConfidence * 100}%
-- Aligned Cross-Department Insights:
-${consensusReport.alignedInsights.map(i => `  * ${i}`).join('\n') || '  * None'}
-- Logical Contradictions Resolved:
-${consensusReport.contradictionsResolved.map(c => `  * ${c}`).join('\n') || '  * None'}
-- Proactive Business Actions & Recommendations:
-${consensusReport.proactiveActions.map(a => `  * ${a}`).join('\n') || '  * None'}
-${consensusReport.reducedCertaintyWarning ? `- REDUCED CERTAINTY WARNING (Low Confidence): ${consensusReport.reducedCertaintyWarning}` : ''}
+      // Clean up technical artifacts
+      cleanedResponse = cleanedResponse
+        .replace(/(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask|createMeeting)\s*(?:tool|query|SQL|system)/gi, '')
+        .replace(/Postgres|database|PrismaClientKnownRequestError|SQL query/gi, 'system lookup')
+        .replace(/\b(bhai|yaar|dost|bande)\b/gi, '')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
 
-STRICT TRUTH ENGINE RULES (PREVENT HALLUCINATION - NON-NEGOTIABLE):
-1. NEVER assume, guess, or invent numbers, names, dates, or events.
-2. Calculate counts and statistics by strictly counting the records in the retrieved JSON tool data above. For example, if the tool returned an array of 4 property items, we have EXACTLY 4 properties in the database. Never say we have 150 properties or any other number.
-3. If the tool data is an empty array '[]' or null, it means there are exactly 0 records in the database. You must state that no records were found. Never assume, guess, or pretend records exist.
-4. Conversation history is NOT a database. If the history says "I scheduled a meeting for tomorrow at 10:00 AM", but the live database tool output for meetings is empty '[]', you MUST NOT say that the meeting is scheduled. You must state that there are no meetings in the database. Never repeat or build upon past hallucinated claims.
-5. If the user asks to perform an action (e.g. schedule a meeting, create a task, send reminders, or check in/out), and the corresponding database write tool (like createTask) was NOT executed in this turn, you MUST state that the action was NOT completed. Do NOT pretend it has been scheduled or completed.
+      // -----------------------------------------------------------------------------
+      // LAYER 11: ORGANIZATIONAL LEARNING ENGINE (Memory Extraction & Pattern Storage)
+      // -----------------------------------------------------------------------------
+      if (toolData && !toolData.error) {
+        this.extractAndStoreMemories(cleanedResponse, organizationId).catch((err) => {
+          this.logger.error(`Failed to run background memory extraction: ${err.message}`);
+        });
 
-Provide a beautiful, friendly, completely human-like natural language response summarizing these results.
-CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
-1. EVERY response MUST follow this exact 4-layer structure (Rule 6):
-
-   🟢 1. DIRECT ANSWER (Assistant Mode)
-   [Direct, precise answer based on the live database records and consensus details.]
-
-   🧠 2. ANALYTICAL INSIGHT (Cognitive Layer)
-   [Provide high-cognition analysis of patterns, trends, anomalies, performance comparisons, risks, and opportunities from the live data. Explain WHY the data is shaped this way and the business/revenue impact.]
-
-   💡 3. DYNAMIC INTERPRETATION METHOD (Dynamic Baseline & Calculation Explanation)
-   [Provide the mathematical and statistical method used to dynamically determine the thresholds (e.g. median lifecycle, 75th percentile of listing age, 80th percentile of task loads, deviation from average). Do NOT assume or write hardcoded rules or fixed numbers (like 90, 30 days, or 8 tasks). Detail how the numbers in the direct answer align with the current dataset distribution.]
-
-   🎯 4. SUGGESTED ACTION (Actionable Advice & Autonomy Layer)
-   [Provide categorized actionable advice: Immediate, Short-term, and Strategic actions. You may also include execution options formatted as checkboxes to run direct operations: "- [ ] Run action: <command>". E.g., "- [ ] Create task: 'Verify documents for Zain'"]
-
-2. STRICTLY FORBID RAW DATABASE DUMPS: Never print raw, bare lists of database fields or JSON records. You must analyze the records, aggregate them, compute trends, detect rankings, and draw smart business conclusions.
-   - Example: Instead of just listing properties, say "3 properties are unsold for 45+ days in the Downtown area."
-3. PROACTIVE ANALYTICS MODE: You must actively look for and point out:
-   - Slow-moving or stagnant properties (stagnant/available for a long time).
-   - Overloaded employees (e.g., holding many active PENDING/IN_PROGRESS tasks).
-   - High-performing agents (e.g., high lead-to-sale conversion rates or completed tasks).
-   - Inactive clients or leads (e.g., stage is INQUIRY for a long time or not contacted recently).
-   - Suggest direct, professional, decision-ready actions for the above (e.g. suggesting reassigning listing/tasks, marking lists as discount, making calls).
-3. SILENT MULTI-AGENT ORCHESTRATION (UI/UX RULE): All multi-agent delegation, domain routing, and department-specific reasoning MUST run silently behind the scenes in your thoughts. You MUST NEVER output any operational logs, delegating markers (such as "[Orchestrator] ➔ ..."), or direct agent dialogue quotes in the final response. The user must ONLY receive the polished, unified, decision-ready final business insight directly. Banish all background operational chatter from the visible response!
-4. STRICT LANGUAGE MATCHING: You MUST answer in the EXACT same language as the user's message.
-   - If the user wrote in English, you MUST answer in English.
-   - If the user wrote in Urdu script, you MUST answer in Urdu script.
-   - If the user wrote in Roman Urdu, you MUST answer in Roman Urdu.
-   - If the user wrote in Persian, Russian, or Turkish, your response MUST be in that exact language.
-   - **CRITICAL: NEVER begin your response with any translation notice, language note, or prefix declaring the language choice. Directly start your answer.**
-5. NO FILLER OR UAC CHATTER: Do NOT write any filler phrases, authorization notices, database check updates, or greetings. Answer the user's question directly and concisely!
-6. CONCISE & DIRECT (CRITICAL): Only answer exactly what the user asked about. Keep details simple, clear, and highly focused. If the user asks a simple question, answer in 1 or 2 brief, beautiful sentences instead of printing their entire folder or suggesting long audit lists. Avoid making up checklists, schedules, or recommendations.
-6. Speak completely like a warm, supportive, and friendly human colleague.
-7. AVOID cold robotic bullet dumps or double asterisks on every single item. Instead, present details in a premium, beautifully spaced, clean human-style layout. Use elegant spacing, emojis (like 📅, 👤, 📍, 👥, 🚫), and friendly bullet highlights. Make the text look highly readable, natural, and visually premium. At the end of your response, politely add 1 or 2 natural, contextual follow-up question suggestions to guide them nicely.${extraInstructions}
-8. If the results contain properties, summarize their occupancy, location trends, pricing changes, or listing age nicely.
-9. If the results contain employees or salaries, summarize their performance metrics, payroll trends, or workload balances nicely.
-10. If the results contain meetings or attendees, summarize who hosted them, who was present, who was absent, and lists of participants nicely.
-11. If the results contain attendance records, summarize their daily statuses, check-in/check-out logs, and total worked hours timeline nicely.
-12. If the results contain generic SQL rows from "runDatabaseQuery", analyze and present the joins, aggregates, rankings, or trends dynamically, and describe the dynamic visualization chart plotted below nicely.
-13. If no records are found, inform the user politely.
-14. **CRITICAL ERROR HANDLER RULE**: If the database results (toolData) contain a query syntax error ("QUERY_ERROR" or "Database query syntax error"), you MUST NOT hallucinate that "there are no employees" or "the database is empty/incomplete"! Instead, politely inform the user in their matching language that there was a temporary system lookup bottleneck, and suggest they retry their question or ask in a simpler way.`;
-
-              let finalSystemPrompt = systemPrompt;
-              if (callPersona) {
-                finalSystemPrompt += `
-\n🚨 DYNAMIC PHONE CALL CONVERSATIONAL REINFORCEMENT (FINAL ROUND):
-- Since the database query has completed, you MUST now output your final response as a valid, parsable JSON block containing exactly two fields:
-  1. "writtenResponse": (Comprehensive details) This will be displayed in the user's text chat screen history. Include all rich markdown tables, graphs, checklists, and professional guidelines. It MUST be strictly professional, structured, and free of conversational fillers (DO NOT use "bhai", "yaar", "suno", "acha", "ji bilkul", etc. in the written response).
-  2. "spokenResponse": (Ultra-natural speech) This will be synthesized as spoken audio. Keep it extremely concise, natural, warm, and friendly (at most 2 or 3 short sentences). You MUST include conversational filler phrases here (like "Aizaz bhai", "Ji bilkul", "Suno", "Haan", "Acha", "Koi masla nahi") to sound natural.
-- Use smooth, natural Roman Urdu or English matching the user's query language.
-- You MUST strictly output this JSON block. Never output raw plain text, markdown, or tool calls outside the JSON!
-- Example output format:
-  \`\`\`json
-  {
-    "writtenResponse": "[Comprehensive response detailed table/paragraphs]",
-    "spokenResponse": "[Concise natural conversational spoken text]"
-  }
-  \`\`\`
-`;
+        // Extract pattern matches and store them as PATTERN: category
+        if (opportunities.length > 0 || risks.length > 0) {
+          const patternBullet = `[Pattern Sourced] Query: "${resolvedQuery}". Detected Risks: ${risks.join(' | ')}. Opportunities: ${opportunities.join(' | ')}.`;
+          if (patternBullet.length < 500) {
+            const embedding = await this.llmService.generateEmbedding(patternBullet);
+            await this.prisma.aiMemoryVector.create({
+              data: {
+                category: 'PATTERN:OPERATIONAL',
+                content: patternBullet,
+                embedding,
+                organizationId
               }
-              finalResponseText = await this.llmService.callLLM(finalSystemPrompt, databaseFeedPrompt, history);
-            }
-          } catch (e) {
-            this.logger.error(`Failed to parse tool execution JSON: ${e.message}. Raw Block: ${jsonBlock}`);
+            }).catch(err => {
+              this.logger.warn(`Failed to store pattern memory: ${err.message}`);
+            });
           }
         }
       }
@@ -1154,54 +881,23 @@ CRITICAL REAL ESTATE INTELLIGENCE & STYLE INSTRUCTIONS:
         fileType: chunk.fileType,
       }));
 
-      let finalWritten = finalResponseText.trim();
       let finalSpoken: string | undefined = undefined;
-
       if (callPersona) {
-        const extracted = this.extractFieldsFromCallJson(finalWritten);
-        if (extracted.writtenResponse) {
-          finalWritten = extracted.writtenResponse;
-        }
+        finalSpoken = await this.generateSpokenSummary(cleanedResponse, userMessage);
       }
-
-      // Clean up the written response using the strict technical jargon shield
-      let cleanedWritten = finalWritten.trim();
-      cleanedWritten = cleanedWritten.replace(/(?:I am using the|using the|executed the|I call the|I will execute|executed|calling|triggering)\s*["']?(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask)["']?\s*(?:tool)?\s*(?:to retrieve|to query|to search|to look up)?/gi, '');
-      cleanedWritten = cleanedWritten.replace(/(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask)\s*(?:tool|query|SQL)/gi, 'system search');
-      cleanedWritten = cleanedWritten.replace(/Postgres|database tool|SQL query|PrismaClientKnownRequestError/gi, 'system lookup');
-
-      cleanedWritten = cleanedWritten.replace(/(?:\[?Orchestrator\]?|\*Orchestrator\*)\s*➔\s*Delegating[\s\S]*?(?:Orchestrator\s*(?:\(Main\s*Brain\))?\s*(?:AI)?\s*:\s*|Orchestrator:\s*)/gi, '');
-      cleanedWritten = cleanedWritten.replace(/👥?\s*(?:HR|Finance|Property|Sales|Logistics|Orchestrator)\s+Agent:\s*["'].*?["']/gi, '');
-      cleanedWritten = cleanedWritten.replace(/(?:\[?Orchestrator\]?|\*Orchestrator\*)\s*➔\s*Delegating[^\n]*/gi, '');
-      cleanedWritten = cleanedWritten.replace(/👥?\s*(?:HR|Finance|Property|Sales|Logistics|Orchestrator)\s+Agent:\s*[^\n]*/gi, '');
-      
-      cleanedWritten = cleanedWritten
-        .replace(/\b(bhai|yaar|dost|bande)\b/gi, '')
-        .replace(/[ \t]+/g, ' ')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-
-      // Always run high-fidelity LLM summarizer if it is a call connection
-      if (callPersona) {
-        finalSpoken = await this.generateSpokenSummary(cleanedWritten, userMessage);
-      }
-
-      // Asynchronously extract and store insights in the long-term organizational memory
-      this.extractAndStoreMemories(cleanedWritten, organizationId).catch((err) => {
-        this.logger.error(`Failed to run background memory extraction: ${err.message}`);
-      });
 
       return {
-        response: cleanedWritten,
+        response: cleanedResponse,
         spokenResponse: finalSpoken,
         toolExecuted,
         toolData,
-        citations,
+        citations
       };
     } catch (err) {
-      this.logger.error(`Complete breakdown in main Cognitive Chat pipeline: ${err.message}`);
+      this.logger.error(`AOS 6.5 pipeline breakdown: ${err.message}`);
       return {
         response: "🤖 System Alert: An operational bottleneck has interrupted Zorvex AI. Please verify data parameters and retry.",
+        spokenResponse: callPersona ? "System error has occurred, please retry." : undefined,
         toolExecuted: null,
         toolData: null,
         citations: []
