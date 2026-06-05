@@ -521,7 +521,7 @@ export class IntegrationsService {
         }
 
         else if (funcName === 'schedule_viewing') {
-          const { leadId, title, startTime, endTime, location, description } = args;
+          const { leadId, title, startTime, endTime, location, description, eventId } = args;
           this.logger.log(`Tool call 'schedule_viewing' for lead ${leadId}`);
           try {
             const organizationId = callDetails?.metadata?.organizationId || (await this.resolveOrgIdFromCall(callDetails));
@@ -557,9 +557,19 @@ export class IntegrationsService {
               ? `${description}\n\n[VAPI_CALL_ID: ${callId || ''}]`
               : `Automated viewing booked via Renz Properties AI.\n\n[VAPI_CALL_ID: ${callId || ''}]`;
 
-            // Try to find an existing event with this call ID
+            // Try to find an existing event by eventId first, then fallback to callId description check
             let existingEvent: any = null;
-            if (callId) {
+            if (eventId) {
+              try {
+                existingEvent = await this.prisma.calendarEvent.findUnique({
+                  where: { id: eventId }
+                });
+              } catch (e) {
+                this.logger.warn(`Failed to retrieve event by eventId: ${eventId}. Falling back to callId search.`);
+              }
+            }
+
+            if (!existingEvent && callId) {
               const matches = await this.prisma.calendarEvent.findMany({
                 where: {
                   organizationId: targetLead?.organizationId || organizationId,
