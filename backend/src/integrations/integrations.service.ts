@@ -552,45 +552,87 @@ export class IntegrationsService {
               createdById = 'system-uuid';
             }
 
-            const event = await this.prisma.calendarEvent.create({
-              data: {
-                title: title || `Viewing with ${targetLead?.name || 'Customer'}`,
-                description: description || `Automated viewing booked via Renz Properties AI.`,
-                startTime: start,
-                endTime: end,
-                location: location || 'Dubai Marina',
-                isPrivate: false,
-                targetRoles: ['AGENT', 'ADMIN'],
-                targetUserIds: targetLead?.assignedToId ? [targetLead.assignedToId] : [],
-                organizationId: targetLead?.organizationId || organizationId,
-                createdById: createdById, 
+            const callId = callDetails?.id;
+            const eventDescription = description 
+              ? `${description}\n\n[VAPI_CALL_ID: ${callId || ''}]`
+              : `Automated viewing booked via Renz Properties AI.\n\n[VAPI_CALL_ID: ${callId || ''}]`;
+
+            // Try to find an existing event with this call ID
+            let existingEvent: any = null;
+            if (callId) {
+              const matches = await this.prisma.calendarEvent.findMany({
+                where: {
+                  organizationId: targetLead?.organizationId || organizationId,
+                  description: {
+                    contains: `[VAPI_CALL_ID: ${callId}]`
+                  }
+                }
+              });
+              if (matches && matches.length > 0) {
+                existingEvent = matches[0];
               }
-            });
+            }
+
+            let event;
+            const rolesList = ['SUPER_ADMIN', 'ADMIN', 'SALES_MANAGER', 'AGENT', 'HR', 'LOGISTICS', 'FINANCE', 'RECEPTIONIST', 'VIEWER'];
+            
+            if (existingEvent) {
+              // Reschedule existing event
+              event = await this.prisma.calendarEvent.update({
+                where: { id: existingEvent.id },
+                data: {
+                  title: title || `Viewing with ${targetLead?.name || 'Customer'}`,
+                  description: eventDescription,
+                  startTime: start,
+                  endTime: end,
+                  location: location || 'Dubai Marina',
+                  targetRoles: rolesList,
+                }
+              });
+            } else {
+              // Create new event
+              event = await this.prisma.calendarEvent.create({
+                data: {
+                  title: title || `Viewing with ${targetLead?.name || 'Customer'}`,
+                  description: eventDescription,
+                  startTime: start,
+                  endTime: end,
+                  location: location || 'Dubai Marina',
+                  isPrivate: false,
+                  targetRoles: rolesList,
+                  targetUserIds: targetLead?.assignedToId ? [targetLead.assignedToId] : [],
+                  organizationId: targetLead?.organizationId || organizationId,
+                  createdById: createdById, 
+                }
+              });
+            }
 
             if (targetLead) {
               await this.prisma.leadActivity.create({
                 data: {
                   leadId: targetLead.id,
                   type: 'NOTES',
-                  description: `📅 Viewing Appointment Scheduled via AI: "${event.title}" on ${new Date(event.startTime).toLocaleString()} at ${event.location || 'N/A'}.`,
+                  description: existingEvent
+                    ? `📅 Viewing Appointment Rescheduled via AI: "${event.title}" to ${new Date(event.startTime).toLocaleString()} at ${event.location || 'N/A'}.`
+                    : `📅 Viewing Appointment Scheduled via AI: "${event.title}" on ${new Date(event.startTime).toLocaleString()} at ${event.location || 'N/A'}.`,
                 }
               });
 
               // Trigger WebSocket calendar reload notification
               this.zorvexGateway.broadcastToOrganization(targetLead.organizationId, 'calendar_sync', {
-                action: 'create',
+                action: existingEvent ? 'update' : 'create',
                 event
               });
             } else {
               this.zorvexGateway.broadcastToOrganization(organizationId, 'calendar_sync', {
-                action: 'create',
+                action: existingEvent ? 'update' : 'create',
                 event
               });
             }
 
             results.push({
               toolCallId: toolCall.id,
-              result: { status: 'success', message: 'Viewing scheduled in CRM calendar', eventId: event.id }
+              result: { status: 'success', message: existingEvent ? 'Viewing rescheduled in CRM calendar' : 'Viewing scheduled in CRM calendar', eventId: event.id }
             });
           } catch (err) {
             this.logger.error(`Failed to schedule viewing: ${err.message}`);

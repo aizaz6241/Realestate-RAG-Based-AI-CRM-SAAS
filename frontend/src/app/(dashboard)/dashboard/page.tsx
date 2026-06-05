@@ -214,6 +214,8 @@ export default function DashboardPage() {
   const handleDashboardCheckIn = async () => {
     if (!token || !user?.id) return;
     setIsSubmitting(true);
+    setToastType('loading');
+    setToastMessage("Clocking in shift...");
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${user.id}/attendance/check-in`, {
         method: "POST",
@@ -224,10 +226,18 @@ export default function DashboardPage() {
         body: JSON.stringify({ dateStr: getTodayStr() })
       });
       if (res.ok) {
+        setToastType('success');
+        setToastMessage("Shift checked in successfully!");
         fetchAttendanceStatus();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setToastType('error');
+        setToastMessage(errData.message || "Failed to check in shift.");
       }
     } catch (e) {
       console.error(e);
+      setToastType('error');
+      setToastMessage("Network error during check-in.");
     } finally {
       setIsSubmitting(false);
     }
@@ -236,6 +246,8 @@ export default function DashboardPage() {
   const handleDashboardCheckOut = async (summaryText: string) => {
     if (!token || !user?.id) return;
     setIsSubmitting(true);
+    setToastType('loading');
+    setToastMessage("Clocking out shift...");
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/employees/${user.id}/attendance/check-out`, {
         method: "POST",
@@ -243,15 +255,26 @@ export default function DashboardPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ dateStr: getTodayStr(), summary: summaryText })
+        body: JSON.stringify({ 
+          dateStr: todayAttendance?.dateStr || getTodayStr(), 
+          summary: summaryText 
+        })
       });
       if (res.ok) {
         setIsCheckoutOpen(false);
         setCheckoutSummaryText("");
+        setToastType('success');
+        setToastMessage("Shift completed and checked out successfully!");
         fetchAttendanceStatus();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setToastType('error');
+        setToastMessage(errData.message || "Failed to check out shift.");
       }
     } catch (e) {
       console.error(e);
+      setToastType('error');
+      setToastMessage("Network error during check-out.");
     } finally {
       setIsSubmitting(false);
     }
