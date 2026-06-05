@@ -536,6 +536,22 @@ export class IntegrationsService {
             const start = startTime ? new Date(startTime) : new Date();
             const end = endTime ? new Date(endTime) : new Date(start.getTime() + 30 * 60 * 1000);
 
+            // Resolve a valid createdById user to satisfy database foreign key constraint
+            let createdById = targetLead?.assignedToId;
+            if (!createdById) {
+              const firstUser = await this.prisma.user.findFirst({
+                where: { organizationId }
+              });
+              createdById = firstUser?.id;
+            }
+            if (!createdById) {
+              const anyUser = await this.prisma.user.findFirst();
+              createdById = anyUser?.id;
+            }
+            if (!createdById) {
+              createdById = 'system-uuid';
+            }
+
             const event = await this.prisma.calendarEvent.create({
               data: {
                 title: title || `Viewing with ${targetLead?.name || 'Customer'}`,
@@ -547,7 +563,7 @@ export class IntegrationsService {
                 targetRoles: ['AGENT', 'ADMIN'],
                 targetUserIds: targetLead?.assignedToId ? [targetLead.assignedToId] : [],
                 organizationId: targetLead?.organizationId || organizationId,
-                createdById: targetLead?.assignedToId || 'system-uuid', 
+                createdById: createdById, 
               }
             });
 
