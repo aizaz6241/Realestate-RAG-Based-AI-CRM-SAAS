@@ -533,8 +533,17 @@ export class IntegrationsService {
               });
             }
 
-            const start = startTime ? new Date(startTime) : new Date();
-            const end = endTime ? new Date(endTime) : new Date(start.getTime() + 30 * 60 * 1000);
+            let start = startTime ? new Date(startTime) : new Date();
+            let end = endTime ? new Date(endTime) : new Date(start.getTime() + 30 * 60 * 1000);
+
+            // Sanity check: If the year sent is in the past (e.g. Vapi defaults to 2024 due to LLM context/cutoff), update to current year
+            const currentYear = new Date().getFullYear();
+            if (start.getFullYear() < currentYear) {
+              start.setFullYear(currentYear);
+            }
+            if (end.getFullYear() < currentYear) {
+              end.setFullYear(currentYear);
+            }
 
             // Resolve a valid createdById user to satisfy database foreign key constraint
             let createdById = targetLead?.assignedToId;
