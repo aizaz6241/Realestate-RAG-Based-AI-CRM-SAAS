@@ -13,6 +13,18 @@ import { RealEstateIntelligenceService } from './real-estate-intelligence.servic
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private activeDrafts = new Map<string, any>();
+  private pendingApprovals = new Map<string, {
+    userId: string;
+    organizationId: string;
+    userRole: string;
+    history: { role: 'user' | 'model'; content: string }[];
+    userMessage: string;
+    sessionId?: string;
+    callPersona?: string;
+    executionGraph: any[];
+    toolCallIndex: number;
+    executedResults: any[];
+  }>();
   
   constructor(
     private prisma: PrismaService,
@@ -385,162 +397,138 @@ INSTRUCTIONS:
     activeLead: any;
     activeMeeting: any;
   }>();
-
-  async chat(
+    async chat(
     userMessage: string,
     userId: string,
     organizationId: string,
     userRole: string,
     history: { role: 'user' | 'model'; content: string }[] = [],
-    callPersona?: string
+    callPersona?: string,
+    sessionId?: string
   ): Promise<any> {
     try {
-      this.logger.log(`Starting Zorvex-AOS 6.5 pipeline for message: "${userMessage}"`);
+      this.logger.log(`Starting Zorvex-AOS v7 cognitive operating system pipeline for: "${userMessage}"`);
 
-      // Initialize or retrieve conversation state context (Layer 4)
-      let context = this.activeContexts.get(userId);
-      if (!context) {
-        context = {
-          activeEmployee: null,
-          activeClient: null,
-          activeProperty: null,
-          activeLead: null,
-          activeMeeting: null
-        };
-        this.activeContexts.set(userId, context);
-      }
+      // STEP 1 — COGNITIVE ANALYZER (SINGLE LLM CALL)
+      const cognitiveAnalyzerPrompt = `You are the Zorvex AOS v7 Cognitive Analyzer (Step 1).
+Analyze the user message, resolve references/pronouns from context history, and output structured JSON.
+Current Date: ${new Date().toLocaleString()}
 
-      // -----------------------------------------------------------------------------
-      // LAYER 1: COGNITIVE GATEWAY (Normalization, Roman Urdu mapping, entity checks)
-      // -----------------------------------------------------------------------------
-      const gatewayPrompt = `You are the Zorvex AI Cognitive Gateway (Layer 1).
-Your task is to normalize the incoming user message:
-1. Detect input language (English, Urdu, Roman Urdu, etc.).
-2. Correct spelling and phonetic mistakes.
-3. Normalize Roman Urdu phrasing (e.g. "meri na" ➔ "Dubai Marina", "down town" ➔ "Downtown Dubai", "sarah" ➔ "Sarah Agent").
-4. Extract key target entities (employees, clients, properties, locations, dates).
+CONVERSATIONAL CONTEXT HISTORY:
+${JSON.stringify(history)}
 
-Output strictly in JSON format matching this structure:
+User Query: "${userMessage}"
+
+INSTRUCTIONS:
+1. Detect intent: "task" (performing actions/writing), "assistant" (explaining/reading), or "hybrid" (both).
+2. Extract entities (people, clients, properties, locations, dates, departments).
+3. Resolve Roman Urdu or spelling variants (e.g. "meri na" -> "Dubai Marina").
+4. Identify actions required (e.g. search, create, update, alert).
+5. Assess complexity: "low", "medium", or "high".
+6. Set confidence score (0-100).
+
+Output strictly in JSON:
 {
-  "originalMessage": "original user text",
-  "normalizedMessage": "normalized, corrected text",
-  "language": "English | Urdu | Roman Urdu | ...",
-  "confidence": 0.95,
-  "entities": {
-    "employees": [],
-    "clients": [],
-    "properties": [],
-    "locations": [],
-    "dates": []
-  }
-}
-Do not write any markdown code blocks, preamble, or conversational text. Return ONLY the raw JSON block.`;
-
-      let gatewayResult = {
-        originalMessage: userMessage,
-        normalizedMessage: userMessage,
-        language: 'English',
-        confidence: 1.0,
-        entities: { employees: [], clients: [], properties: [], locations: [], dates: [] }
-      };
-
-      try {
-        const gatewayResText = await this.llmService.callLLM(gatewayPrompt, `User Message: "${userMessage}"`, [], false);
-        const cleanGateway = gatewayResText.trim();
-        const jsonStart = cleanGateway.indexOf('{');
-        const jsonEnd = cleanGateway.lastIndexOf('}');
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-          gatewayResult = JSON.parse(cleanGateway.substring(jsonStart, jsonEnd + 1));
-        }
-      } catch (err) {
-        this.logger.warn(`Cognitive Gateway parser failed: ${err.message}. Using raw input.`);
-      }
-
-      const refinedMessage = gatewayResult.normalizedMessage;
-
-      // -----------------------------------------------------------------------------
-      // LAYER 2: INTENT UNDERSTANDING ENGINE
-      // -----------------------------------------------------------------------------
-      const intentPrompt = `You are the Zorvex Intent Understanding Engine (Layer 2).
-Analyze the normalized message and determine the user's objective and target department.
-Output strictly in JSON format:
-{
-  "intent": "meeting_creation | task_assignment | employee_search | property_search | lead_analytics | financial_audit | general_chat",
-  "department": "HR | Sales | Property | Finance | Operations | Executive",
+  "intent": "task | assistant | hybrid",
+  "entities": [],
+  "actions_required": [],
+  "complexity": "low | medium | high",
+  "requires_execution": true,
+  "requires_intelligence": true,
   "confidence": 95,
-  "actionExpected": true
+  "parameters": {}
 }
-Do not write any markdown code blocks, preamble, or conversational text. Return ONLY the raw JSON block.`;
+Do not write markdown block backticks. Output raw JSON only.`;
 
-      let intentResult = {
-        intent: 'general_chat',
-        department: 'Executive',
-        confidence: 1.0,
-        actionExpected: false
+      let analyzerResult = {
+        intent: 'assistant',
+        entities: [] as any[],
+        actions_required: [] as string[],
+        complexity: 'medium',
+        requires_execution: false,
+        requires_intelligence: true,
+        confidence: 90,
+        parameters: {} as any
       };
 
       try {
-        const intentResText = await this.llmService.callLLM(intentPrompt, `Normalized Message: "${refinedMessage}"`, [], false);
-        const cleanIntent = intentResText.trim();
-        const jsonStart = cleanIntent.indexOf('{');
-        const jsonEnd = cleanIntent.lastIndexOf('}');
+        const analyzerResText = await this.llmService.callLLM(cognitiveAnalyzerPrompt, `Analyze message: "${userMessage}"`, [], false);
+        const cleanAnalyzer = analyzerResText.trim();
+        const jsonStart = cleanAnalyzer.indexOf('{');
+        const jsonEnd = cleanAnalyzer.lastIndexOf('}');
         if (jsonStart !== -1 && jsonEnd !== -1) {
-          intentResult = JSON.parse(cleanIntent.substring(jsonStart, jsonEnd + 1));
+          analyzerResult = JSON.parse(cleanAnalyzer.substring(jsonStart, jsonEnd + 1));
         }
       } catch (err) {
-        this.logger.warn(`Intent Understanding Engine failed: ${err.message}`);
+        this.logger.warn(`Cognitive Analyzer failed: ${err.message}. Using default values.`);
       }
 
-      // -----------------------------------------------------------------------------
-      // LAYER 3: REQUEST CLASSIFICATION
-      // -----------------------------------------------------------------------------
-      const classificationPrompt = `You are the Zorvex Request Classifier (Layer 3).
-Classify the user intent into one of:
-- ASSISTANT: Information query only (no creation/update actions).
-- TASK: Action query only (creating tasks, meetings, updating leads).
-- HYBRID: Information query AND action (e.g. finding inactive leads and assigning follow-up tasks).
+      // STEP 2 — EXECUTIVE ORCHESTRATOR
+      const executiveOrchestratorPrompt = `You are the Zorvex AOS v7 Executive Orchestrator (Step 2).
+Based on the cognitive analysis, plan the execution graph (step-by-step tool calls).
 
-Output strictly in JSON format:
+Available Tools:
+- "searchEmployees" (params: { name, designation, department })
+- "getAttendanceRecord" (params: { name, status })
+- "getLeaveRequests" (params: { name, status })
+- "searchProperties" (params: { location, minPrice, maxPrice, bedrooms, bathrooms, type, listingType, status })
+- "searchClients" (params: { name, budget, preferences, type })
+- "getTasksBoard" (params: { status, name, employeeName })
+- "getMeetingsAnalytics" (params: { type })
+- "getFinanceAnalytics" (params: {})
+- "getLogisticsAnalytics" (params: {})
+- "runQueryPlan" (params: { operation: "fetch | aggregate | compare | analyze", entities: string[], filters: object, groupBy: string[], metrics: string[], take: number })
+- "createTask" (params: { title, employeeName, description, dueDate, priority })
+- "createMeeting" (params: { title, description, startTime, endTime, location, targetUserIds, targetRoles })
+- "generateEnterpriseReport" (params: { reportType: "FINANCE" | "INVENTORY" | "TASKS" })
+
+Strictly return JSON:
 {
-  "classification": "ASSISTANT" | "TASK" | "HYBRID"
+  "mode": "assistant | agent | hybrid",
+  "requiredAgents": ["HR", "Sales", "Property", "Finance", "Operations", "Executive"],
+  "executionGraph": [
+    {
+      "step": 1,
+      "tool": "toolName",
+      "params": { ... }
+    }
+  ]
 }
-Do not write any markdown code blocks, preamble, or conversational text. Return ONLY the raw JSON block.`;
+Do not write markdown block backticks. Output raw JSON only.`;
 
-      let classificationResult = { classification: 'ASSISTANT' };
+      let orchestratorResult = {
+        mode: 'assistant',
+        requiredAgents: [] as string[],
+        executionGraph: [] as any[]
+      };
 
       try {
-        const classResText = await this.llmService.callLLM(classificationPrompt, `Normalized Message: "${refinedMessage}"`, [], false);
-        const cleanClass = classResText.trim();
-        const jsonStart = cleanClass.indexOf('{');
-        const jsonEnd = cleanClass.lastIndexOf('}');
+        const orchestratorResText = await this.llmService.callLLM(executiveOrchestratorPrompt, `Plan execution graph based on analysis: ${JSON.stringify(analyzerResult)}`, [], false);
+        const cleanOrch = orchestratorResText.trim();
+        const jsonStart = cleanOrch.indexOf('{');
+        const jsonEnd = cleanOrch.lastIndexOf('}');
         if (jsonStart !== -1 && jsonEnd !== -1) {
-          classificationResult = JSON.parse(cleanClass.substring(jsonStart, jsonEnd + 1));
+          orchestratorResult = JSON.parse(cleanOrch.substring(jsonStart, jsonEnd + 1));
         }
       } catch (err) {
-        this.logger.warn(`Request Classifier failed: ${err.message}`);
+        this.logger.warn(`Executive Orchestrator planning failed: ${err.message}. Using default.`);
       }
 
-      // Fast Lane Bypass for Greetings and Simple Voice Checks
-      const isVoiceCheck = [
-        "can you hear me", "voice test", "mic check", "connection check"
-      ].some(phrase => refinedMessage.toLowerCase().includes(phrase));
-
-      const isGreeting = [
-        "hello", "hi", "salam", "hey", "assalam o alaikum", "aoa"
-      ].some(phrase => refinedMessage.toLowerCase().trim() === phrase || refinedMessage.toLowerCase().trim().startsWith(phrase + " "));
+      // Fast Lane Bypass for Greetings & Simple Voice Checks
+      const isVoiceCheck = ["can you hear me", "voice test", "mic check", "connection check"].some(phrase => userMessage.toLowerCase().includes(phrase));
+      const isGreeting = ["hello", "hi", "salam", "hey", "assalam o alaikum", "aoa"].some(phrase => userMessage.toLowerCase().trim() === phrase || userMessage.toLowerCase().trim().startsWith(phrase + " "));
 
       if (isGreeting) {
         const name = (await this.prisma.user.findUnique({ where: { id: userId } }))?.firstName || 'Admin';
         return {
-          response: refinedMessage.toLowerCase().includes("salam") || refinedMessage.toLowerCase().includes("aoa")
-            ? `Walaikum Assalam ${name}! How can I assist you with your Zorvex ERP operations today?`
-            : `Hello ${name}! Welcome to Zorvex Cognitive Core. How can I assist you with your ERP operations today?`,
+          response: userMessage.toLowerCase().includes("salam") || userMessage.toLowerCase().includes("aoa")
+            ? `Walaikum Assalam ${name}! Welcome to Zorvex v7. How can I assist you with your corporate real estate operations today?`
+            : `Hello ${name}! Welcome to Zorvex v7 Cognitive Operating System. How can I assist you with your operations today?`,
           toolExecuted: null,
           toolData: null,
           citations: []
         };
       }
-
       if (isVoiceCheck) {
         return {
           response: "Yes, I can hear you clearly. How can I help you?",
@@ -550,282 +538,326 @@ Do not write any markdown code blocks, preamble, or conversational text. Return 
         };
       }
 
-      // -----------------------------------------------------------------------------
-      // LAYER 4: CONVERSATION STATE ENGINE (Reference and pronoun resolution)
-      // -----------------------------------------------------------------------------
-      const resolutionPrompt = `You are the Zorvex Conversation State Engine (Layer 4).
-Analyze the normalized query and conversation state history. Resolve references/pronouns (like "him", "it", "this property") into explicit target entities based on context.
-State Context:
-${JSON.stringify(context, null, 2)}
+      // STEP 3 & 4 & 8 — MULTI-TOOL PARALLEL EXECUTION ENGINE & QUERY PLANNING LAYER & HUMAN APPROVAL GATE
+      const executedResults: any[] = [];
+      const toolCalls = orchestratorResult.executionGraph || [];
 
-Output the rewritten resolved query directly in the same language. Do not add any headings, quotes, json tags, or preambles.`;
-
-      let resolvedQuery = refinedMessage;
-      try {
-        const resolvedText = await this.llmService.callLLM(resolutionPrompt, `User Query: "${refinedMessage}"`, [], false);
-        resolvedQuery = resolvedText.trim() || refinedMessage;
-      } catch (err) {
-        this.logger.warn(`Reference resolution failed: ${err.message}`);
-      }
-
-      // -----------------------------------------------------------------------------
-      // LAYER 5: EXECUTIVE ORCHESTRATOR (CEO decision round)
-      // -----------------------------------------------------------------------------
-      const orchestratorPrompt = `You are the Zorvex AI Orchestrator (Layer 5).
-Analyze the normalized user message and active entities context.
-Decide:
-1. Which tools need to be executed.
-2. Which specialist context modules should be loaded (HR, Sales, Property, Finance, Operations).
-3. The step-by-step execution plan.
-
-Available Tools:
-- "searchEmployees" (params: { name, designation, department })
-- "getAttendanceRecord" (params: { name, status })
-- "getLeaveRequests" (params: { name, status })
-- "searchProperties" (params: { location, minPrice, maxPrice, bedrooms, bathrooms, type, listingType, status })
-- "searchClients" (params: { name, budget, preferences, type })
-- "getTasksBoard" (params: { status })
-- "getMeetingsAnalytics" (params: { type })
-- "getFinanceAnalytics" (params: {})
-- "getLogisticsAnalytics" (params: {})
-- "runDatabaseQuery" (params: { query }) -> Use strictly for complex joins, aggregates, counts.
-- "createTask" (params: { title, employeeName, description, dueDate, priority })
-- "createMeeting" (params: { title, description, startTime, endTime, location, targetUserIds, targetRoles })
-- "generateEnterpriseReport" (params: { reportType: "FINANCE" | "INVENTORY" | "TASKS" })
-
-Output strictly in JSON:
-{
-  "requiredAgents": ["HR", "Sales", "Property", "Finance", "Operations", "Executive"],
-  "requiredTools": ["toolName1", "toolName2"],
-  "executionPlan": "Plan description...",
-  "toolCalls": [
-    {
-      "tool": "toolName",
-      "params": { ... }
-    }
-  ]
-}
-Do not write any markdown code blocks, preamble, or conversational text. Return ONLY the raw JSON block.`;
-
-      let orchestratorResult = {
-        requiredAgents: [] as string[],
-        requiredTools: [] as string[],
-        executionPlan: '',
-        toolCalls: [] as any[]
-      };
-
-      try {
-        const orchResText = await this.llmService.callLLM(orchestratorPrompt, `Resolved Query: "${resolvedQuery}"\nContext: ${JSON.stringify(context)}`, [], false);
-        const cleanOrch = orchResText.trim();
-        const jsonStart = cleanOrch.indexOf('{');
-        const jsonEnd = cleanOrch.lastIndexOf('}');
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-          orchestratorResult = JSON.parse(cleanOrch.substring(jsonStart, jsonEnd + 1));
+      for (let i = 0; i < toolCalls.length; i++) {
+        const toolCall = toolCalls[i];
+        
+        // RBAC Authorization Check
+        const isAuthorized = this.dbToolsService.checkToolAuthorization(toolCall.tool, userRole);
+        if (!isAuthorized) {
+          return {
+            response: "Clearance Required: Your user profile is not cleared to access secure operations or finance databases.",
+            toolExecuted: toolCall.tool,
+            toolData: null,
+            citations: []
+          };
         }
-      } catch (err) {
-        this.logger.warn(`Executive Orchestrator planning failed: ${err.message}`);
-      }
 
-      // Check RBAC Clearance before calling tools
-      if (orchestratorResult.toolCalls.length > 0) {
-        for (const tc of orchestratorResult.toolCalls) {
-          const isAuthorized = this.dbToolsService.checkToolAuthorization(tc.tool, userRole);
-          if (!isAuthorized) {
-            return {
-              response: "Clearance Required: Your user profile is not cleared to access secure finance or operations databases.",
-              toolExecuted: null,
-              toolData: null,
-              citations: []
-            };
-          }
+        // STEP 8: HUMAN APPROVAL GATE
+        if (this.isSensitiveAction(toolCall)) {
+          const approvalId = 'appr-' + Math.random().toString(36).substring(2, 15);
+          this.pendingApprovals.set(approvalId, {
+            userId,
+            organizationId,
+            userRole,
+            history,
+            userMessage,
+            sessionId,
+            callPersona,
+            executionGraph: toolCalls,
+            toolCallIndex: i,
+            executedResults
+          });
+
+          // Broadcast notification to frontend
+          this.zorvexGateway.broadcastToOrganization(organizationId, 'approval_required', {
+            approvalId,
+            tool: toolCall.tool,
+            params: toolCall.params
+          });
+
+          return {
+            status: 'PENDING_APPROVAL',
+            approvalId,
+            response: `⚠️ Executive Authorization Required: The planned action (${toolCall.tool}) requires corporate approval before executing.`,
+            toolExecuted: toolCall.tool,
+            toolData: toolCall.params,
+            citations: []
+          };
         }
-      }
 
-      // -----------------------------------------------------------------------------
-      // LAYER 7: PLANNING ENGINE (Missing parameters solicitation check)
-      // -----------------------------------------------------------------------------
-      if (classificationResult.classification === 'TASK' || classificationResult.classification === 'HYBRID') {
-        for (const tc of orchestratorResult.toolCalls) {
-          if (tc.tool === 'createTask') {
-            const { title, employeeName, dueDate, priority } = tc.params || {};
-            if (!title || !employeeName || !dueDate || !priority) {
-              return {
-                response: `Sure! I can help you schedule a new task. Could you please specify the details, target team member, deadline date, and priority level?`,
-                toolExecuted: null,
-                toolData: null,
-                citations: []
-              };
-            }
-          }
-          if (tc.tool === 'createMeeting') {
-            const { title, startTime, endTime } = tc.params || {};
-            if (!title || !startTime || !endTime) {
-              return {
-                response: `Sure! I can help you schedule a meeting. What is the title, start date/time, and end date/time?`,
-                toolExecuted: null,
-                toolData: null,
-                citations: []
-              };
-            }
-          }
-        }
-      }
-
-      // -----------------------------------------------------------------------------
-      // LAYER 8 & 9: AGENTIC EXECUTION & VERIFICATION ENGINE
-      // -----------------------------------------------------------------------------
-      let toolExecuted: string | null = null;
-      let toolData: any = null;
-      let verificationSuccess = true;
-
-      if (orchestratorResult.toolCalls.length > 0) {
-        const primaryCall = orchestratorResult.toolCalls[0];
-        toolExecuted = primaryCall.tool;
-        this.logger.log(`Executing tool: ${toolExecuted}`);
-
-        toolData = await this.dbToolsService.executeDatabaseTool(
-          primaryCall.tool,
-          primaryCall.params,
+        // Execute Tool
+        this.logger.log(`Executing tool: ${toolCall.tool}`);
+        const toolData = await this.dbToolsService.executeDatabaseTool(
+          toolCall.tool,
+          toolCall.params,
           organizationId,
           userRole,
           userId
         );
 
-        // Verification phase (Layer 9)
-        if (primaryCall.tool === 'createTask' || primaryCall.tool === 'createMeeting') {
-          if (!toolData || toolData.error || toolData.success === false) {
-            verificationSuccess = false;
-            this.logger.error(`Database Verification Failed for tool: ${primaryCall.tool}`);
-          }
-        }
+        executedResults.push({
+          tool: toolCall.tool,
+          success: !toolData?.error,
+          data: toolData,
+          verified: true
+        });
+      }
 
-        // Lock context variables from tool returns (Layer 4 updates)
-        if (primaryCall.tool === 'searchEmployees' && Array.isArray(toolData) && toolData.length > 0) {
-          const emp = toolData[0];
-          context.activeEmployee = {
-            id: emp.id,
-            name: emp.user ? `${emp.user.firstName} ${emp.user.lastName || ''}`.trim() : 'Employee',
-            department: emp.department,
-            designation: emp.designation
+      return await this.compileFinalResponse(
+        userMessage,
+        userId,
+        organizationId,
+        userRole,
+        history,
+        orchestratorResult.requiredAgents,
+        executedResults,
+        callPersona
+      );
+
+    } catch (err) {
+      this.logger.error(`AOS v7 pipeline breakdown: ${err.message}`);
+      return {
+        response: "🤖 System Alert: An operational bottleneck has interrupted Zorvex AI. Please verify data parameters and retry.",
+        spokenResponse: callPersona ? "System error has occurred, please retry." : undefined,
+        toolExecuted: null,
+        toolData: null,
+        citations: []
+      };
+    }
+  }
+
+  private isSensitiveAction(toolCall: any): boolean {
+    if (toolCall.tool === 'sendReminder') return true;
+    if (toolCall.tool === 'createTask') {
+      const title = toolCall.params?.title?.toLowerCase() || '';
+      if (title.includes('salary') || title.includes('payroll') || title.includes('bonus') || title.includes('terminate')) {
+        return true;
+      }
+    }
+    if (toolCall.tool === 'createMeeting') {
+      const title = toolCall.params?.title?.toLowerCase() || '';
+      if (title.includes('salary review') || title.includes('termination')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async approveAction(approvalId: string, approved: boolean): Promise<any> {
+    const state = this.pendingApprovals.get(approvalId);
+    if (!state) {
+      return {
+        response: "The requested authorization request could not be found or has already been processed.",
+        toolExecuted: null,
+        toolData: null,
+        citations: []
+      };
+    }
+
+    this.pendingApprovals.delete(approvalId);
+
+    if (!approved) {
+      return {
+        response: "The planned operations were cancelled and declined by the user authorization manager.",
+        toolExecuted: null,
+        toolData: null,
+        citations: []
+      };
+    }
+
+    try {
+      this.logger.log(`Resuming paused Zorvex v7 execution graph for approvalId: ${approvalId}`);
+      const { userId, organizationId, userRole, history, userMessage, sessionId, callPersona, executionGraph, toolCallIndex, executedResults } = state;
+
+      for (let i = toolCallIndex; i < executionGraph.length; i++) {
+        const toolCall = executionGraph[i];
+        
+        this.logger.log(`Resuming and executing tool: ${toolCall.tool}`);
+        const toolData = await this.dbToolsService.executeDatabaseTool(
+          toolCall.tool,
+          toolCall.params,
+          organizationId,
+          userRole,
+          userId
+        );
+
+        executedResults.push({
+          tool: toolCall.tool,
+          success: !toolData?.error,
+          data: toolData,
+          verified: true
+        });
+      }
+
+      const finalResult = await this.compileFinalResponse(
+        userMessage,
+        userId,
+        organizationId,
+        userRole,
+        history,
+        [], 
+        executedResults,
+        callPersona
+      );
+
+      // Save history if active session
+      if (sessionId) {
+        const session = await this.prisma.aiChatSession.findFirst({
+          where: { id: sessionId, userId, organizationId }
+        });
+        if (session) {
+          const chatHistory = Array.isArray(session.messages) ? session.messages : [];
+          const userMsg = {
+            id: `user-${Date.now()}`,
+            role: 'user',
+            content: userMessage,
+            createdAt: new Date().toISOString()
           };
-        }
-        if (primaryCall.tool === 'searchClients' && Array.isArray(toolData) && toolData.length > 0) {
-          const cl = toolData[0];
-          context.activeClient = { id: cl.id, name: cl.name };
-        }
-        if (primaryCall.tool === 'searchProperties' && Array.isArray(toolData) && toolData.length > 0) {
-          const prop = toolData[0];
-          context.activeProperty = { id: prop.id, title: prop.title, location: prop.location };
-        }
-
-        this.activeContexts.set(userId, context);
-      }
-
-      // RAG and Memories lookup
-      const matchingChunks = await this.llmService.searchUnstructuredKnowledge(resolvedQuery, organizationId, 4);
-      const documentContext = matchingChunks.length > 0
-        ? matchingChunks.map((c, i) => `[Doc ${i + 1}]: ${c.content} (Source: ${c.documentName})`).join('\n\n')
-        : 'No relevant unstructured documents.';
-
-      const pastMemories = await this.retrieveRelevantMemories(resolvedQuery, organizationId, 4);
-      const memoryContext = pastMemories.length > 0
-        ? pastMemories.map((m, i) => `[Memory ${i + 1}]: ${m.content}`).join('\n')
-        : 'No relevant past memories.';
-
-      // Load Specialist Context Modules (Layer 6 Context Modules)
-      let specialistContext = '';
-      if (orchestratorResult.requiredAgents.length > 0) {
-        for (const agent of orchestratorResult.requiredAgents) {
-          if (agent !== 'Executive') {
-            specialistContext += this.agentsService.getDomainContext(agent, toolData) + '\n';
-          }
+          const modelMsg = {
+            id: `model-${Date.now()}`,
+            role: 'model',
+            content: finalResult.response,
+            toolExecuted: finalResult.toolExecuted,
+            toolData: finalResult.toolData,
+            citations: finalResult.citations,
+            createdAt: new Date().toISOString()
+          };
+          await this.prisma.aiChatSession.update({
+            where: { id: sessionId },
+            data: {
+              messages: [...chatHistory, userMsg, modelMsg]
+            }
+          });
         }
       }
 
-      // -----------------------------------------------------------------------------
-      // LAYER 13: CONFIDENCE & TRUST ENGINE
-      // -----------------------------------------------------------------------------
-      let confidence = 85;
-      if (toolExecuted) {
-        if (!verificationSuccess || (toolData && toolData.error)) {
-          confidence = 30; // LOW
-        } else if (Array.isArray(toolData) && toolData.length === 0) {
-          confidence = 50; // LOW
-        } else {
-          confidence = 98; // HIGH
-        }
+      return finalResult;
+
+    } catch (err) {
+      this.logger.error(`Error resuming approved action: ${err.message}`);
+      return {
+        response: "An error occurred while resuming execution after authorization.",
+        toolExecuted: null,
+        toolData: null,
+        citations: []
+      };
+    }
+  }
+
+  private async compileFinalResponse(
+    userMessage: string,
+    userId: string,
+    organizationId: string,
+    userRole: string,
+    history: { role: 'user' | 'model'; content: string }[],
+    requiredAgents: string[],
+    executedResults: any[],
+    callPersona?: string
+  ): Promise<any> {
+    const primaryResult = executedResults[0] || null;
+    const toolExecuted = primaryResult ? primaryResult.tool : null;
+    const toolData = primaryResult ? primaryResult.data : null;
+
+    // STEP 5 — REAL ESTATE INTELLIGENCE CORE (PRE-RESPONSE LAYER)
+    let properties: any[] = [];
+    let leads: any[] = [];
+    let clients: any[] = [];
+
+    for (const res of executedResults) {
+      if (res.tool === 'runQueryPlan' && res.data && !res.data.error) {
+        const rows = res.data.rows || [];
+        if (res.query?.includes('Property')) properties.push(...rows);
+        if (res.query?.includes('Lead')) leads.push(...rows);
+        if (res.query?.includes('Client')) clients.push(...rows);
       }
-      const confidenceLevel = confidence >= 90 ? 'HIGH' : (confidence >= 60 ? 'MEDIUM' : 'LOW');
+      if (res.tool === 'searchProperties' && Array.isArray(res.data)) properties.push(...res.data);
+      if (res.tool === 'searchClients' && Array.isArray(res.data)) clients.push(...res.data);
+    }
 
-      if (confidenceLevel === 'LOW' && toolExecuted) {
-        return {
-          response: `I couldn't locate sufficient records in the system to answer your request accurately. Could you please specify different search parameters or verify details?`,
-          toolExecuted,
-          toolData,
-          citations: []
-        };
+    const reIntelligence = await this.realEstateIntelligenceService.analyze(properties, leads, clients);
+
+    // STEP 6 — EXECUTIVE DECISION ENGINE
+    const pastMemories = await this.retrieveRelevantMemories(userMessage, organizationId, 4);
+    const execAnalysis = await this.executiveDecisionService.analyze(userMessage, toolData, pastMemories);
+
+    // STEP 7 — AUTONOMOUS WORKFLOW ENGINE
+    const workflowPrompt = `You are the Zorvex Autonomous Workflow Engine (Step 7).
+Analyze the executed database results and user intent to suggest 2-3 logical next actions, automations, or workflow continuation.
+Format them naturally as conversational bullet points without markdown checkboxes.
+Output only the follow-up suggestions.`;
+
+    let proactiveSuggestions = '';
+    try {
+      proactiveSuggestions = await this.llmService.callLLM(workflowPrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false);
+    } catch (e) {
+      this.logger.warn(`Autonomous Workflow Engine suggestion failed: ${e.message}`);
+    }
+
+    // STEP 10 — KPI & BUSINESS GOAL ENGINE
+    const businessGoals = {
+      salesTarget: "AED 10,000,000 / month",
+      leadConversionRate: "15%",
+      revenueTarget: "AED 2,000,000 / month",
+      inventoryGrowth: "50 new listings / month"
+    };
+
+    const kpiEnginePrompt = `You are the Zorvex KPI & Business Goal Engine (Step 10).
+Analyze the current response and retrieved business data to evaluate how it aligns with organizational goals:
+- Sales Target: ${businessGoals.salesTarget}
+- Lead Conversion Goal: ${businessGoals.leadConversionRate}
+- Revenue Target: ${businessGoals.revenueTarget}
+- Inventory Goal: ${businessGoals.inventoryGrowth}
+
+Instructions:
+1. If the current action or data aligns with a business goal (e.g. search leads, list properties, update conversions), highlight this alignment.
+2. If it does not, suggest a proactive strategy or adjustment to align with goals.
+3. Output the result in 1-2 concise sentences in a professional COO advisory tone.`;
+
+    let kpiAlignmentText = '';
+    try {
+      kpiAlignmentText = await this.llmService.callLLM(kpiEnginePrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false);
+    } catch (e) {
+      this.logger.warn(`KPI Engine alignment check failed: ${e.message}`);
+    }
+
+    const matchingChunks = await this.llmService.searchUnstructuredKnowledge(userMessage, organizationId, 4);
+    const documentContext = matchingChunks.length > 0
+      ? matchingChunks.map((c, i) => `[Doc ${i + 1}]: ${c.content} (Source: ${c.documentName})`).join('\n\n')
+      : 'No relevant unstructured documents.';
+
+    const memoryContext = pastMemories.length > 0
+      ? pastMemories.map((m, i) => `[Memory ${i + 1}]: ${m.content}`).join('\n')
+      : 'No relevant past memories.';
+
+    let specialistContext = '';
+    for (const res of executedResults) {
+      if (res.tool) {
+        let domain = 'Executive';
+        if (res.tool.includes('Employee') || res.tool.includes('Attendance') || res.tool.includes('Leave')) domain = 'HR';
+        if (res.tool.includes('Finance') || res.tool.includes('Payroll')) domain = 'Finance';
+        if (res.tool.includes('Property')) domain = 'Property';
+        if (res.tool.includes('Client') || res.tool.includes('Lead')) domain = 'Sales';
+        if (res.tool.includes('Logistics')) domain = 'Logistics';
+        
+        specialistContext += this.agentsService.getDomainContext(domain, res.data) + '\n';
       }
+    }
 
-      // -----------------------------------------------------------------------------
-      // LAYER 14 & REAL ESTATE INTELLIGENCE AGENT: EXECUTIVE DECISION ENGINE
-      // -----------------------------------------------------------------------------
-      let risks: string[] = [];
-      let opportunities: string[] = [];
-      let recommendations: string[] = [];
-
-      if (toolData && !toolData.error) {
-        const execAnalysis = await this.executiveDecisionService.analyze(resolvedQuery, toolData, pastMemories);
-        risks = execAnalysis.risks;
-        opportunities = execAnalysis.opportunities;
-        recommendations = execAnalysis.recommendations;
-
-        // Real Estate Intelligence Module
-        const isREQuery = orchestratorResult.requiredAgents.includes('Property') || orchestratorResult.requiredAgents.includes('Sales');
-        if (isREQuery && Array.isArray(toolData)) {
-          const reAnalysis = await this.realEstateIntelligenceService.analyze(
-            orchestratorResult.requiredAgents.includes('Property') ? toolData : [],
-            [],
-            orchestratorResult.requiredAgents.includes('Sales') ? toolData : []
-          );
-          if (reAnalysis.listingHealth.length > 0) risks.push(...reAnalysis.listingHealth);
-          if (reAnalysis.inventoryAging.length > 0) risks.push(...reAnalysis.inventoryAging);
-          if (reAnalysis.leadConversion.length > 0) opportunities.push(...reAnalysis.leadConversion);
-          if (reAnalysis.areaIntelligence.length > 0) opportunities.push(...reAnalysis.areaIntelligence);
-        }
-      }
-
-      // -----------------------------------------------------------------------------
-      // LAYER 15: AUTONOMOUS WORKFLOW ENGINE (Proactive workflow suggestions)
-      // -----------------------------------------------------------------------------
-      const workflowPrompt = `You are the Zorvex Autonomous Workflow Engine (Layer 15).
-Based on the intent, database records, and query, determine 2 to 3 logical next actions or follow-ups.
-Format them as natural conversational recommendations with checkboxes at the end of the text.
-Example format:
-"Would you like me to:
-• Assign follow-up tasks to the sales team?
-• Schedule a team briefing?"
-Output ONLY the workflow follow-ups. Do not add explanations.`;
-
-      let proactiveSuggestions = '';
-      try {
-        proactiveSuggestions = await this.llmService.callLLM(workflowPrompt, `Query: "${resolvedQuery}"\nData: ${JSON.stringify(toolData)}`, [], false);
-      } catch (e) {
-        this.logger.warn(`Autonomous Workflow Engine suggestion failed: ${e.message}`);
-      }
-
-      // -----------------------------------------------------------------------------
-      // LAYER 10: RESPONSE COMPOSER (Synthesize natural executive response)
-      // -----------------------------------------------------------------------------
-      const composerPrompt = `You are the Zorvex Response Composer (Layer 10).
+    const composerPrompt = `You are the Zorvex Response Composer (v7).
 Compose the final user response based on the analysis.
 STRICT STYLE RULES:
-1. Speak in a natural, professional, human executive tone.
+1. Speak in a natural, professional, human executive tone (like an AI COO).
 2. Responds in the EXACT SAME LANGUAGE as the user's message (e.g. English, Roman Urdu, or Urdu).
 3. Do NOT use headers like "Direct Answer", "Analytical Insight", "Suggested Action", or markdown checkboxes. Banish all background operational JSON blocks, tools, column names, SQL references, and technical parameters.
-4. Integrate the executive decision insights (Risks: ${JSON.stringify(risks)}, Opportunities: ${JSON.stringify(opportunities)}, Recommendations: ${JSON.stringify(recommendations)}) and proactiveSuggestions naturally into conversational paragraphs.
-5. End with a warm follow-up question.`;
+4. Integrate the executive decision insights (Risks: ${JSON.stringify(execAnalysis.risks.concat(reIntelligence.listingHealth).concat(reIntelligence.inventoryAging))}, Opportunities: ${JSON.stringify(execAnalysis.opportunities.concat(reIntelligence.leadConversion).concat(reIntelligence.areaIntelligence))}, Recommendations: ${JSON.stringify(execAnalysis.recommendations)}) and proactiveSuggestions naturally into conversational paragraphs.
+5. Ingest the KPI alignment insights (${kpiAlignmentText}) to highlight alignment or suggest better action.
+6. End with a warm follow-up question.`;
 
-      const databaseFeedPrompt = `User Query: "${userMessage}"
+    const databaseFeedPrompt = `User Query: "${userMessage}"
 Retrieved Data: ${JSON.stringify(toolData)}
 Domain Context Module Data:
 ${specialistContext}
@@ -836,73 +868,60 @@ ${memoryContext}
 Proactive Suggestions:
 ${proactiveSuggestions}`;
 
-      let responseText = await this.llmService.callLLM(composerPrompt, databaseFeedPrompt, history);
-      let cleanedResponse = responseText.trim();
+    let responseText = await this.llmService.callLLM(composerPrompt, databaseFeedPrompt, history);
+    let cleanedResponse = responseText.trim();
 
-      // Clean up technical artifacts
-      cleanedResponse = cleanedResponse
-        .replace(/(?:runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask|createMeeting)\s*(?:tool|query|SQL|system)/gi, '')
-        .replace(/Postgres|database|PrismaClientKnownRequestError|SQL query/gi, 'system lookup')
-        .replace(/\b(bhai|yaar|dost|bande)\b/gi, '')
-        .replace(/[ \t]+/g, ' ')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
+    cleanedResponse = cleanedResponse
+      .replace(/(?:runQueryPlan|runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask|createMeeting)\s*(?:tool|query|SQL|system)/gi, '')
+      .replace(/Postgres|database|PrismaClientKnownRequestError|SQL query/gi, 'system lookup')
+      .replace(/\b(bhai|yaar|dost|bande)\b/gi, '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
 
-      // -----------------------------------------------------------------------------
-      // LAYER 11: ORGANIZATIONAL LEARNING ENGINE (Memory Extraction & Pattern Storage)
-      // -----------------------------------------------------------------------------
-      if (toolData && !toolData.error) {
-        this.extractAndStoreMemories(cleanedResponse, organizationId).catch((err) => {
-          this.logger.error(`Failed to run background memory extraction: ${err.message}`);
-        });
+    if (toolData && !toolData.error) {
+      this.extractAndStoreMemories(cleanedResponse, organizationId).catch((err) => {
+        this.logger.error(`Failed to run background memory extraction: ${err.message}`);
+      });
 
-        // Extract pattern matches and store them as PATTERN: category
-        if (opportunities.length > 0 || risks.length > 0) {
-          const patternBullet = `[Pattern Sourced] Query: "${resolvedQuery}". Detected Risks: ${risks.join(' | ')}. Opportunities: ${opportunities.join(' | ')}.`;
-          if (patternBullet.length < 500) {
-            const embedding = await this.llmService.generateEmbedding(patternBullet);
-            await this.prisma.aiMemoryVector.create({
-              data: {
-                category: 'PATTERN:OPERATIONAL',
-                content: patternBullet,
-                embedding,
-                organizationId
-              }
-            }).catch(err => {
-              this.logger.warn(`Failed to store pattern memory: ${err.message}`);
-            });
-          }
+      const combinedRisks = execAnalysis.risks.concat(reIntelligence.listingHealth).concat(reIntelligence.inventoryAging);
+      const combinedOpps = execAnalysis.opportunities.concat(reIntelligence.leadConversion).concat(reIntelligence.areaIntelligence);
+      if (combinedOpps.length > 0 || combinedRisks.length > 0) {
+        const patternBullet = `[Pattern Sourced] Query: "${userMessage}". Detected Risks: ${combinedRisks.join(' | ')}. Opportunities: ${combinedOpps.join(' | ')}.`;
+        if (patternBullet.length < 500) {
+          const embedding = await this.llmService.generateEmbedding(patternBullet);
+          await this.prisma.aiMemoryVector.create({
+            data: {
+              category: 'PATTERN:OPERATIONAL',
+              content: patternBullet,
+              embedding,
+              organizationId
+            }
+          }).catch(err => {
+            this.logger.warn(`Failed to store pattern memory: ${err.message}`);
+          });
         }
       }
-
-      const citations = matchingChunks.map((chunk) => ({
-        documentId: chunk.documentId,
-        documentName: chunk.documentName,
-        fileType: chunk.fileType,
-      }));
-
-      let finalSpoken: string | undefined = undefined;
-      if (callPersona) {
-        finalSpoken = await this.generateSpokenSummary(cleanedResponse, userMessage);
-      }
-
-      return {
-        response: cleanedResponse,
-        spokenResponse: finalSpoken,
-        toolExecuted,
-        toolData,
-        citations
-      };
-    } catch (err) {
-      this.logger.error(`AOS 6.5 pipeline breakdown: ${err.message}`);
-      return {
-        response: "🤖 System Alert: An operational bottleneck has interrupted Zorvex AI. Please verify data parameters and retry.",
-        spokenResponse: callPersona ? "System error has occurred, please retry." : undefined,
-        toolExecuted: null,
-        toolData: null,
-        citations: []
-      };
     }
+
+    const citations = matchingChunks.map((chunk) => ({
+      documentId: chunk.documentId,
+      documentName: chunk.documentName,
+      fileType: chunk.fileType,
+    }));
+
+    let finalSpoken: string | undefined = undefined;
+    if (callPersona) {
+      finalSpoken = await this.generateSpokenSummary(cleanedResponse, userMessage);
+    }
+
+    return {
+      response: cleanedResponse,
+      spokenResponse: finalSpoken,
+      toolExecuted,
+      toolData,
+      citations
+    };
   }
 
   private async generateSpokenSummary(writtenResponse: string, userQuery: string): Promise<string> {

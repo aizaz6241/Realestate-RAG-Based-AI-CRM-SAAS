@@ -145,11 +145,12 @@ export class AiController {
       req.user.organizationId, 
       req.user.role,
       aiHistory,
-      callPersona
+      callPersona,
+      sessionId
     );
 
-    // Save history if active session
-    if (session) {
+    // Save history if active session and not paused for approval
+    if (session && result.status !== 'PENDING_APPROVAL') {
       const userMsg = {
         id: `user-${Date.now()}`,
         role: 'user',
@@ -185,6 +186,17 @@ export class AiController {
     }
 
     return result;
+  }
+
+  @Post('approve')
+  async approve(
+    @Body('approvalId') approvalId: string,
+    @Body('approved') approved: boolean
+  ) {
+    if (!approvalId) {
+      throw new HttpException('Approval ID is required', HttpStatus.BAD_REQUEST);
+    }
+    return this.aiService.approveAction(approvalId, approved);
   }
 
   // -----------------------------------------------------------------------------

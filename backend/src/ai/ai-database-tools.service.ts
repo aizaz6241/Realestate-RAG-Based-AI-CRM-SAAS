@@ -739,131 +739,254 @@ export class AiDatabaseToolsService {
           };
         }
 
-        case 'runDatabaseQuery': {
-          const { query } = params || {};
-          if (!query) {
-            return { error: "Query is required" };
+        case 'runQueryPlan': {
+          const { operation, entities, filters, groupBy, metrics, take } = params || {};
+          if (!entities || !Array.isArray(entities) || entities.length === 0) {
+            return { error: 'INVALID_PARAMS', message: 'Entities array is required and must not be empty.' };
           }
 
-          const normalized = query.toLowerCase().trim();
-          const forbiddenKeywords = ['insert', 'update', 'delete', 'drop', 'alter', 'create', 'truncate', 'grant', 'revoke', 'replace', 'upsert'];
-          
-          for (const word of forbiddenKeywords) {
-            const regex = new RegExp(`\\b${word}\\b`, 'i');
-            if (regex.test(normalized)) {
-              return {
-                error: `SECURITY_VIOLATION`,
-                message: `Forbidden Operation: Write operations like '${word.toUpperCase()}' are strictly prohibited. Only read-only SELECT queries are allowed.`
-              };
+          const limit = take ? Math.min(parseInt(take), 100) : 50;
+
+          const modelMap: Record<string, string> = {
+            organization: 'organization',
+            user: 'user',
+            employeeprofile: 'employeeProfile',
+            employeedocument: 'employeeDocument',
+            attendance: 'attendance',
+            leaverequest: 'leaveRequest',
+            activitylog: 'activityLog',
+            performancereview: 'performanceReview',
+            property: 'property',
+            lead: 'lead',
+            client: 'client',
+            task: 'task',
+            owner: 'owner',
+            ownercommunication: 'ownerCommunication',
+            ownerdocument: 'ownerDocument',
+            clientpropertyinterest: 'clientPropertyInterest',
+            clientviewing: 'clientViewing',
+            clientcommunication: 'clientCommunication',
+            payroll: 'payroll',
+            propertypricehistory: 'propertyPriceHistory',
+            document: 'document',
+            documentversion: 'documentVersion',
+            driverprofile: 'driverProfile',
+            vehicle: 'vehicle',
+            vehiclemaintenance: 'vehicleMaintenance',
+            logisticsschedule: 'logisticsSchedule',
+            keytracker: 'keyTracker',
+            keycheckout: 'keyCheckout',
+            leadactivity: 'leadActivity',
+            chatroom: 'chatRoom',
+            message: 'message',
+            calendarevent: 'calendarEvent',
+            aimemoryvector: 'aiMemoryVector'
+          };
+
+          const getBaseTenantFilter = (entityKey: string, orgId: string): any => {
+            const hasDirectOrgId = [
+              'organization', 'user', 'employeeprofile', 'property', 'lead',
+              'client', 'task', 'owner', 'document', 'vehicle', 'chatroom',
+              'calendarevent', 'aidocument', 'aichatsession', 'integrationconfig',
+              'communicationtemplate', 'integrationlog', 'aimemoryvector'
+            ];
+
+            if (entityKey === 'organization') {
+              return { id: orgId };
+            }
+            if (hasDirectOrgId.includes(entityKey)) {
+              return { organizationId: orgId };
+            }
+
+            const relationMappings: Record<string, string> = {
+              employeedocument: 'employeeProfile',
+              attendance: 'employeeProfile',
+              leaverequest: 'employeeProfile',
+              activitylog: 'employeeProfile',
+              performancereview: 'employeeProfile',
+              ownercommunication: 'owner',
+              ownerdocument: 'owner',
+              clientpropertyinterest: 'client',
+              clientviewing: 'client',
+              clientcommunication: 'client',
+              payroll: 'employeeProfile',
+              propertypricehistory: 'property',
+              documentversion: 'document',
+              driverprofile: 'employeeProfile',
+              vehiclemaintenance: 'vehicle',
+              logisticsschedule: 'vehicle',
+              keytracker: 'property',
+              keycheckout: 'key.property',
+              leadactivity: 'lead',
+              message: 'chatRoom',
+              aidocumentchunk: 'document'
+            };
+
+            const relPath = relationMappings[entityKey];
+            if (relPath) {
+              const parts = relPath.split('.');
+              let filterObj: any = { organizationId: orgId };
+              for (let i = parts.length - 1; i >= 0; i--) {
+                filterObj = { [parts[i]]: filterObj };
+              }
+              return filterObj;
+            }
+            return {};
+          };
+
+          const parseDates = (obj: any): any => {
+            if (obj === null || obj === undefined) return obj;
+            if (typeof obj === 'string') {
+              const isoDateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+              if (isoDateRegex.test(obj)) {
+                const date = new Date(obj);
+                if (!isNaN(date.getTime())) {
+                  return date;
+                }
+              }
+              return obj;
+            }
+            if (Array.isArray(obj)) {
+              return obj.map(item => parseDates(item));
+            }
+            if (typeof obj === 'object') {
+              const newObj: any = {};
+              for (const key of Object.keys(obj)) {
+                newObj[key] = parseDates(obj[key]);
+              }
+              return newObj;
+            }
+            return obj;
+          };
+
+          const cleanFilters = parseDates(filters || {});
+          const queryResults: Record<string, any> = {};
+
+          for (const entityRaw of entities) {
+            const entityKey = entityRaw.toLowerCase().trim();
+            const prismaModelName = modelMap[entityKey];
+            if (!prismaModelName) {
+              return { error: 'INVALID_ENTITY', message: `Entity "${entityRaw}" is not registered in the system.` };
+            }
+
+            // RBAC Check
+            if (entityKey === 'payroll') {
+              const isClear = ['SUPER_ADMIN', 'ADMIN', 'HR', 'FINANCE'].includes(userRole);
+              if (!isClear) {
+                return { error: 'ACCESS_DENIED', message: 'Clearance Required: Your profile is not cleared to access secure finance databases.' };
+              }
+            }
+            if (entityKey === 'vehicle' || entityKey === 'vehiclemaintenance' || entityKey === 'logisticsschedule') {
+              const isClear = ['SUPER_ADMIN', 'ADMIN', 'LOGISTICS'].includes(userRole);
+              if (!isClear) {
+                return { error: 'ACCESS_DENIED', message: 'Clearance Required: Your profile is not cleared to access secure logistics databases.' };
+              }
+            }
+            if (entityKey === 'client' || entityKey === 'clientcommunication' || entityKey === 'clientviewing') {
+              const isClear = ['SUPER_ADMIN', 'ADMIN', 'SALES_MANAGER', 'AGENT', 'RECEPTIONIST'].includes(userRole);
+              if (!isClear) {
+                return { error: 'ACCESS_DENIED', message: 'Clearance Required: Your profile is not cleared to access secure CRM/Client databases.' };
+              }
+            }
+
+            const modelDelegate = this.prisma[prismaModelName];
+            const baseFilter = getBaseTenantFilter(entityKey, organizationId);
+            const whereClause = { ...baseFilter, ...cleanFilters };
+
+            try {
+              if (operation === 'aggregate') {
+                const aggregateArgs: any = {
+                  where: whereClause,
+                  _count: true,
+                };
+                if (metrics && Array.isArray(metrics) && metrics.length > 0) {
+                  aggregateArgs._sum = {};
+                  aggregateArgs._avg = {};
+                  aggregateArgs._min = {};
+                  aggregateArgs._max = {};
+                  for (const metric of metrics) {
+                    aggregateArgs._sum[metric] = true;
+                    aggregateArgs._avg[metric] = true;
+                    aggregateArgs._min[metric] = true;
+                    aggregateArgs._max[metric] = true;
+                  }
+                }
+
+                if (groupBy && Array.isArray(groupBy) && groupBy.length > 0) {
+                  const groupByArgs = {
+                    by: groupBy,
+                    where: whereClause,
+                    _count: true,
+                    ... (metrics && metrics.length > 0 ? {
+                      _sum: aggregateArgs._sum,
+                      _avg: aggregateArgs._avg,
+                      _min: aggregateArgs._min,
+                      _max: aggregateArgs._max,
+                    } : {})
+                  };
+                  queryResults[entityRaw] = await modelDelegate.groupBy(groupByArgs);
+                } else {
+                  queryResults[entityRaw] = await modelDelegate.aggregate(aggregateArgs);
+                }
+              } else {
+                let includeOptions: any = undefined;
+                if (entityKey === 'property') {
+                  includeOptions = { owner: { select: { name: true, phone: true } } };
+                } else if (entityKey === 'employeeprofile') {
+                  includeOptions = { user: { select: { id: true, firstName: true, lastName: true, email: true, role: true } } };
+                } else if (entityKey === 'attendance' || entityKey === 'leaverequest') {
+                  includeOptions = { employeeProfile: { include: { user: { select: { firstName: true, lastName: true, role: true, email: true } } } } };
+                } else if (entityKey === 'task') {
+                  includeOptions = { assignedTo: { select: { firstName: true, email: true } } };
+                }
+
+                const records = await modelDelegate.findMany({
+                  where: whereClause,
+                  include: includeOptions,
+                  take: limit,
+                  orderBy: { createdAt: 'desc' } as any
+                }).catch(async () => {
+                  return await modelDelegate.findMany({
+                    where: whereClause,
+                    include: includeOptions,
+                    take: limit
+                  });
+                });
+
+                if (entityKey === 'employeeprofile') {
+                  const canViewSalaries = ['SUPER_ADMIN', 'ADMIN', 'HR', 'FINANCE'].includes(userRole);
+                  queryResults[entityRaw] = records.map((emp: any) => {
+                    const copy = { ...emp };
+                    if (!canViewSalaries && emp.userId !== userId) {
+                      copy.salary = "CONFIDENTIAL (Access Denied)";
+                    }
+                    return copy;
+                  });
+                } else {
+                  queryResults[entityRaw] = records;
+                }
+              }
+            } catch (err) {
+              this.logger.error(`Error executing Query Plan on model ${prismaModelName}: ${err.message}`);
+              queryResults[entityRaw] = { error: 'COMPILATION_ERROR', message: err.message };
             }
           }
 
-          if (normalized.includes(';')) {
-            return {
-              error: `SECURITY_VIOLATION`,
-              message: `Forbidden Operation: Semicolons ';' are prohibited to prevent stacked query execution.`
-            };
-          }
+          const singleResult = entities.length === 1 ? queryResults[entities[0]] : queryResults;
+          const rows = Array.isArray(singleResult) ? singleResult : [singleResult];
 
-          let virtualizedQuery = query;
-          const camelCaseColumns = [
-            'organizationId', 'employeeProfileId', 'joiningDate', 'checkIn', 'checkOut',
-            'checkoutSummary', 'startDate', 'endDate', 'listingType', 'areaSqft',
-            'dueDate', 'assignedToId', 'startTime', 'endTime', 'reviewDate',
-            'reviewedById', 'logTime', 'userId', 'firstName', 'lastName',
-            'createdAt', 'updatedAt', 'systemUserId', 'chatRoomId', 'isSystem',
-            'messageText', 'escalationNotes', 'taskTitle', 'plateNumber',
-            'modelName', 'visitDate', 'pickupLocation', 'dropLocation', 'createdById',
-            'passwordHash', 'isActive', 'dateStr', 'approvedAt', 'ownerId', 'duplicateOfId',
-            'isDuplicate', 'commissionRate', 'agreementUrl', 'agreementExpiry', 'clientId',
-            'propertyId', 'viewingDate', 'baseSalary', 'netSalary', 'paidAt', 'changeDate',
-            'expiryDate', 'isExpired', 'accessRole', 'targetRoles', 'targetUserIds',
-            'writeRoles', 'writeUserIds', 'updatedById', 'documentId', 'licenseNumber',
-            'completionDate', 'vehicleId', 'driverId', 'viewingId', 'keyTag', 'checkoutDate',
-            'returnDate', 'keyId', 'activityDate', 'leadId', 'isGroup', 'senderId',
-            'isPrivate', 'fileUrl', 'fileType', 'fileSize', 'isEnabled', 'errorMessage',
-            'kycVerified', 'kycNotes', 'requestDate', 'uploadedAt'
-          ];
-
-          const casedTables = [
-            'Organization', 'User', 'EmployeeProfile', 'EmployeeDocument', 'Attendance', 'LeaveRequest',
-            'ActivityLog', 'PerformanceReview', 'Property', 'Lead', 'Client', 'Task', 'Owner',
-            'OwnerCommunication', 'OwnerDocument', 'ClientPropertyInterest', 'ClientViewing',
-            'ClientCommunication', 'Payroll', 'PropertyPriceHistory', 'Document', 'DocumentVersion',
-            'DriverProfile', 'Vehicle', 'VehicleMaintenance', 'LogisticsSchedule', 'KeyTracker',
-            'KeyCheckout', 'LeadActivity', 'ChatRoom', 'Message', 'CalendarEvent', 'AiDocument',
-            'AiDocumentChunk', 'AiChatSession', 'IntegrationConfig', 'CommunicationTemplate',
-            'IntegrationLog', 'AiMemoryVector'
-          ];
-
-          for (const col of camelCaseColumns) {
-            const colRegex = new RegExp(`"?\\b${col}\\b"?`, 'gi');
-            virtualizedQuery = virtualizedQuery.replace(colRegex, `"${col}"`);
-          }
-
-          for (const tbl of casedTables) {
-            const tblRegex = new RegExp(`"?\\b${tbl}\\b"?`, 'gi');
-            virtualizedQuery = virtualizedQuery.replace(tblRegex, `"${tbl}"`);
-          }
-
-          // Anti-composite selection safeguard: Detect and rewrite selecting bare table aliases (e.g. SELECT u, ep FROM "User" u)
-          // which PostgreSQL returns as composite records and causes Prisma deserialization errors.
-          try {
-            const selectIndex = virtualizedQuery.toLowerCase().indexOf('select');
-            const fromIndex = virtualizedQuery.toLowerCase().indexOf('from');
-            if (selectIndex !== -1 && fromIndex !== -1 && fromIndex > selectIndex) {
-              const selectClause = virtualizedQuery.substring(selectIndex + 6, fromIndex).trim();
-              const targets = selectClause.split(',').map(t => t.trim());
-              
-              // Seed with common defaults
-              const aliases = new Set<string>(['u', 'ep', 'p', 'c', 'l', 't', 'lr', 'a', 'pr', 'o', 'v', 'ls', 'pay']);
-              
-              // Add database table names (both in camelCase and lowercase)
-              const tableNames = [
-                'organization', 'user', 'employeeprofile', 'employeedocument', 'attendance', 'leaverequest',
-                'activitylog', 'performancereview', 'property', 'lead', 'client', 'task', 'owner', 'vehicle',
-                'logisticsschedule', 'payroll', 'calendarevent'
-              ];
-              tableNames.forEach(t => aliases.add(t));
-              
-              // Dynamically extract aliases from FROM and JOIN clauses
-              const fromMatches = virtualizedQuery.matchAll(/(?:from|join)\s+["']?([a-z0-9_]+)["']?(?:\s+as)?\s+["']?([a-z0-9_]+)["']?/gi);
-              for (const match of fromMatches) {
-                const table = match[1].toLowerCase();
-                const alias = match[2].toLowerCase();
-                const sqlKeywords = ['where', 'on', 'inner', 'left', 'right', 'cross', 'and', 'or', 'limit', 'order', 'group', 'having'];
-                if (alias && !sqlKeywords.includes(alias) && alias !== table) {
-                  aliases.add(alias);
-                }
-              }
-
-              let modified = false;
-              const cleanedTargets = targets.map(target => {
-                const cleanTarget = target.replace(/["'`]/g, '').trim().toLowerCase();
-                if (aliases.has(cleanTarget)) {
-                  modified = true;
-                  return `${target}.*`;
-                }
-                return target;
-              });
-
-              if (modified) {
-                virtualizedQuery = virtualizedQuery.substring(0, selectIndex + 6) + ' ' + cleanedTargets.join(', ') + ' ' + virtualizedQuery.substring(fromIndex);
-                this.logger.log(`Safeguard Auto-Expanded Composite SQL selection. Rewritten query: ${virtualizedQuery}`);
+          return {
+            rows,
+            query: `Prisma Query Plan on [${entities.join(', ')}] (${operation})`,
+            error: null,
+            visualization: {
+              type: (operation === 'aggregate' && groupBy && groupBy.length > 0) ? 'bar_chart' : 'table',
+              config: {
+                title: `${operation.toUpperCase()} - ${entities.join(', ')}`,
+                xKey: groupBy && groupBy.length > 0 ? groupBy[0] : undefined
               }
             }
-          } catch (rewriteErr) {
-            this.logger.warn(`Anti-composite SQL rewriter failed: ${rewriteErr.message}`);
-          }
-
-          try {
-            return await this.prisma.$queryRawUnsafe(virtualizedQuery);
-          } catch (e) {
-            return {
-              error: `QUERY_ERROR`,
-              message: `Database query syntax error: ${e.message}. Please double-check schema columns and try again.`
-            };
-          }
+          };
         }
 
         case 'createTask': {

@@ -936,6 +936,7 @@ export const DatabaseWidgets: React.FC<DatabaseWidgetsProps> = ({
       );
     }
 
+    case "runQueryPlan":
     case "runDatabaseQuery": {
       return (
         <div className="space-y-3.5 w-full">
