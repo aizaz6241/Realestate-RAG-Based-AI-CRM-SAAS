@@ -126,6 +126,24 @@ export default function DashboardLayout({
   const [isHeaderCalOpen, setIsHeaderCalOpen] = useState(false);
   const [layoutEvents, setLayoutEvents] = useState<any[]>([]);
 
+  // Billing ledger states
+  const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
+  const [billingHistory, setBillingHistory] = useState<any[]>([]);
+
+  const fetchBillingHistory = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/auth/billing-history`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setBillingHistory(await res.json());
+      }
+    } catch (err) {
+      console.error("Failed to fetch billing history:", err);
+    }
+  };
+
   // Mini-Chat State
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false);
   const [miniRooms, setMiniRooms] = useState<any[]>([]);
@@ -612,6 +630,7 @@ export default function DashboardLayout({
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { name: "My Profile", href: `/employees/${user?.id || ""}`, icon: UserCircle },
+    { name: "SaaS Owner Admin", href: "/saas-admin", icon: ShieldAlert },
     { name: "Properties", href: "/properties", icon: Building2 },
     { name: "Owners & Sellers", href: "/owners", icon: Handshake },
     { name: "Buyers & Tenants CRM", href: "/clients", icon: Users },
@@ -628,7 +647,12 @@ export default function DashboardLayout({
     { name: "Integrations Hub", href: "/integrations", icon: Cable },
   ];
   // Dynamic filtration of sidebar links
-  const allowedNavigation = navigation.filter(item => isRouteAllowed(item.href, userRole, user?.id));
+  const allowedNavigation = navigation.filter(item => {
+    if (item.href === "/saas-admin") {
+      return !!user?.isSystemAdmin;
+    }
+    return isRouteAllowed(item.href, userRole, user?.id);
+  });
 
   // Dynamic Route Protection Interception check
   const isEmployeeDetail = pathname.startsWith("/employees/");
@@ -636,10 +660,20 @@ export default function DashboardLayout({
   const isSelf = employeeId && user?.id && employeeId === user.id;
 
   const currentNavItem = navigation.find(item => pathname.startsWith(item.href));
-  const isCurrentAllowed = isSelf ? true : (currentNavItem ? isRouteAllowed(currentNavItem.href, userRole, user?.id) : true);
+  const isCurrentAllowed = isSelf 
+    ? true 
+    : (currentNavItem 
+        ? (currentNavItem.href === "/saas-admin" ? !!user?.isSystemAdmin : isRouteAllowed(currentNavItem.href, userRole, user?.id))
+        : true);
 
   // Grouped Navigation Layout for clean, non-scrolling UI
   const groupedNavigation = [
+    ...(user?.isSystemAdmin ? [{
+      title: "SaaS Owner",
+      items: [
+        { name: "SaaS Owner Admin", href: "/saas-admin", icon: ShieldAlert }
+      ]
+    }] : []),
     {
       title: "Core Operations",
       items: [
@@ -1022,6 +1056,25 @@ export default function DashboardLayout({
             </div>
           </header>
 
+        {/* Overdue warning banner */}
+        {!user?.isSystemAdmin && (user?.subscriptionStatus === 'OVERDUE' || (user?.daysUntilDue !== undefined && user.daysUntilDue <= 3 && user.paymentStatus !== 'PAID')) && (
+          <div 
+            onClick={() => {
+              fetchBillingHistory();
+              setIsLedgerModalOpen(true);
+            }}
+            className="bg-red-500/10 hover:bg-red-500/20 border-b border-red-500/30 text-red-400 text-xs py-3 px-6 font-bold cursor-pointer transition-colors duration-200 flex items-center justify-between animate-pulse flex-shrink-0"
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 animate-bounce" />
+              <span>⚠️ Attention: Aapki monthly subscription payment due hai. Details aur billing history dekhne ke liye yahan click karein.</span>
+            </div>
+            <span className="text-[10px] font-black uppercase border border-red-500/40 rounded px-2 py-0.5 tracking-wider hover:bg-red-500/20">
+              View Ledger
+            </span>
+          </div>
+        )}
+
         {/* Page Content with dynamic role interception */}
         <div className="flex-1 overflow-y-auto">
           {isCurrentAllowed ? (
@@ -1384,6 +1437,93 @@ export default function DashboardLayout({
           >
             <X className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+
+      {/* BILLING LEDGER MODAL */}
+      {isLedgerModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[9999] flex items-center justify-center p-4 animate-fade-in">
+          <div className="glass max-w-2xl w-full rounded-3xl border border-border/85 shadow-2xl p-6 text-left space-y-6 overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="flex justify-between items-center border-b border-border/40 pb-4">
+              <h3 className="text-lg font-black uppercase text-white tracking-widest flex items-center gap-2.5">
+                <Wallet className="w-5 h-5 text-primary glow-primary" />
+                Subscription Billing Ledger
+              </h3>
+              <button 
+                onClick={() => setIsLedgerModalOpen(false)}
+                className="p-1.5 rounded-xl hover:bg-secondary/40 text-muted-foreground hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current Billing status cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-2xl bg-secondary/10 border border-border/40 space-y-1">
+                <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">Subscription Status</span>
+                <p className={`text-base font-extrabold uppercase tracking-wide ${user?.subscriptionStatus === 'OVERDUE' ? 'text-red-400 font-black' : 'text-emerald-400'}`}>
+                  {user?.subscriptionStatus || 'ACTIVE'}
+                </p>
+              </div>
+              <div className="p-4 rounded-2xl bg-secondary/10 border border-border/40 space-y-1">
+                <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">Amount Pending</span>
+                <p className="text-base font-extrabold text-white">
+                  {user?.amountPending || 0} AED
+                </p>
+              </div>
+              <div className="p-4 rounded-2xl bg-secondary/10 border border-border/40 space-y-1">
+                <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">Days Until Due</span>
+                <p className={`text-base font-extrabold ${user?.daysUntilDue !== undefined && user.daysUntilDue <= 3 ? 'text-red-400 font-bold' : 'text-white'}`}>
+                  {user?.daysUntilDue !== undefined ? (user.daysUntilDue < 0 ? 'Overdue' : `${user.daysUntilDue} days`) : 'N/A'}
+                </p>
+              </div>
+            </div>
+
+            {/* Payment logs table */}
+            <div className="flex-1 overflow-y-auto min-h-[250px] scrollbar-thin space-y-4">
+              <h4 className="text-xs font-black uppercase tracking-wider text-muted-foreground">Recent Receipts & Payment History</h4>
+              {billingHistory.length === 0 ? (
+                <div className="p-8 text-center text-xs text-muted-foreground italic bg-secondary/5 border border-border/20 rounded-2xl">
+                  No payment logs registered yet.
+                </div>
+              ) : (
+                <div className="border border-border/40 rounded-2xl overflow-hidden bg-card/45">
+                  <table className="w-full text-xs text-left border-collapse">
+                    <thead>
+                      <tr className="bg-secondary/20 border-b border-border/40 font-bold uppercase text-[9px] tracking-wider text-muted-foreground">
+                        <th className="p-3">Date</th>
+                        <th className="p-3">Billing Period</th>
+                        <th className="p-3 text-right">Amount Received</th>
+                        <th className="p-3 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/20 font-medium">
+                      {billingHistory.map((item) => (
+                        <tr key={item.id} className="hover:bg-secondary/10 transition-colors">
+                          <td className="p-3 text-gray-300">
+                            {new Date(item.paymentDate).toLocaleDateString([], { dateStyle: 'medium' })}
+                          </td>
+                          <td className="p-3 text-gray-300">{item.billingPeriod}</td>
+                          <td className="p-3 text-right text-emerald-400 font-extrabold">{item.amount} AED</td>
+                          <td className="p-3 text-center">
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              {item.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="text-center pt-2">
+              <p className="text-[10px] text-muted-foreground italic">
+                Aapki subscription manual ledger update se track hoti hai. Agar aap payment kar chuke hain toh admin se coordinate karein.
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </div>

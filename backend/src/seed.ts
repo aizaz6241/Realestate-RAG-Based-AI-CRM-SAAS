@@ -59,6 +59,9 @@ async function main() {
     'Client',
     'DocumentVersion',
     'Document',
+    'SubscriptionPayment',
+    'Subscription',
+    'ApiUsageLog',
     'User',
     'Organization'
   ];
@@ -92,13 +95,13 @@ async function main() {
 
   // 4. Create Users for all core Roles
   const usersData = [
-    { email: "admin@zorvex.com", firstName: "Admin", lastName: "User", role: Role.SUPER_ADMIN },
-    { email: "aizazkhan6241@gmail.com", firstName: "Muhammad Aizaz", lastName: "Khan", role: Role.HR },
-    { email: "agent1@zorvex.com", firstName: "John", lastName: "Agent", role: Role.AGENT },
-    { email: "agent2@zorvex.com", firstName: "Sarah", lastName: "Agent", role: Role.AGENT },
-    { email: "manager@zorvex.com", firstName: "Robert", lastName: "Manager", role: Role.SALES_MANAGER },
-    { email: "sijad@gmail.com", firstName: "Sijad", lastName: "Ullah", role: Role.LOGISTICS },
-    { email: "finance@zorvex.com", firstName: "Faisal", lastName: "Finance", role: Role.FINANCE }
+    { email: "admin@zorvex.com", firstName: "Admin", lastName: "User", role: Role.SUPER_ADMIN, isSystemAdmin: true },
+    { email: "aizazkhan6241@gmail.com", firstName: "Muhammad Aizaz", lastName: "Khan", role: Role.HR, isSystemAdmin: false },
+    { email: "agent1@zorvex.com", firstName: "John", lastName: "Agent", role: Role.AGENT, isSystemAdmin: false },
+    { email: "agent2@zorvex.com", firstName: "Sarah", lastName: "Agent", role: Role.AGENT, isSystemAdmin: false },
+    { email: "manager@zorvex.com", firstName: "Robert", lastName: "Manager", role: Role.SALES_MANAGER, isSystemAdmin: false },
+    { email: "sijad@gmail.com", firstName: "Sijad", lastName: "Ullah", role: Role.LOGISTICS, isSystemAdmin: false },
+    { email: "finance@zorvex.com", firstName: "Faisal", lastName: "Finance", role: Role.FINANCE, isSystemAdmin: false }
   ];
 
   const users: { [key: string]: any } = {};
@@ -110,6 +113,7 @@ async function main() {
         firstName: u.firstName,
         lastName: u.lastName,
         role: u.role,
+        isSystemAdmin: u.isSystemAdmin,
         organizationId: org.id
       }
     });
@@ -685,6 +689,172 @@ async function main() {
     }
   });
   console.log(`📨 Seeded email & SMS templates`);
+
+  // 28. Seed SaaS Billing, Subscriptions, Payments & AI Usage Logs
+  console.log("🌱 Seeding SaaS Owner metrics...");
+  
+  // Zorvex Subscription (Active & Paid)
+  const zorvexSub = await prisma.subscription.create({
+    data: {
+      organizationId: org.id,
+      plan: "PREMIUM",
+      status: "ACTIVE",
+      monthlyPrice: 5000.0,
+      currency: "AED",
+      startDate: new Date("2026-01-01"),
+      nextBillingDate: new Date(Date.now() + 25 * 24 * 60 * 60 * 1000), // Due in 25 days
+      paymentStatus: "PAID",
+      amountPaidThisCycle: 5000.0,
+      amountPending: 0.0,
+      lastPaymentDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      contractTerms: "Zorvex Real Estate Ecosystem standard Premium agreement. Includes full CRM, floating AI assistant, and unlimited WhatsApp integrations."
+    }
+  });
+
+  await prisma.subscriptionPayment.createMany({
+    data: [
+      { subscriptionId: zorvexSub.id, amount: 5000.0, status: "SUCCESS", paymentDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), billingPeriod: "2026-06" },
+      { subscriptionId: zorvexSub.id, amount: 5000.0, status: "SUCCESS", paymentDate: new Date("2026-05-01"), billingPeriod: "2026-05" },
+      { subscriptionId: zorvexSub.id, amount: 5000.0, status: "SUCCESS", paymentDate: new Date("2026-04-01"), billingPeriod: "2026-04" },
+    ]
+  });
+
+  // Al Hamra Properties Organization (Overdue & Partial Payment)
+  const hamraOrg = await prisma.organization.create({
+    data: {
+      name: "Al Hamra Properties",
+      domain: "alhamra.ae"
+    }
+  });
+
+  const hamraAdmin = await prisma.user.create({
+    data: {
+      email: "admin@alhamra.ae",
+      passwordHash,
+      firstName: "Imran",
+      lastName: "Shaikh",
+      role: Role.SUPER_ADMIN,
+      isSystemAdmin: false,
+      organizationId: hamraOrg.id
+    }
+  });
+
+  const hamraSub = await prisma.subscription.create({
+    data: {
+      organizationId: hamraOrg.id,
+      plan: "STANDARD",
+      status: "OVERDUE",
+      monthlyPrice: 3000.0,
+      currency: "AED",
+      startDate: new Date("2026-03-01"),
+      nextBillingDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // Due 2 days ago!
+      paymentStatus: "PARTIAL",
+      amountPaidThisCycle: 1000.0,
+      amountPending: 2000.0,
+      lastPaymentDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // Paid 1000 yesterday
+      contractTerms: "Al Hamra Real Estate standard agreement. 3000 AED per month. Standard CRM features. Dedicated AI assistant included."
+    }
+  });
+
+  await prisma.subscriptionPayment.createMany({
+    data: [
+      { subscriptionId: hamraSub.id, amount: 1000.0, status: "SUCCESS", paymentDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), billingPeriod: "2026-06" }, // partial payment
+      { subscriptionId: hamraSub.id, amount: 3000.0, status: "SUCCESS", paymentDate: new Date("2026-05-02"), billingPeriod: "2026-05" },
+      { subscriptionId: hamraSub.id, amount: 3000.0, status: "SUCCESS", paymentDate: new Date("2026-04-02"), billingPeriod: "2026-04" },
+    ]
+  });
+
+  // Seed AI usage logs for last 30 days
+  const services = ["Ollama", "Gemini", "OpenAI"];
+  const models: Record<string, string> = {
+    Ollama: "meta-llama/llama-3.1-8b-instruct",
+    Gemini: "gemini-2.0-flash",
+    OpenAI: "gpt-4o-mini"
+  };
+
+  const usageLogs: any[] = [];
+  const now = new Date();
+  
+  for (let dayOffset = 30; dayOffset >= 0; dayOffset--) {
+    const logDate = new Date(now.getTime() - dayOffset * 24 * 60 * 60 * 1000);
+    
+    // Zorvex Usage
+    services.forEach(service => {
+      const isOllama = service === "Ollama";
+      const isGemini = service === "Gemini";
+      
+      const count = isOllama ? Math.floor(Math.random() * 40) + 15 
+                  : isGemini ? Math.floor(Math.random() * 25) + 5
+                  : Math.floor(Math.random() * 10) + 1;
+      
+      const promptTok = count * (Math.floor(Math.random() * 200) + 100);
+      const complTok = count * (Math.floor(Math.random() * 300) + 150);
+      
+      usageLogs.push({
+        organizationId: org.id,
+        userId: users["admin@zorvex.com"].id,
+        serviceName: service,
+        modelName: models[service],
+        type: "TEXT_GENERATION",
+        requestCount: count,
+        promptTokens: promptTok,
+        completionTokens: complTok,
+        totalTokens: promptTok + complTok,
+        createdAt: logDate
+      });
+      
+      const embedCount = count * 2;
+      const embedTokens = embedCount * 150;
+      usageLogs.push({
+        organizationId: org.id,
+        userId: users["admin@zorvex.com"].id,
+        serviceName: service,
+        modelName: isOllama ? "nomic-embed-text" : isGemini ? "gemini-embedding-001" : "text-embedding-3-small",
+        type: "EMBEDDING",
+        requestCount: embedCount,
+        promptTokens: embedTokens,
+        completionTokens: 0,
+        totalTokens: embedTokens,
+        createdAt: logDate
+      });
+    });
+
+    // Al Hamra Usage
+    services.forEach(service => {
+      const isOllama = service === "Ollama";
+      const isGemini = service === "Gemini";
+      
+      const count = isOllama ? Math.floor(Math.random() * 25) + 5 
+                  : isGemini ? Math.floor(Math.random() * 15) + 2
+                  : Math.floor(Math.random() * 5) + 1;
+      
+      const promptTok = count * (Math.floor(Math.random() * 180) + 80);
+      const complTok = count * (Math.floor(Math.random() * 250) + 120);
+      
+      usageLogs.push({
+        organizationId: hamraOrg.id,
+        userId: hamraAdmin.id,
+        serviceName: service,
+        modelName: models[service],
+        type: "TEXT_GENERATION",
+        requestCount: count,
+        promptTokens: promptTok,
+        completionTokens: complTok,
+        totalTokens: promptTok + complTok,
+        createdAt: logDate
+      });
+    });
+  }
+
+  const chunkSize = 50;
+  for (let i = 0; i < usageLogs.length; i += chunkSize) {
+    const chunk = usageLogs.slice(i, i + chunkSize);
+    await prisma.apiUsageLog.createMany({
+      data: chunk
+    });
+  }
+
+  console.log(`📊 Seeded ${usageLogs.length} AI API Usage Log items.`);
 
   console.log("✨ database seeding complete! 100% data fidelity reached. ✨");
 }

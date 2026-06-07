@@ -1,19 +1,41 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  handleRequest(err: any, user: any, info: any, context: any, status?: any) {
-    if (err || !user) {
-      console.warn("=== JWT AUTHENTICATION FAILURE ===");
-      console.warn("Error object:", err);
-      console.warn("User object:", user);
-      console.warn("Passport Info / Message:", info ? info.message : 'No info message available');
-      console.warn("Full info object:", info);
-      console.warn("==================================");
-      throw err || new UnauthorizedException(info?.message || 'Unauthorized');
+  constructor(private prisma: PrismaService) {
+    super();
+  }
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const passportActive = await super.canActivate(context);
+    if (!passportActive) return false;
+
+    const request = context.switchToHttp().getRequest();
+    const user = request.user;
+
+    if (!user) return false;
+
+    // SaaS system administrator bypasses subscription checks
+    if (user.isSystemAdmin) {
+      return true;
     }
-    return user;
+
+    // Check organization suspension status
+    if (user.organizationId) {
+      const subscription = await this.prisma.subscription.findUnique({
+        where: { organizationId: user.organizationId }
+      });
+
+      if (subscription && subscription.status === 'SUSPENDED') {
+        console.warn(`❌ [JwtAuthGuard] Suspended access attempt from organization: ${user.organizationId}`);
+        throw new UnauthorizedException('Your company subscription is suspended. Please contact the system administrator to resolve outstanding dues.');
+      }
+    }
+
+    return true;
   }
 }
+
 

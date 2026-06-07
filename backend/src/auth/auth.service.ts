@@ -33,7 +33,8 @@ export class AuthService {
       email: user.email, 
       sub: user.id, 
       role: user.role,
-      organizationId: user.organizationId 
+      organizationId: user.organizationId,
+      isSystemAdmin: user.isSystemAdmin
     };
     return {
       access_token: this.jwtService.sign(payload),
@@ -41,7 +42,8 @@ export class AuthService {
         id: user.id,
         email: user.email,
         role: user.role,
-        organizationId: user.organizationId
+        organizationId: user.organizationId,
+        isSystemAdmin: user.isSystemAdmin
       }
     };
   }

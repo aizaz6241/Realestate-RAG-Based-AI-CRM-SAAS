@@ -10,6 +10,41 @@ export class AiLlmService {
 
   constructor(private prisma: PrismaService) {}
 
+  private async logApiUsage(
+    organizationId: string | undefined,
+    userId: string | undefined,
+    serviceName: string,
+    modelName: string,
+    type: 'TEXT_GENERATION' | 'EMBEDDING',
+    promptLength: number,
+    completionLength: number
+  ) {
+    if (!organizationId) return;
+    
+    // Estimate tokens: roughly 1 token per 4 characters
+    const promptTokens = Math.ceil(promptLength / 4);
+    const completionTokens = Math.ceil(completionLength / 4);
+    const totalTokens = promptTokens + completionTokens;
+
+    try {
+      await this.prisma.apiUsageLog.create({
+        data: {
+          organizationId,
+          userId,
+          serviceName,
+          modelName,
+          type,
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          requestCount: 1
+        }
+      });
+    } catch (err) {
+      this.logger.error(`[ApiUsageLog] Failed to log API usage: ${err.message}`);
+    }
+  }
+
   // -----------------------------------------------------------------------------
   // Helpers: API Key & AI Settings Retrieval
   // -----------------------------------------------------------------------------
@@ -188,7 +223,11 @@ export class AiLlmService {
   // -----------------------------------------------------------------------------
   // Embeddings Generator (Ollama Local, Gemini Primary, OpenAI Fallback)
   // -----------------------------------------------------------------------------
-  async generateEmbedding(text: string): Promise<number[]> {
+  async generateEmbedding(
+    text: string,
+    organizationId?: string,
+    userId?: string
+  ): Promise<number[]> {
     if (!text.trim()) {
       return new Array(3072).fill(0);
     }
@@ -198,6 +237,7 @@ export class AiLlmService {
     if (mode === 'hybrid' || mode === 'local_only') {
       const localEmbedding = await this.generateLocalEmbedding(text);
       if (localEmbedding) {
+        await this.logApiUsage(organizationId, userId, "Ollama", this.getLocalLlmEmbeddingModel(), "EMBEDDING", text.length, 0);
         return localEmbedding;
       }
     }
@@ -223,6 +263,7 @@ export class AiLlmService {
           if (response.ok) {
             const data = await response.json();
             if (data?.embedding?.values) {
+              await this.logApiUsage(organizationId, userId, "Gemini", model, "EMBEDDING", text.length, 0);
               return data.embedding.values;
             }
           } else {
@@ -251,6 +292,7 @@ export class AiLlmService {
         if (response.ok) {
           const data = await response.json();
           if (data?.data?.[0]?.embedding) {
+            await this.logApiUsage(organizationId, userId, "OpenAI", "text-embedding-3-small", "EMBEDDING", text.length, 0);
             return data.data[0].embedding;
           }
         }
@@ -341,7 +383,7 @@ export class AiLlmService {
         return [];
       }
 
-      const queryVector = await this.generateEmbedding(query);
+      const queryVector = await this.generateEmbedding(query, organizationId);
       
       const chunks = await this.prisma.aiDocumentChunk.findMany({
         where: {
@@ -399,13 +441,17 @@ export class AiLlmService {
     systemPrompt: string,
     userPrompt: string,
     history: { role: 'user' | 'model'; content: string }[] = [],
-    forceCloud = false
+    forceCloud = false,
+    organizationId?: string,
+    userId?: string
   ): Promise<string> {
     const tier = forceCloud ? 'cloud' : this.determineExecutionTier(userPrompt, history);
+    const totalPromptLength = systemPrompt.length + userPrompt.length + history.reduce((sum, h) => sum + h.content.length, 0);
     
     if (tier === 'local') {
       try {
         const localResult = await this.callLocalLLM(systemPrompt, userPrompt, history);
+        await this.logApiUsage(organizationId, userId, "Ollama", this.getLocalLlmModel(), "TEXT_GENERATION", totalPromptLength, localResult.length);
         return localResult;
       } catch (err) {
         this.logger.warn(`Local LLM failed or offline. Falling back to Cloud suite...`);
@@ -453,6 +499,7 @@ export class AiLlmService {
             const data = await response.json();
             const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text) {
+              await this.logApiUsage(organizationId, userId, "Gemini", model, "TEXT_GENERATION", totalPromptLength, text.length);
               return text;
             }
           } else {
@@ -494,6 +541,7 @@ export class AiLlmService {
           const data = await response.json();
           const text = data?.choices?.[0]?.message?.content;
           if (text) {
+            await this.logApiUsage(organizationId, userId, "OpenAI", "gpt-4o-mini", "TEXT_GENERATION", totalPromptLength, text.length);
             return text;
           }
         }
@@ -505,6 +553,7 @@ export class AiLlmService {
     try {
       this.logger.warn(`Cloud suite completely failed. Attempting last resort fallback to Local/OpenRouter LLM...`);
       const localResult = await this.callLocalLLM(systemPrompt, userPrompt, history);
+      await this.logApiUsage(organizationId, userId, "Ollama", this.getLocalLlmModel(), "TEXT_GENERATION", totalPromptLength, localResult.length);
       return localResult;
     } catch (err) {
       this.logger.error(`Last resort Local/OpenRouter LLM fallback failed: ${err.message}`);

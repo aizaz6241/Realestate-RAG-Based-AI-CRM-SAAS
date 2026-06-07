@@ -41,8 +41,8 @@ export class AiService {
   // -----------------------------------------------------------------------------
   // Facade Delegations to support other modules & controllers cleanly
   // -----------------------------------------------------------------------------
-  async generateEmbedding(text: string): Promise<number[]> {
-    return this.llmService.generateEmbedding(text);
+  async generateEmbedding(text: string, organizationId?: string, userId?: string): Promise<number[]> {
+    return this.llmService.generateEmbedding(text, organizationId, userId);
   }
 
   async parsePdf(fileBuffer: Buffer): Promise<string> {
@@ -155,7 +155,7 @@ export class AiService {
         });
 
         if (!exists) {
-          const embedding = await this.llmService.generateEmbedding(bullet);
+          const embedding = await this.llmService.generateEmbedding(bullet, organizationId);
           await this.prisma.aiMemoryVector.create({
             data: {
               category,
@@ -176,9 +176,11 @@ export class AiService {
     systemPrompt: string,
     userPrompt: string,
     history: { role: 'user' | 'model'; content: string }[] = [],
-    forceCloud = false
+    forceCloud = false,
+    organizationId?: string,
+    userId?: string
   ): Promise<string> {
-    return this.llmService.callLLM(systemPrompt, userPrompt, history, forceCloud);
+    return this.llmService.callLLM(systemPrompt, userPrompt, history, forceCloud, organizationId, userId);
   }
 
   async findEmployeeFuzzy(nameQuery: string, organizationId: string): Promise<any[]> {
@@ -359,7 +361,9 @@ export class AiService {
   // -----------------------------------------------------------------------------
   async refineQuery(
     userMessage: string,
-    history: { role: 'user' | 'model'; content: string }[]
+    history: { role: 'user' | 'model'; content: string }[],
+    organizationId?: string,
+    userId?: string
   ): Promise<string> {
     if (history.length === 0) return userMessage;
 
@@ -381,7 +385,7 @@ INSTRUCTIONS:
 6. Output ONLY the refined, fully-explicit, and resolved query in the exact same language (e.g. English, Urdu, Roman Urdu) as the user's query. Do not add any preamble, conversational text, quotes, or markdown. Start directly with the resolved text.`;
 
     try {
-      const refined = await this.llmService.callLLM(systemPrompt, `Latest User Message: "${userMessage}"`, []);
+      const refined = await this.llmService.callLLM(systemPrompt, `Latest User Message: "${userMessage}"`, [], false, organizationId, userId);
       this.logger.log(`Query refined successfully: "${userMessage}" -> "${refined.trim()}"`);
       return refined.trim() || userMessage;
     } catch (err) {
@@ -452,7 +456,7 @@ Do not write markdown block backticks. Output raw JSON only.`;
       };
 
       try {
-        const analyzerResText = await this.llmService.callLLM(cognitiveAnalyzerPrompt, `Analyze message: "${userMessage}"`, [], false);
+        const analyzerResText = await this.llmService.callLLM(cognitiveAnalyzerPrompt, `Analyze message: "${userMessage}"`, [], false, organizationId, userId);
         const cleanAnalyzer = analyzerResText.trim();
         const jsonStart = cleanAnalyzer.indexOf('{');
         const jsonEnd = cleanAnalyzer.lastIndexOf('}');
@@ -503,7 +507,7 @@ Do not write markdown block backticks. Output raw JSON only.`;
       };
 
       try {
-        const orchestratorResText = await this.llmService.callLLM(executiveOrchestratorPrompt, `Plan execution graph based on analysis: ${JSON.stringify(analyzerResult)}`, [], false);
+        const orchestratorResText = await this.llmService.callLLM(executiveOrchestratorPrompt, `Plan execution graph based on analysis: ${JSON.stringify(analyzerResult)}`, [], false, organizationId, userId);
         const cleanOrch = orchestratorResText.trim();
         const jsonStart = cleanOrch.indexOf('{');
         const jsonEnd = cleanOrch.lastIndexOf('}');
@@ -808,7 +812,7 @@ Output only the follow-up suggestions.`;
 
     let proactiveSuggestions = '';
     try {
-      proactiveSuggestions = await this.llmService.callLLM(workflowPrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false);
+      proactiveSuggestions = await this.llmService.callLLM(workflowPrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false, organizationId, userId);
     } catch (e) {
       this.logger.warn(`Autonomous Workflow Engine suggestion failed: ${e.message}`);
     }
@@ -835,7 +839,7 @@ Instructions:
 
     let kpiAlignmentText = '';
     try {
-      kpiAlignmentText = await this.llmService.callLLM(kpiEnginePrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false);
+      kpiAlignmentText = await this.llmService.callLLM(kpiEnginePrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false, organizationId, userId);
     } catch (e) {
       this.logger.warn(`KPI Engine alignment check failed: ${e.message}`);
     }
@@ -885,7 +889,7 @@ ${memoryContext}
 Proactive Suggestions:
 ${proactiveSuggestions}`;
 
-    let responseText = await this.llmService.callLLM(composerPrompt, databaseFeedPrompt, history);
+    let responseText = await this.llmService.callLLM(composerPrompt, databaseFeedPrompt, history, false, organizationId, userId);
     let cleanedResponse = responseText.trim();
 
     cleanedResponse = cleanedResponse
@@ -906,7 +910,7 @@ ${proactiveSuggestions}`;
       if (combinedOpps.length > 0 || combinedRisks.length > 0) {
         const patternBullet = `[Pattern Sourced] Query: "${userMessage}". Detected Risks: ${combinedRisks.join(' | ')}. Opportunities: ${combinedOpps.join(' | ')}.`;
         if (patternBullet.length < 500) {
-          const embedding = await this.llmService.generateEmbedding(patternBullet);
+          const embedding = await this.llmService.generateEmbedding(patternBullet, organizationId, userId);
           await this.prisma.aiMemoryVector.create({
             data: {
               category: 'PATTERN:OPERATIONAL',
@@ -929,7 +933,7 @@ ${proactiveSuggestions}`;
 
     let finalSpoken: string | undefined = undefined;
     if (callPersona) {
-      finalSpoken = await this.generateSpokenSummary(cleanedResponse, userMessage);
+      finalSpoken = await this.generateSpokenSummary(cleanedResponse, userMessage, organizationId, userId);
     }
 
     return {
@@ -941,7 +945,12 @@ ${proactiveSuggestions}`;
     };
   }
 
-  private async generateSpokenSummary(writtenResponse: string, userQuery: string): Promise<string> {
+  private async generateSpokenSummary(
+    writtenResponse: string,
+    userQuery: string,
+    organizationId?: string,
+    userId?: string
+  ): Promise<string> {
     const systemPrompt = `You are a high-fidelity Text-to-Speech (TTS) summarization engine for a CRM ERP voice assistant call.
 The user asked: "${userQuery}"
 The system generated this comprehensive written response:
@@ -958,7 +967,7 @@ Your task is to generate a natural, conversational, spoken-audio response (spoke
 6. Does NOT output any markdown, brackets, checkboxes, code, headings, or json wrapper. Return ONLY the plain text to be spoken.`;
 
     try {
-      const summary = await this.callLLM(systemPrompt, "Summarize the above written response for natural speech.", [], false);
+      const summary = await this.callLLM(systemPrompt, "Summarize the above written response for natural speech.", [], false, organizationId, userId);
       return (summary || '').trim();
     } catch (err) {
       this.logger.error(`Failed to generate spoken summary: ${err.message}`);

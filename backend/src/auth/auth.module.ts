@@ -6,18 +6,20 @@ import { JwtModule } from '@nestjs/jwt';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AuthController } from './auth.controller';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
+    PrismaModule,
     JwtModule.registerAsync({
       useFactory: () => {
         const secret = process.env.JWT_SECRET || 'SECRET_KEY_FOR_DEV';
         console.log("JWTMODULE REGISTER SECRET IS:", secret);
         return {
           secret,
-          signOptions: { expiresIn: '60m' },
+          signOptions: { expiresIn: '1d' }, // Change session expiration to 1 day for convenience
         };
       },
     }),

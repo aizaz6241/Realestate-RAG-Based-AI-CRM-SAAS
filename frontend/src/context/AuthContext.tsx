@@ -12,6 +12,11 @@ interface User {
   organizationId: string;
   firstName?: string;
   lastName?: string;
+  isSystemAdmin?: boolean;
+  subscriptionStatus?: string;
+  daysUntilDue?: number;
+  amountPending?: number;
+  paymentStatus?: string;
 }
 
 interface AuthContextType {

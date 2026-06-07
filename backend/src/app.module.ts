@@ -16,9 +16,27 @@ import { ChatModule } from './chat/chat.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { AiModule } from './ai/ai.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { SaasAdminModule } from './saas-admin/saas-admin.module';
 
 @Module({
-  imports: [AuthModule, UsersModule, PrismaModule, EmployeesModule, PropertiesModule, LeadsModule, ClientsModule, TasksModule, OwnersModule, DocumentsModule, LogisticsModule, ChatModule, CalendarModule, AiModule, IntegrationsModule],
+  imports: [
+    AuthModule, 
+    UsersModule, 
+    PrismaModule, 
+    EmployeesModule, 
+    PropertiesModule, 
+    LeadsModule, 
+    ClientsModule, 
+    TasksModule, 
+    OwnersModule, 
+    DocumentsModule, 
+    LogisticsModule, 
+    ChatModule, 
+    CalendarModule, 
+    AiModule, 
+    IntegrationsModule,
+    SaasAdminModule
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

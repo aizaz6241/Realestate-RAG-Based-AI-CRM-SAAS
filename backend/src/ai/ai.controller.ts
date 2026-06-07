@@ -264,7 +264,7 @@ export class AiController {
 
       // 3. Generate embeddings and save each chunk in database
       for (const chunkText of chunks) {
-        const embedding = await this.aiService.generateEmbedding(chunkText);
+        const embedding = await this.aiService.generateEmbedding(chunkText, req.user.organizationId, req.user.id);
         await this.prisma.aiDocumentChunk.create({
           data: {
             content: chunkText,
@@ -354,7 +354,8 @@ export class AiController {
   async translate(
     @Body('text') text: string,
     @Body('from') from: string,
-    @Body('to') to: string
+    @Body('to') to: string,
+    @Request() req
   ) {
     if (!text || !text.trim()) {
       return { translatedText: '' };
@@ -365,7 +366,7 @@ Translate the user's input phrase from "${from}" to "${to}".
 Provide ONLY the translated text as the output. Do NOT include any extra explanations, notes, punctuation, or wrappers. Just return the translated text directly.`;
 
     try {
-      const translatedText = await this.aiService.callLLM(systemPrompt, text, [], false);
+      const translatedText = await this.aiService.callLLM(systemPrompt, text, [], false, req.user.organizationId, req.user.id);
       return { translatedText: (translatedText || '').trim() };
     } catch (err) {
       return { translatedText: text }; // Fallback to original text on failure
