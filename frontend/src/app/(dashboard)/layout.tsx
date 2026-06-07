@@ -32,7 +32,8 @@ import {
   Moon,
   Cable,
   Coins,
-  PhoneCall
+  PhoneCall,
+  Settings
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -88,6 +89,8 @@ const isRouteAllowed = (href: string, role: string, userId?: string) => {
     case "/finance":
       return ["SUPER_ADMIN", "ADMIN", "FINANCE"].includes(role);
     case "/integrations":
+      return ["SUPER_ADMIN", "ADMIN"].includes(role);
+    case "/settings":
       return ["SUPER_ADMIN", "ADMIN"].includes(role);
     default:
       return true;
@@ -640,6 +643,7 @@ export default function DashboardLayout({
     { name: "Tasks", href: "/tasks", icon: CheckSquare },
     { name: "Calendar Terminal", href: "/calendar", icon: Calendar },
     { name: "Documents Vault", href: "/documents", icon: Folder },
+    { name: "Company Settings", href: "/settings", icon: Settings },
     { name: "Operations & Logistics", href: "/logistics", icon: Truck },
     { name: "Chat Terminal", href: "/chat", icon: MessageSquare },
     { name: "AI Chat Assistant", href: "/assistant", icon: Bot },
@@ -699,6 +703,7 @@ export default function DashboardLayout({
         { name: "Employees", href: "/employees", icon: Users },
         { name: "Finance & Payroll", href: "/finance", icon: Wallet },
         { name: "Documents Vault", href: "/documents", icon: Folder },
+        { name: "Company Settings", href: "/settings", icon: Settings },
       ]
     },
     {

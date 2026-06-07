@@ -77,7 +77,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     Cookies.set("access_token", newToken, { expires: 1 });
     Cookies.set("user", JSON.stringify(newUser), { expires: 1 });
     axios.defaults.headers.common["Authorization"] = `Bearer ${newToken}`;
-    router.push("/dashboard"); // Redirect to dashboard
+    if (newUser.isSystemAdmin) {
+      router.push("/saas-admin");
+    } else {
+      router.push("/dashboard");
+    }
   };
 
   const logout = () => {

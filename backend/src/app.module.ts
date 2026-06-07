@@ -17,6 +17,7 @@ import { CalendarModule } from './calendar/calendar.module';
 import { AiModule } from './ai/ai.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { SaasAdminModule } from './saas-admin/saas-admin.module';
+import { OrganizationModule } from './organization/organization.module';
 
 @Module({
   imports: [
@@ -35,7 +36,8 @@ import { SaasAdminModule } from './saas-admin/saas-admin.module';
     CalendarModule, 
     AiModule, 
     IntegrationsModule,
-    SaasAdminModule
+    SaasAdminModule,
+    OrganizationModule
   ],
   controllers: [AppController],
   providers: [AppService],
