@@ -661,6 +661,45 @@ export class IntegrationsService {
             });
           }
         }
+
+        else if (funcName === 'send_email') {
+          const { leadId, email, subject, message: emailContent } = args;
+          this.logger.log(`Tool call 'send_email' for lead ${leadId} to ${email}`);
+          try {
+            const organizationId = callDetails?.metadata?.organizationId || (await this.resolveOrgIdFromCall(callDetails));
+            
+            // 1. If email is provided and differs from lead's email, update the lead's email in CRM
+            if (leadId && leadId !== 'lead_123' && email) {
+              const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
+              if (lead && lead.email !== email) {
+                await this.prisma.lead.update({
+                  where: { id: leadId },
+                  data: { email }
+                });
+              }
+            }
+
+            // 2. Call simulateEmail to log the activity and simulate SMTP delivery
+            const result = await this.simulateEmail(
+              organizationId,
+              leadId,
+              '', // templateId is empty string for custom email content
+              subject || 'Viewing Details - Renz Properties',
+              emailContent
+            );
+
+            results.push({
+              toolCallId: toolCall.id,
+              result: { status: 'success', message: 'Email sent successfully' }
+            });
+          } catch (err) {
+            this.logger.error(`Failed to send email: ${err.message}`);
+            results.push({
+              toolCallId: toolCall.id,
+              result: { error: `Failed to send email: ${err.message}` }
+              });
+            }
+          }
       }
       return { results };
     }
