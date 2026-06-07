@@ -762,6 +762,22 @@ Do not write markdown block backticks. Output raw JSON only.`;
     const toolExecuted = primaryResult ? primaryResult.tool : null;
     const toolData = primaryResult ? primaryResult.data : null;
 
+    let isFallback = false;
+    let fallbackOrigLoc = '';
+    let fallbackAreas: string[] = [];
+
+    if (toolData) {
+      if (toolData.isNearbyFallback) {
+        isFallback = true;
+        fallbackOrigLoc = toolData.originalLocation;
+        fallbackAreas = toolData.nearbyLocationsSearched;
+      } else if (toolData.rows && toolData.rows.isNearbyFallback) {
+        isFallback = true;
+        fallbackOrigLoc = toolData.rows.originalLocation;
+        fallbackAreas = toolData.rows.nearbyLocationsSearched;
+      }
+    }
+
     // STEP 5 — REAL ESTATE INTELLIGENCE CORE (PRE-RESPONSE LAYER)
     let properties: any[] = [];
     let leads: any[] = [];
@@ -854,6 +870,7 @@ STRICT STYLE RULES:
 2. Responds in the EXACT SAME LANGUAGE as the user's message (e.g. English, Roman Urdu, or Urdu).
 3. Do NOT use headers like "Direct Answer", "Analytical Insight", "Suggested Action", or markdown checkboxes. Banish all background operational JSON blocks, tools, column names, SQL references, and technical parameters.
 4. Integrate the executive decision insights (Risks: ${JSON.stringify(execAnalysis.risks.concat(reIntelligence.listingHealth).concat(reIntelligence.inventoryAging))}, Opportunities: ${JSON.stringify(execAnalysis.opportunities.concat(reIntelligence.leadConversion).concat(reIntelligence.areaIntelligence))}, Recommendations: ${JSON.stringify(execAnalysis.recommendations)}) and proactiveSuggestions naturally into conversational paragraphs.
+${isFallback ? `5. DUBAI REAL ESTATE PROXIMITY ADVICE: The user queried properties in "${fallbackOrigLoc}". Since no listings are currently available in "${fallbackOrigLoc}" in our database, Zorvex automatically searched adjacent locations: [${fallbackAreas.join(', ')}]. Explain this to the user clearly (in the matching query language), informing them that while no properties are in "${fallbackOrigLoc}", we have options in these adjacent prime areas.` : ''}
 5. Ingest the KPI alignment insights (${kpiAlignmentText}) to highlight alignment or suggest better action.
 6. End with a warm follow-up question.`;
 

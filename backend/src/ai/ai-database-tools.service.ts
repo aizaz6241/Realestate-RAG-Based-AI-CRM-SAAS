@@ -3,6 +3,41 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { ZorvexGateway } from './zorvex.gateway';
 
+const DUBAI_PROXIMITY_MAP: Record<string, string[]> = {
+  'marina': ['JBR', 'Palm Jumeirah', 'JLT', 'Al Sufouh', 'Jumeirah Beach Residence', 'Jumeirah Lake Towers'],
+  'dubai marina': ['JBR', 'Palm Jumeirah', 'JLT', 'Al Sufouh', 'Jumeirah Beach Residence', 'Jumeirah Lake Towers'],
+  'jbr': ['Dubai Marina', 'Palm Jumeirah', 'JLT', 'Jumeirah Beach Residence'],
+  'jumeirah beach residence': ['Dubai Marina', 'Palm Jumeirah', 'JLT', 'JBR'],
+  'jlt': ['Dubai Marina', 'JBR', 'Springs', 'Meadows', 'Jumeirah Lake Towers'],
+  'jumeirah lake towers': ['Dubai Marina', 'JBR', 'Springs', 'Meadows', 'JLT'],
+  'downtown': ['Business Bay', 'DIFC', 'Al Wasl', 'City Walk'],
+  'downtown dubai': ['Business Bay', 'DIFC', 'Al Wasl', 'City Walk'],
+  'business bay': ['Downtown Dubai', 'DIFC', 'Al Wasl', 'Jumeirah'],
+  'difc': ['Downtown Dubai', 'Business Bay', 'Trade Centre'],
+  'palm jumeirah': ['Dubai Marina', 'JBR', 'Al Sufouh'],
+  'dubai hills': ['Arabian Ranches', 'Al Barsha', 'Motor City'],
+  'dubai hills estate': ['Arabian Ranches', 'Al Barsha', 'Motor City'],
+  'arabian ranches': ['Dubai Hills Estate', 'Motor City', 'Sports City'],
+  'al barsha': ['Dubai Hills Estate', 'JLT', 'Al Sufouh'],
+  'jumeirah': ['Al Wasl', 'Business Bay', 'City Walk']
+};
+
+function getNearbyLocations(location: string): string[] {
+  const clean = location.trim().toLowerCase();
+  
+  if (DUBAI_PROXIMITY_MAP[clean]) {
+    return DUBAI_PROXIMITY_MAP[clean];
+  }
+
+  for (const key of Object.keys(DUBAI_PROXIMITY_MAP)) {
+    if (clean.includes(key) || key.includes(clean)) {
+      return DUBAI_PROXIMITY_MAP[key];
+    }
+  }
+
+  return [];
+}
+
 @Injectable()
 export class AiDatabaseToolsService {
   private readonly logger = new Logger(AiDatabaseToolsService.name);
@@ -211,21 +246,25 @@ export class AiDatabaseToolsService {
           const parsedBedrooms = bedrooms ? parseInt(bedrooms) : undefined;
           const parsedBathrooms = bathrooms ? parseInt(bathrooms) : undefined;
 
-          return this.prisma.property.findMany({
+          const baseQueryWhere: any = {
+            organizationId,
+            status: status === 'AVAILABLE'
+              ? { in: ['PUBLISHED', 'AVAILABLE'] } as any
+              : (status || undefined),
+            type: type || undefined,
+            listingType: listingType || undefined,
+            price: (minPrice || maxPrice) ? {
+              gte: minPrice ? parseFloat(minPrice) : undefined,
+              lte: maxPrice ? parseFloat(maxPrice) : undefined,
+            } : undefined,
+            bedrooms: (parsedBedrooms && parsedBedrooms > 0) ? parsedBedrooms : undefined,
+            bathrooms: (parsedBathrooms && parsedBathrooms > 0) ? parsedBathrooms : undefined,
+          };
+
+          const results = await this.prisma.property.findMany({
             where: {
-              organizationId,
-              status: status === 'AVAILABLE'
-                ? { in: ['PUBLISHED', 'AVAILABLE'] } as any
-                : (status || undefined),
-              type: type || undefined,
-              listingType: listingType || undefined,
+              ...baseQueryWhere,
               location: searchLocation ? { contains: searchLocation, mode: 'insensitive' } : undefined,
-              price: (minPrice || maxPrice) ? {
-                gte: minPrice ? parseFloat(minPrice) : undefined,
-                lte: maxPrice ? parseFloat(maxPrice) : undefined,
-              } : undefined,
-              bedrooms: (parsedBedrooms && parsedBedrooms > 0) ? parsedBedrooms : undefined,
-              bathrooms: (parsedBathrooms && parsedBathrooms > 0) ? parsedBathrooms : undefined,
             },
             include: {
               owner: {
@@ -235,6 +274,38 @@ export class AiDatabaseToolsService {
             orderBy: { createdAt: 'desc' },
             take: 8,
           });
+
+          if (results.length === 0 && searchLocation) {
+            const cleanLoc = searchLocation.trim().toLowerCase();
+            const nearby = getNearbyLocations(cleanLoc);
+            if (nearby && nearby.length > 0) {
+              const nearbyResults = await this.prisma.property.findMany({
+                where: {
+                  ...baseQueryWhere,
+                  OR: nearby.map(loc => ({
+                    location: { contains: loc, mode: 'insensitive' }
+                  }))
+                },
+                include: {
+                  owner: {
+                    select: { name: true, phone: true },
+                  },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 8,
+              });
+
+              if (nearbyResults.length > 0) {
+                const fallbackArray = [...nearbyResults];
+                (fallbackArray as any).isNearbyFallback = true;
+                (fallbackArray as any).originalLocation = searchLocation;
+                (fallbackArray as any).nearbyLocationsSearched = nearby;
+                return fallbackArray;
+              }
+            }
+          }
+
+          return results;
         }
 
         case 'searchClients': {
@@ -963,7 +1034,59 @@ export class AiDatabaseToolsService {
                     return copy;
                   });
                 } else {
-                  queryResults[entityRaw] = records;
+                  if (entityKey === 'property' && records.length === 0 && cleanFilters.location) {
+                    let queryLocationStr: string | undefined = undefined;
+                    const locFilter = cleanFilters.location;
+                    if (typeof locFilter === 'string') {
+                      queryLocationStr = locFilter;
+                    } else if (typeof locFilter === 'object') {
+                      if (locFilter.contains && typeof locFilter.contains === 'string') {
+                        queryLocationStr = locFilter.contains;
+                      } else if (locFilter.equals && typeof locFilter.equals === 'string') {
+                        queryLocationStr = locFilter.equals;
+                      }
+                    }
+
+                    if (queryLocationStr) {
+                      const nearby = getNearbyLocations(queryLocationStr);
+                      if (nearby.length > 0) {
+                        const fallbackWhereClause = { ...whereClause };
+                        delete fallbackWhereClause.location;
+                        fallbackWhereClause.OR = nearby.map(loc => ({
+                          location: { contains: loc, mode: 'insensitive' }
+                        }));
+
+                        const nearbyRecords = await modelDelegate.findMany({
+                          where: fallbackWhereClause,
+                          include: includeOptions,
+                          take: limit,
+                          orderBy: { createdAt: 'desc' } as any
+                        }).catch(async () => {
+                          return await modelDelegate.findMany({
+                            where: fallbackWhereClause,
+                            include: includeOptions,
+                            take: limit
+                          });
+                        });
+
+                        if (nearbyRecords.length > 0) {
+                          const fallbackArray = [...nearbyRecords];
+                          (fallbackArray as any).isNearbyFallback = true;
+                          (fallbackArray as any).originalLocation = queryLocationStr;
+                          (fallbackArray as any).nearbyLocationsSearched = nearby;
+                          queryResults[entityRaw] = fallbackArray;
+                        } else {
+                          queryResults[entityRaw] = records;
+                        }
+                      } else {
+                        queryResults[entityRaw] = records;
+                      }
+                    } else {
+                      queryResults[entityRaw] = records;
+                    }
+                  } else {
+                    queryResults[entityRaw] = records;
+                  }
                 }
               }
             } catch (err) {
