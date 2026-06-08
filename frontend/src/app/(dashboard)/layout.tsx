@@ -652,8 +652,11 @@ export default function DashboardLayout({
   ];
   // Dynamic filtration of sidebar links
   const allowedNavigation = navigation.filter(item => {
+    if (user?.isSystemAdmin) {
+      return item.href === "/saas-admin";
+    }
     if (item.href === "/saas-admin") {
-      return !!user?.isSystemAdmin;
+      return false;
     }
     return isRouteAllowed(item.href, userRole, user?.id);
   });
@@ -664,58 +667,63 @@ export default function DashboardLayout({
   const isSelf = employeeId && user?.id && employeeId === user.id;
 
   const currentNavItem = navigation.find(item => pathname.startsWith(item.href));
-  const isCurrentAllowed = isSelf 
-    ? true 
-    : (currentNavItem 
-        ? (currentNavItem.href === "/saas-admin" ? !!user?.isSystemAdmin : isRouteAllowed(currentNavItem.href, userRole, user?.id))
-        : true);
+  const isCurrentAllowed = user?.isSystemAdmin
+    ? (pathname === "/saas-admin" || pathname.startsWith("/saas-admin"))
+    : (isSelf 
+        ? true 
+        : (currentNavItem 
+            ? (currentNavItem.href === "/saas-admin" ? false : isRouteAllowed(currentNavItem.href, userRole, user?.id))
+            : true));
 
   // Grouped Navigation Layout for clean, non-scrolling UI
-  const groupedNavigation = [
-    ...(user?.isSystemAdmin ? [{
-      title: "SaaS Owner",
-      items: [
-        { name: "SaaS Owner Admin", href: "/saas-admin", icon: ShieldAlert }
+  const groupedNavigation = user?.isSystemAdmin
+    ? [
+        {
+          title: "SaaS Owner",
+          items: [
+            { name: "SaaS Owner Admin", href: "/saas-admin", icon: ShieldAlert }
+          ]
+        }
       ]
-    }] : []),
-    {
-      title: "Core Operations",
-      items: [
-        { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-        { name: "My Profile", href: `/employees/${user?.id || ""}`, icon: UserCircle },
-        { name: "Calendar Terminal", href: "/calendar", icon: Calendar },
-        { name: "Chat Terminal", href: "/chat", icon: MessageSquare },
-      ]
-    },
-    {
-      title: "Sales & CRM",
-      items: [
-        { name: "Leads CRM", href: "/leads", icon: Target },
-        { name: "Buyers & Tenants CRM", href: "/clients", icon: Users },
-        { name: "Owners & Sellers", href: "/owners", icon: Handshake },
-        { name: "Properties", href: "/properties", icon: Building2 },
-      ]
-    },
-    {
-      title: "Administration",
-      items: [
-        { name: "Tasks Checklist", href: "/tasks", icon: CheckSquare },
-        { name: "Employees", href: "/employees", icon: Users },
-        { name: "Finance & Payroll", href: "/finance", icon: Wallet },
-        { name: "Documents Vault", href: "/documents", icon: Folder },
-        { name: "Company Settings", href: "/settings", icon: Settings },
-      ]
-    },
-    {
-      title: "Logistics & Hubs",
-      items: [
-        { name: "Operations & Logistics", href: "/logistics", icon: Truck },
-        { name: "AI Chat Assistant", href: "/assistant", icon: Bot },
-        { name: "Vapi Call Logs", href: "/assistant/call-logs", icon: PhoneCall },
-        { name: "Integrations Hub", href: "/integrations", icon: Cable },
-      ]
-    }
-  ];
+    : [
+        {
+          title: "Core Operations",
+          items: [
+            { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+            { name: "My Profile", href: `/employees/${user?.id || ""}`, icon: UserCircle },
+            { name: "Calendar Terminal", href: "/calendar", icon: Calendar },
+            { name: "Chat Terminal", href: "/chat", icon: MessageSquare },
+          ]
+        },
+        {
+          title: "Sales & CRM",
+          items: [
+            { name: "Leads CRM", href: "/leads", icon: Target },
+            { name: "Buyers & Tenants CRM", href: "/clients", icon: Users },
+            { name: "Owners & Sellers", href: "/owners", icon: Handshake },
+            { name: "Properties", href: "/properties", icon: Building2 },
+          ]
+        },
+        {
+          title: "Administration",
+          items: [
+            { name: "Tasks Checklist", href: "/tasks", icon: CheckSquare },
+            { name: "Employees", href: "/employees", icon: Users },
+            { name: "Finance & Payroll", href: "/finance", icon: Wallet },
+            { name: "Documents Vault", href: "/documents", icon: Folder },
+            { name: "Company Settings", href: "/settings", icon: Settings },
+          ]
+        },
+        {
+          title: "Logistics & Hubs",
+          items: [
+            { name: "Operations & Logistics", href: "/logistics", icon: Truck },
+            { name: "AI Chat Assistant", href: "/assistant", icon: Bot },
+            { name: "Vapi Call Logs", href: "/assistant/call-logs", icon: PhoneCall },
+            { name: "Integrations Hub", href: "/integrations", icon: Cable },
+          ]
+        }
+      ];
 
   // Map each group to only include allowed routes, filtering out empty groups
   const groupedAllowedNavigation = groupedNavigation.map(group => ({
@@ -810,7 +818,7 @@ export default function DashboardLayout({
             </div>
             <div className="overflow-hidden">
               <p className="text-sm font-semibold truncate">{user?.email || "Admin User"}</p>
-              <p className="text-xs text-muted-foreground truncate">{user?.role || "ADMIN"}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.isSystemAdmin ? "SaaS Owner" : (user?.role || "ADMIN")}</p>
             </div>
           </div>
           <button
