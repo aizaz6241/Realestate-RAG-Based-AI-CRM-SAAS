@@ -401,7 +401,7 @@ INSTRUCTIONS:
     activeLead: any;
     activeMeeting: any;
   }>();
-    async chat(
+  async chat(
     userMessage: string,
     userId: string,
     organizationId: string,
@@ -413,10 +413,16 @@ INSTRUCTIONS:
     try {
       this.logger.log(`Starting Zorvex-AOS v7 cognitive operating system pipeline for: "${userMessage}"`);
 
+      // STEP 0 — CONTEXT-AWARE QUERY REFINEMENT (PRONOUN & REFERENCE RESOLUTION)
+      const refinedMessage = await this.refineQuery(userMessage, history, organizationId, userId);
+      const rawUserMessage = userMessage; // save original raw message for history
+      userMessage = refinedMessage; // use refined message throughout pipeline
+
       // STEP 1 — COGNITIVE ANALYZER (SINGLE LLM CALL)
+      const currentDateTimeStr = new Date().toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
       const cognitiveAnalyzerPrompt = `You are the Zorvex AOS v7 Cognitive Analyzer (Step 1).
 Analyze the user message, resolve references/pronouns from context history, and output structured JSON.
-Current Date: ${new Date().toLocaleString()}
+Current Date/Time context: ${currentDateTimeStr}
 
 CONVERSATIONAL CONTEXT HISTORY:
 ${JSON.stringify(history)}
@@ -424,16 +430,29 @@ ${JSON.stringify(history)}
 User Query: "${userMessage}"
 
 INSTRUCTIONS:
-1. Detect intent: "task" (performing actions/writing), "assistant" (explaining/reading), or "hybrid" (both).
+1. Detect intent: 
+   - "INFO_LOOKUP": Simple search or retrieval of database records, counting, or displaying specific data (e.g. employee list, attendance lookup, properties list, tasks board status).
+   - "ACTION_REQUEST": Performing operations like creating meetings, creating tasks, updates, alerts, reminders, scheduling.
+   - "ANALYTICS_REQUEST": Comparing data, aggregating performance metrics, assessing growth patterns, showing trends.
+   - "EXECUTIVE_REQUEST": High-level strategic risks, opportunities, overall company performance advisory, strategy reports.
+   - "CONVERSATIONAL": Greetings, chitchat, simple voice checks, non-business general questions.
+   - "SYSTEM_HELP": Asking what the bot can do or how to use the system.
+
 2. Extract entities (people, clients, properties, locations, dates, departments).
-3. Resolve Roman Urdu or spelling variants (e.g. "meri na" -> "Dubai Marina").
-4. Identify actions required (e.g. search, create, update, alert).
-5. Assess complexity: "low", "medium", or "high".
-6. Set confidence score (0-100).
+
+3. Resolve relative dates/times from user query using the current local time context:
+   - "tomorrow", "today", "next Monday", "this Friday", "10 June", "10th June", "June 10", "tomorrow at 10 AM", etc.
+   - For any target action or task, compute the exact ISO 8601 string (with current timezone offset, e.g. +05:00).
+   - Place these calculated datetime strings inside the "parameters" field under descriptive keys:
+     - For tasks: "dueDate" (e.g. "2026-06-10T18:00:00+05:00").
+     - For meetings: "startTime" (e.g. "2026-06-10T10:00:00+05:00") and "endTime" (default to 1 hour after startTime if not specified, e.g. "2026-06-10T11:00:00+05:00").
+
+4. Assess complexity: "low", "medium", or "high".
+5. Set confidence score (0-100) reflecting how clear, unambiguous, and fully specified the user query is. Be strict: if there is missing data or vague intent, set confidence under 60.
 
 Output strictly in JSON:
 {
-  "intent": "task | assistant | hybrid",
+  "intent": "INFO_LOOKUP | ACTION_REQUEST | ANALYTICS_REQUEST | EXECUTIVE_REQUEST | CONVERSATIONAL | SYSTEM_HELP",
   "entities": [],
   "actions_required": [],
   "complexity": "low | medium | high",
@@ -445,7 +464,7 @@ Output strictly in JSON:
 Do not write markdown block backticks. Output raw JSON only.`;
 
       let analyzerResult = {
-        intent: 'assistant',
+        intent: 'INFO_LOOKUP',
         entities: [] as any[],
         actions_required: [] as string[],
         complexity: 'medium',
@@ -467,9 +486,65 @@ Do not write markdown block backticks. Output raw JSON only.`;
         this.logger.warn(`Cognitive Analyzer failed: ${err.message}. Using default values.`);
       }
 
+      // Fast Lane Greetings & Voice Bypass Checks
+      const isVoiceCheck = ["can you hear me", "voice test", "mic check", "connection check"].some(phrase => userMessage.toLowerCase().includes(phrase));
+      const isGreeting = ["hello", "hi", "salam", "hey", "assalam o alaikum", "aoa"].some(phrase => userMessage.toLowerCase().trim() === phrase || userMessage.toLowerCase().trim().startsWith(phrase + " "));
+
+      // STEP 1.5 — CONFIDENCE ENGINE ENFORCEMENT & INTENT BYPASS
+      if (analyzerResult.confidence < 60) {
+        const systemPrompt = `You are the Zorvex Low-Confidence Responder.
+State clearly that you could not find enough information, and ask a relevant follow-up question to clarify the user's intent.
+Keep the response extremely short, human, and professional in the user's language.`;
+        const lowConfText = await this.llmService.callLLM(systemPrompt, `User Query: "${userMessage}"`, [], false, organizationId, userId);
+        let finalLowConf = lowConfText.trim();
+        if (!finalLowConf.toLowerCase().includes("could not find enough") && !finalLowConf.toLowerCase().includes("kafi maloomat nahi")) {
+          finalLowConf = `I could not find enough information. ${finalLowConf}`;
+        }
+        return {
+          response: finalLowConf,
+          spokenResponse: callPersona ? finalLowConf : undefined,
+          toolExecuted: null,
+          toolData: null,
+          citations: []
+        };
+      }
+
+      if (analyzerResult.intent === 'CONVERSATIONAL' || isGreeting || isVoiceCheck) {
+        const name = (await this.prisma.user.findUnique({ where: { id: userId } }))?.firstName || 'Admin';
+        const systemPrompt = `You are the Zorvex Conversational Responder.
+Acknowledge user greeting or query naturally.
+Maintain an Executive Assistant tone (50% ChatGPT, 25% Executive Assistant, 15% Business Analyst, 10% COO).
+Matches the language of the user's query (e.g. English, Roman Urdu).
+Keep it short, direct, and human.`;
+        const responseText = await this.llmService.callLLM(systemPrompt, `User message: "${userMessage}". User Name: "${name}"`, [], false, organizationId, userId);
+        return {
+          response: responseText.trim(),
+          spokenResponse: callPersona ? responseText.trim() : undefined,
+          toolExecuted: null,
+          toolData: null,
+          citations: []
+        };
+      }
+
+      if (analyzerResult.intent === 'SYSTEM_HELP') {
+        const systemPrompt = `You are the Zorvex System Help Guide.
+Explain concisely what tasks and modules you can help the user with (Real Estate Listings, Meetings, Tasks, Logistics, Finance, Attendance).
+Matches the language of the user's query (e.g. English, Roman Urdu).
+Keep it extremely short, professional, and clear.`;
+        const responseText = await this.llmService.callLLM(systemPrompt, `User query: "${userMessage}"`, [], false, organizationId, userId);
+        return {
+          response: responseText.trim(),
+          spokenResponse: callPersona ? responseText.trim() : undefined,
+          toolExecuted: null,
+          toolData: null,
+          citations: []
+        };
+      }
+
       // STEP 2 — EXECUTIVE ORCHESTRATOR
       const executiveOrchestratorPrompt = `You are the Zorvex AOS v7 Executive Orchestrator (Step 2).
 Based on the cognitive analysis, plan the execution graph (step-by-step tool calls).
+Crucial: If parameters (like dueDate, startTime, endTime, title, employeeName, etc.) were already computed in the Cognitive Analyzer parameters object: ${JSON.stringify(analyzerResult.parameters)}, you MUST map and use those pre-computed values exactly for tool parameters instead of raw strings.
 
 Available Tools:
 - "searchEmployees" (params: { name, designation, department })
@@ -516,30 +591,6 @@ Do not write markdown block backticks. Output raw JSON only.`;
         }
       } catch (err) {
         this.logger.warn(`Executive Orchestrator planning failed: ${err.message}. Using default.`);
-      }
-
-      // Fast Lane Bypass for Greetings & Simple Voice Checks
-      const isVoiceCheck = ["can you hear me", "voice test", "mic check", "connection check"].some(phrase => userMessage.toLowerCase().includes(phrase));
-      const isGreeting = ["hello", "hi", "salam", "hey", "assalam o alaikum", "aoa"].some(phrase => userMessage.toLowerCase().trim() === phrase || userMessage.toLowerCase().trim().startsWith(phrase + " "));
-
-      if (isGreeting) {
-        const name = (await this.prisma.user.findUnique({ where: { id: userId } }))?.firstName || 'Admin';
-        return {
-          response: userMessage.toLowerCase().includes("salam") || userMessage.toLowerCase().includes("aoa")
-            ? `Walaikum Assalam ${name}! Welcome to Zorvex v7. How can I assist you with your corporate real estate operations today?`
-            : `Hello ${name}! Welcome to Zorvex v7 Cognitive Operating System. How can I assist you with your operations today?`,
-          toolExecuted: null,
-          toolData: null,
-          citations: []
-        };
-      }
-      if (isVoiceCheck) {
-        return {
-          response: "Yes, I can hear you clearly. How can I help you?",
-          toolExecuted: null,
-          toolData: null,
-          citations: []
-        };
       }
 
       // STEP 3 & 4 & 8 — MULTI-TOOL PARALLEL EXECUTION ENGINE & QUERY PLANNING LAYER & HUMAN APPROVAL GATE
@@ -619,7 +670,8 @@ Do not write markdown block backticks. Output raw JSON only.`;
         history,
         orchestratorResult.requiredAgents,
         executedResults,
-        callPersona
+        callPersona,
+        analyzerResult.intent
       );
 
     } catch (err) {
@@ -705,7 +757,8 @@ Do not write markdown block backticks. Output raw JSON only.`;
         history,
         [], 
         executedResults,
-        callPersona
+        callPersona,
+        'ACTION_REQUEST'
       );
 
       // Save history if active session
@@ -760,7 +813,8 @@ Do not write markdown block backticks. Output raw JSON only.`;
     history: { role: 'user' | 'model'; content: string }[],
     requiredAgents: string[],
     executedResults: any[],
-    callPersona?: string
+    callPersona?: string,
+    intent?: string
   ): Promise<any> {
     const primaryResult = executedResults[0] || null;
     const toolExecuted = primaryResult ? primaryResult.tool : null;
@@ -797,35 +851,64 @@ Do not write markdown block backticks. Output raw JSON only.`;
       if (res.tool === 'searchProperties' && Array.isArray(res.data)) properties.push(...res.data);
       if (res.tool === 'searchClients' && Array.isArray(res.data)) clients.push(...res.data);
     }
-
     const reIntelligence = await this.realEstateIntelligenceService.analyze(properties, leads, clients);
 
-    // STEP 6 — EXECUTIVE DECISION ENGINE
-    const pastMemories = await this.retrieveRelevantMemories(userMessage, organizationId, 4);
-    const execAnalysis = await this.executiveDecisionService.analyze(userMessage, toolData, pastMemories);
+    // STEP 5.5 — RETRIEVAL FAILURE & EMPTY CHECK
+    const searchTools = ['searchEmployees', 'searchProperties', 'searchClients', 'getAttendanceRecord', 'getLeaveRequests', 'getTasksBoard', 'runQueryPlan'];
+    const ranSearchTool = executedResults.some(res => searchTools.includes(res.tool));
+    const allSearchesEmpty = ranSearchTool && executedResults.every(res => {
+      if (!searchTools.includes(res.tool)) return true;
+      if (!res.data) return true;
+      if (Array.isArray(res.data) && res.data.length === 0) return true;
+      if (res.data.rows && Array.isArray(res.data.rows) && res.data.rows.length === 0) return true;
+      if (res.data.error) return true;
+      return false;
+    });
 
-    // STEP 7 — AUTONOMOUS WORKFLOW ENGINE
-    const workflowPrompt = `You are the Zorvex Autonomous Workflow Engine (Step 7).
+    // STEP 6 — EXECUTIVE DECISION ENGINE RESTRICTIONS
+    const pastMemories = await this.retrieveRelevantMemories(userMessage, organizationId, 4);
+    let execAnalysis = { risks: [] as string[], opportunities: [] as string[], recommendations: [] as string[] };
+    if (!allSearchesEmpty && (intent === 'ANALYTICS_REQUEST' || intent === 'EXECUTIVE_REQUEST')) {
+      execAnalysis = await this.executiveDecisionService.analyze(userMessage, toolData, pastMemories);
+    }
+
+    // STEP 7 — AUTONOMOUS WORKFLOW ENGINE CONTEXTUAL FILTER
+    let proactiveSuggestions = '';
+    
+    // Suggest next actions only when unassigned leads, overdue tasks, or empty search exists
+    const hasUnassignedLeads = leads.some(l => !l.assignedToId || l.status === 'NEW') || 
+      (Array.isArray(toolData) && toolData.some(l => l && typeof l === 'object' && ('assignedToId' in l) && !l.assignedToId)) ||
+      (toolData?.rows && Array.isArray(toolData.rows) && toolData.rows.some((l: any) => l && typeof l === 'object' && ('assignedToId' in l) && !l.assignedToId));
+
+    const hasOverdueTasks = (Array.isArray(toolData) && toolData.some(t => t && typeof t === 'object' && ('dueDate' in t) && new Date(t.dueDate) < new Date() && t.status !== 'COMPLETED')) ||
+      (toolData?.rows && Array.isArray(toolData.rows) && toolData.rows.some((t: any) => t && typeof t === 'object' && ('dueDate' in t) && new Date(t.dueDate) < new Date() && t.status !== 'COMPLETED'));
+
+    const hasMeaningfulNextAction = allSearchesEmpty || hasUnassignedLeads || hasOverdueTasks;
+
+    if (hasMeaningfulNextAction) {
+      const workflowPrompt = `You are the Zorvex Autonomous Workflow Engine (Step 7).
 Analyze the executed database results and user intent to suggest 2-3 logical next actions, automations, or workflow continuation.
 Format them naturally as conversational bullet points without markdown checkboxes.
 Output only the follow-up suggestions.`;
 
-    let proactiveSuggestions = '';
-    try {
-      proactiveSuggestions = await this.llmService.callLLM(workflowPrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false, organizationId, userId);
-    } catch (e) {
-      this.logger.warn(`Autonomous Workflow Engine suggestion failed: ${e.message}`);
+      try {
+        proactiveSuggestions = await this.llmService.callLLM(workflowPrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false, organizationId, userId);
+      } catch (e) {
+        this.logger.warn(`Autonomous Workflow Engine suggestion failed: ${e.message}`);
+      }
     }
 
-    // STEP 10 — KPI & BUSINESS GOAL ENGINE
-    const businessGoals = {
-      salesTarget: "AED 10,000,000 / month",
-      leadConversionRate: "15%",
-      revenueTarget: "AED 2,000,000 / month",
-      inventoryGrowth: "50 new listings / month"
-    };
+    // STEP 10 — KPI & BUSINESS GOAL ENGINE RESTRICTIONS
+    let kpiAlignmentText = '';
+    if (!allSearchesEmpty && (intent === 'ANALYTICS_REQUEST' || intent === 'EXECUTIVE_REQUEST')) {
+      const businessGoals = {
+        salesTarget: "AED 10,000,000 / month",
+        leadConversionRate: "15%",
+        revenueTarget: "AED 2,000,000 / month",
+        inventoryGrowth: "50 new listings / month"
+      };
 
-    const kpiEnginePrompt = `You are the Zorvex KPI & Business Goal Engine (Step 10).
+      const kpiEnginePrompt = `You are the Zorvex KPI & Business Goal Engine (Step 10).
 Analyze the current response and retrieved business data to evaluate how it aligns with organizational goals:
 - Sales Target: ${businessGoals.salesTarget}
 - Lead Conversion Goal: ${businessGoals.leadConversionRate}
@@ -833,15 +916,15 @@ Analyze the current response and retrieved business data to evaluate how it alig
 - Inventory Goal: ${businessGoals.inventoryGrowth}
 
 Instructions:
-1. If the current action or data aligns with a business goal (e.g. search leads, list properties, update conversions), highlight this alignment.
-2. If it does not, suggest a proactive strategy or adjustment to align with goals.
+1. If the current action or data aligns with a business goal, highlight this alignment.
+2. If it does not, suggest a proactive strategy or adjustment.
 3. Output the result in 1-2 concise sentences in a professional COO advisory tone.`;
 
-    let kpiAlignmentText = '';
-    try {
-      kpiAlignmentText = await this.llmService.callLLM(kpiEnginePrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false, organizationId, userId);
-    } catch (e) {
-      this.logger.warn(`KPI Engine alignment check failed: ${e.message}`);
+      try {
+        kpiAlignmentText = await this.llmService.callLLM(kpiEnginePrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false, organizationId, userId);
+      } catch (e) {
+        this.logger.warn(`KPI Engine alignment check failed: ${e.message}`);
+      }
     }
 
     const matchingChunks = await this.llmService.searchUnstructuredKnowledge(userMessage, organizationId, 4);
@@ -867,16 +950,54 @@ Instructions:
       }
     }
 
-    const composerPrompt = `You are the Zorvex Response Composer (v7).
-Compose the final user response based on the analysis.
+    // Determine Response Composer Mode
+    let responseMode = 'LOOKUP';
+    if (allSearchesEmpty) {
+      responseMode = 'LOOKUP';
+    } else if (intent === 'ACTION_REQUEST') {
+      responseMode = 'ACTION';
+    } else if (intent === 'ANALYTICS_REQUEST') {
+      responseMode = 'ANALYTICS';
+    } else if (intent === 'EXECUTIVE_REQUEST') {
+      responseMode = 'EXECUTIVE';
+    } else {
+      responseMode = 'LOOKUP';
+    }
+
+    const composerPrompt = `You are the Zorvex Response Composer (v2).
+Your task is to compile the final response in the determined Mode: ${responseMode}.
+
 STRICT STYLE RULES:
-1. Speak in a natural, professional, human executive tone (like an AI COO).
+1. Speak in a natural, professional, human executive tone (50% ChatGPT, 25% Executive Assistant, 15% Business Analyst, 10% COO).
 2. Responds in the EXACT SAME LANGUAGE as the user's message (e.g. English, Roman Urdu, or Urdu).
 3. Do NOT use headers like "Direct Answer", "Analytical Insight", "Suggested Action", or markdown checkboxes. Banish all background operational JSON blocks, tools, column names, SQL references, and technical parameters.
-4. Integrate the executive decision insights (Risks: ${JSON.stringify(execAnalysis.risks.concat(reIntelligence.listingHealth).concat(reIntelligence.inventoryAging))}, Opportunities: ${JSON.stringify(execAnalysis.opportunities.concat(reIntelligence.leadConversion).concat(reIntelligence.areaIntelligence))}, Recommendations: ${JSON.stringify(execAnalysis.recommendations)}) and proactiveSuggestions naturally into conversational paragraphs.
-${isFallback ? `5. DUBAI REAL ESTATE PROXIMITY ADVICE: The user queried properties in "${fallbackOrigLoc}". Since no listings are currently available in "${fallbackOrigLoc}" in our database, Zorvex automatically searched adjacent locations: [${fallbackAreas.join(', ')}]. Explain this to the user clearly (in the matching query language), informing them that while no properties are in "${fallbackOrigLoc}", we have options in these adjacent prime areas.` : ''}
-5. Ingest the KPI alignment insights (${kpiAlignmentText}) to highlight alignment or suggest better action.
-6. End with a warm follow-up question.`;
+4. ABSOLUTELY ELIMINATE robotic or repetitive consult-speak templates.
+   - DO NOT say "To align with your business goals..."
+   - DO NOT say "What do you think about implementing..."
+   - DO NOT say "Potential opportunity..."
+   - Banish all pre-baked corporate filler.
+5. Ingest and display:
+   - Data-First Principle: Data > Analysis > Recommendations. Show requested data first, then analysis if relevant, then recommendations if valuable. Never reverse this order.
+   - Proximity Advice: ${isFallback ? `DUBAI REAL ESTATE PROXIMITY ADVICE: The user queried properties in "${fallbackOrigLoc}". Since no listings are currently available in "${fallbackOrigLoc}" in our database, Zorvex automatically searched adjacent locations: [${fallbackAreas.join(', ')}]. Explain this to the user clearly (in the matching query language), informing them that while no properties are in "${fallbackOrigLoc}", we have options in these adjacent prime areas.` : ''}
+
+MODE SPECIFIC GUIDELINES:
+- LOOKUP MODE (Info queries or empty retrieval):
+  - Must be short, direct, and human.
+  - If retrieval failed (0 records found), explain exactly what data was searched and report 0 records directly (e.g., "Attendance records searched. Records found: 0. No attendance logs currently exist for Aizaz Khan."). Do NOT offer consulting or implementation advice.
+  - No analysis, no unsolicited recommendations.
+- ACTION MODE (Create/Update operations):
+  - Focus strictly on action confirmation (e.g. "Meeting scheduled successfully." or "Task assigned successfully.").
+  - Output the key confirmation details (title, dates, assignee, location).
+  - No strategic analysis or business recommendations.
+- ANALYTICS MODE (Comparison/Aggregation):
+  - Present the core aggregated data.
+  - Provide short, valuable comparative analysis or hotspot insights based on the retrieved data.
+- EXECUTIVE MODE (Strategic/Performance Advisory):
+  - Show the requested data/report details.
+  - Present strategic reasoning, risk analysis, and business recommendations if valuable.
+  - Include executive decision insights: Risks: ${JSON.stringify(execAnalysis.risks.concat(reIntelligence.listingHealth).concat(reIntelligence.inventoryAging))}, Opportunities: ${JSON.stringify(execAnalysis.opportunities.concat(reIntelligence.leadConversion).concat(reIntelligence.areaIntelligence))}, Recommendations: ${JSON.stringify(execAnalysis.recommendations)}.
+
+Ensure the conversation feels natural, human, professional, and ends with a warm follow-up question.`;
 
     const databaseFeedPrompt = `User Query: "${userMessage}"
 Retrieved Data: ${JSON.stringify(toolData)}
