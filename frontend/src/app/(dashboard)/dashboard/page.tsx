@@ -34,6 +34,10 @@ export default function DashboardPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
+  // Dynamic CRM Stats State
+  const [dashboardStats, setDashboardStats] = useState<any>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState(true);
+  
   // Attendance & Shift counter states
   const [employeeProfile, setEmployeeProfile] = useState<any>(null);
   const [todayAttendance, setTodayAttendance] = useState<any>(null);
@@ -49,6 +53,24 @@ export default function DashboardPage() {
   const [isLoadingAi, setIsLoadingAi] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'loading' | 'error'>('success');
+
+  // Fetch dynamic stats for dashboard counters & charts
+  const fetchDashboardStats = async (showLoading = false) => {
+    if (!token) return;
+    if (showLoading) setIsLoadingStats(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/dashboard/stats`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setDashboardStats(await res.json());
+      }
+    } catch (err) {
+      console.error("Failed to load dashboard stats:", err);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  };
 
   // Fetch events for dashboard dots
   const fetchDashboardEvents = async (showLoading = false) => {
@@ -164,6 +186,7 @@ export default function DashboardPage() {
     fetchDashboardEvents(true);
     fetchAttendanceStatus();
     fetchDashboardIntelligence(true);
+    fetchDashboardStats(true);
   }, [token, user?.id]);
 
   // Polling loop (every 3 seconds)
@@ -173,6 +196,7 @@ export default function DashboardPage() {
       fetchDashboardEvents(false);
       fetchAttendanceStatus();
       fetchDashboardIntelligence(false);
+      fetchDashboardStats(false);
     }, 3000);
     return () => clearInterval(interval);
   }, [token, user?.id]);
@@ -387,11 +411,16 @@ export default function DashboardPage() {
     };
   };
 
+  const statsActiveProperties = dashboardStats?.activeProperties ?? 0;
+  const statsNewLeads = dashboardStats?.newLeads ?? 0;
+  const statsTotalClients = dashboardStats?.totalClients ?? 0;
+  const statsPendingTasks = dashboardStats?.pendingTasks ?? 0;
+
   const stats = [
     { 
       title: "Active Properties", 
-      value: "24", 
-      change: "+12.5%", 
+      value: statsActiveProperties.toString(), 
+      change: "Active Inventory", 
       icon: Building2, 
       color: "text-cyan-400", 
       bg: "bg-cyan-500/10",
@@ -400,8 +429,8 @@ export default function DashboardPage() {
     },
     { 
       title: "New Leads", 
-      value: "12", 
-      change: "+24.8%", 
+      value: statsNewLeads.toString(), 
+      change: "Open Prospects", 
       icon: Target, 
       color: "text-purple-400", 
       bg: "bg-purple-500/10",
@@ -410,8 +439,8 @@ export default function DashboardPage() {
     },
     { 
       title: "Total Clients", 
-      value: "145", 
-      change: "+8.2%", 
+      value: statsTotalClients.toString(), 
+      change: "Synced Leads", 
       icon: Users, 
       color: "text-emerald-400", 
       bg: "bg-emerald-500/10",
@@ -420,8 +449,8 @@ export default function DashboardPage() {
     },
     { 
       title: "Pending Tasks", 
-      value: "8", 
-      change: "-5.0%", 
+      value: statsPendingTasks.toString(), 
+      change: "In Progress", 
       icon: CheckSquare, 
       color: "text-amber-400", 
       bg: "bg-amber-500/10",
@@ -430,11 +459,7 @@ export default function DashboardPage() {
     },
   ];
 
-  const recentLeads = [
-    { name: "Zain Ali", email: "zain@email.com", status: "New", value: "Rs 45M", avatar: "Z" },
-    { name: "Raza Khan", email: "raza@email.com", status: "Qualified", value: "Rs 120M", avatar: "R" },
-    { name: "Ayesha Malik", email: "ayesha@email.com", status: "Won", value: "Rs 85M", avatar: "A" },
-  ];
+  const recentLeads = dashboardStats?.recentLeads || [];
 
   const todaysSchedule = getTodaysEvents();
 
@@ -757,38 +782,57 @@ export default function DashboardPage() {
 
             {/* Gorgeous SVG Line Chart representation */}
             <div className="h-64 w-full relative flex items-end pt-4">
-              <svg className="w-full h-full" viewBox="0 0 100 50" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <line x1="0" y1="10" x2="100" y2="10" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
-                <line x1="0" y1="25" x2="100" y2="25" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
-                <line x1="0" y1="40" x2="100" y2="40" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
+              {(() => {
+                const trendData = dashboardStats?.revenueTrend || [];
+                const maxAmount = Math.max(...trendData.map((d: any) => d.amount), 100);
+                const points = trendData.map((d: any, index: number) => {
+                  const x = (index * 100) / Math.max(1, trendData.length - 1);
+                  const y = 45 - (d.amount / maxAmount) * 35;
+                  return { x, y, label: d.month, amount: d.amount };
+                });
 
-                <path 
-                  d="M0,50 L0,38 Q15,10 30,30 T60,15 T90,20 L100,28 L100,50 Z" 
-                  fill="url(#chart-grad)" 
-                />
-                <path 
-                  d="M0,38 Q15,10 30,30 T60,15 T90,20 L100,28" 
-                  fill="none" 
-                  stroke="hsl(260, 100%, 65%)" 
-                  strokeWidth="2.5" 
-                  strokeLinecap="round" 
-                  className="drop-shadow-[0_0_10px_rgba(138,43,226,0.8)]"
-                />
-              </svg>
-              <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 text-[10px] text-gray-400 font-bold">
-                <span>JAN</span>
-                <span>FEB</span>
-                <span>MAR</span>
-                <span>APR</span>
-                <span>MAY</span>
-                <span>JUN</span>
-              </div>
+                const pathD = points.length > 0 
+                  ? `M ${points.map((p: any) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L ')}` 
+                  : "M0,38 Q15,10 30,30 T60,15 T90,20 L100,28";
+
+                const areaD = points.length > 0
+                  ? `${pathD} L ${points[points.length - 1].x.toFixed(1)},50 L ${points[0].x.toFixed(1)},50 Z`
+                  : "M0,50 L0,38 Q15,10 30,30 T60,15 T90,20 L100,28 L100,50 Z";
+
+                return (
+                  <>
+                    <svg className="w-full h-full" viewBox="0 0 100 50" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.4" />
+                          <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <line x1="0" y1="10" x2="100" y2="10" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
+                      <line x1="0" y1="25" x2="100" y2="25" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
+                      <line x1="0" y1="40" x2="100" y2="40" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
+
+                      <path 
+                        d={areaD} 
+                        fill="url(#chart-grad)" 
+                      />
+                      <path 
+                        d={pathD} 
+                        fill="none" 
+                        stroke="hsl(260, 100%, 65%)" 
+                        strokeWidth="2.5" 
+                        strokeLinecap="round" 
+                        className="drop-shadow-[0_0_10px_rgba(138,43,226,0.8)]"
+                      />
+                    </svg>
+                    <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 text-[10px] text-gray-400 font-bold">
+                      {points.map((p: any, idx: number) => (
+                        <span key={idx}>{p.label}</span>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -800,7 +844,7 @@ export default function DashboardPage() {
                 Active Leads
               </h2>
               <div className="space-y-4">
-                {recentLeads.map((lead, i) => (
+                {recentLeads.map((lead: any, i: number) => (
                   <div key={i} className="flex justify-between items-center p-4 rounded-2xl bg-secondary/35 border border-border/30 hover:border-primary/40 transition-all duration-300">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary/20 to-accent/20 flex items-center justify-center font-bold text-primary">

@@ -85,6 +85,46 @@ export class SaasAdminService {
     });
     const totalPendingRent = pendingBalanceAgg._sum.amountPending || 0;
 
+    // 6. Historical 6-month payment aggregation for cash flow chart
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setDate(1);
+    sixMonthsAgo.setHours(0, 0, 0, 0);
+
+    const recentPayments = await this.prisma.subscriptionPayment.findMany({
+      where: {
+        paymentDate: { gte: sixMonthsAgo },
+        status: 'SUCCESS'
+      },
+      select: {
+        amount: true,
+        paymentDate: true
+      }
+    });
+
+    const monthlyDataMap: Record<string, number> = {};
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const label = `${monthNames[d.getMonth()]} ${d.getFullYear().toString().substring(2)}`;
+      monthlyDataMap[label] = 0;
+    }
+
+    recentPayments.forEach(p => {
+      const date = new Date(p.paymentDate);
+      const label = `${monthNames[date.getMonth()]} ${date.getFullYear().toString().substring(2)}`;
+      if (monthlyDataMap[label] !== undefined) {
+        monthlyDataMap[label] += p.amount;
+      }
+    });
+
+    const monthlyRevenueTrend = Object.keys(monthlyDataMap).map(key => ({
+      month: key,
+      amount: monthlyDataMap[key]
+    }));
+
     return {
       activeOrganizations: activeOrgsCount,
       totalOrganizations: totalOrgs,
@@ -97,7 +137,8 @@ export class SaasAdminService {
         gemini: geminiRequests,
         openai: openaiRequests,
         total: ollamaRequests + geminiRequests + openaiRequests
-      }
+      },
+      monthlyRevenueTrend
     };
   }
 

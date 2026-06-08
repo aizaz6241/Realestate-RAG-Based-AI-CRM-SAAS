@@ -18,6 +18,7 @@ import { AiModule } from './ai/ai.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { SaasAdminModule } from './saas-admin/saas-admin.module';
 import { OrganizationModule } from './organization/organization.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -37,7 +38,8 @@ import { OrganizationModule } from './organization/organization.module';
     AiModule, 
     IntegrationsModule,
     SaasAdminModule,
-    OrganizationModule
+    OrganizationModule,
+    DashboardModule
   ],
   controllers: [AppController],
   providers: [AppService],

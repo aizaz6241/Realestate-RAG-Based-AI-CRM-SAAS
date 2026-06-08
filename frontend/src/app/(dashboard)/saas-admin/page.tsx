@@ -64,6 +64,10 @@ interface Stats {
     openai: number;
     total: number;
   };
+  monthlyRevenueTrend?: {
+    month: string;
+    amount: number;
+  }[];
 }
 
 export default function SaasAdminDashboard() {
@@ -336,6 +340,23 @@ export default function SaasAdminDashboard() {
   const apiRequestsGemini = stats?.apiRequests?.gemini ?? 0;
   const apiRequestsOpenai = stats?.apiRequests?.openai ?? 0;
 
+  const trendData = stats?.monthlyRevenueTrend || [];
+  const maxAmount = Math.max(...trendData.map(d => d.amount), 1000);
+
+  const points = trendData.map((d, index) => {
+    const x = 30 + (index * 440) / Math.max(1, trendData.length - 1);
+    const y = 160 - (d.amount / maxAmount) * 110;
+    return { x, y, label: d.month, amount: d.amount };
+  });
+
+  const pathD = points.length > 0 
+    ? `M ${points.map(p => `${p.x} ${p.y}`).join(' L ')}` 
+    : "M 20 160 Q 120 130, 220 90 T 420 50 L 480 40";
+
+  const areaD = points.length > 0
+    ? `${pathD} L ${points[points.length - 1].x} 180 L ${points[0].x} 180 Z`
+    : "M 20 160 Q 120 130, 220 90 T 420 50 L 480 40 L 480 180 L 20 180 Z";
+
   return (
     <div className="p-6 space-y-6 relative min-h-screen text-left">
       {/* Glow Effects */}
@@ -486,13 +507,13 @@ export default function SaasAdminDashboard() {
                   
                   {/* Path representing revenue growth */}
                   <path 
-                    d="M 20 160 Q 120 130, 220 90 T 420 50 L 480 40 L 480 180 L 20 180 Z" 
+                    d={areaD} 
                     fill="url(#chartGrad)" 
                   />
 
                   {/* Top Line */}
                   <path 
-                    d="M 20 160 Q 120 130, 220 90 T 420 50 L 480 40" 
+                    d={pathD} 
                     fill="none" 
                     stroke="#06b6d4" 
                     strokeWidth="3.5"
@@ -500,18 +521,43 @@ export default function SaasAdminDashboard() {
                     className="drop-shadow-[0_0_8px_rgba(6,182,212,0.4)]"
                   />
 
-                  {/* Plot Dots */}
-                  <circle cx="20" cy="160" r="5" fill="#06b6d4" stroke="#0f172a" strokeWidth="2" />
-                  <circle cx="150" cy="120" r="5" fill="#06b6d4" stroke="#0f172a" strokeWidth="2" />
-                  <circle cx="300" cy="80" r="5" fill="#06b6d4" stroke="#0f172a" strokeWidth="2" />
-                  <circle cx="480" cy="40" r="5" fill="#34d399" stroke="#0f172a" strokeWidth="2" />
+                  {/* Plot Dots and Hover Labels */}
+                  {points.map((p, idx) => (
+                    <g key={idx}>
+                      <circle 
+                        cx={p.x} 
+                        cy={p.y} 
+                        r="5" 
+                        fill={idx === points.length - 1 ? "#34d399" : "#06b6d4"} 
+                        stroke="#0f172a" 
+                        strokeWidth="2" 
+                      />
+                      <text
+                        x={p.x}
+                        y={p.y - 12}
+                        textAnchor="middle"
+                        fill="#06b6d4"
+                        fontSize="8"
+                        fontWeight="black"
+                      >
+                        {p.amount > 0 ? `${p.amount.toLocaleString()}` : ""}
+                      </text>
+                    </g>
+                  ))}
                 </svg>
 
                 {/* Graph Labels */}
-                <div className="absolute bottom-1 left-3 text-[8px] font-black uppercase text-muted-foreground">Jan-Mar (Base)</div>
-                <div className="absolute bottom-1 left-1/3 text-[8px] font-black uppercase text-muted-foreground">Apr (Zorvex Active)</div>
-                <div className="absolute bottom-1 left-2/3 text-[8px] font-black uppercase text-muted-foreground">May (Alhamra Added)</div>
-                <div className="absolute bottom-1 right-3 text-[8px] font-black uppercase text-emerald-400 font-extrabold">June (Current)</div>
+                <div className="absolute bottom-1.5 left-0 right-0 h-4 flex justify-between px-4 pointer-events-none">
+                  {points.map((p, idx) => (
+                    <span 
+                      key={idx} 
+                      className="text-[7.5px] font-black uppercase text-muted-foreground tracking-wider absolute"
+                      style={{ left: `${(p.x / 500) * 100}%`, transform: "translateX(-50%)" }}
+                    >
+                      {p.label}
+                    </span>
+                  ))}
+                </div>
 
                 {/* Top value badge */}
                 <div className="absolute top-2 right-4 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1 rounded-xl text-[9px] font-black text-emerald-400 uppercase tracking-widest shadow-md">

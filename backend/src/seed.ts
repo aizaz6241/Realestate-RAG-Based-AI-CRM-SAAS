@@ -96,6 +96,7 @@ async function main() {
   // 4. Create Users for all core Roles
   const usersData = [
     { email: "admin@zorvex.com", firstName: "Admin", lastName: "User", role: Role.SUPER_ADMIN, isSystemAdmin: true },
+    { email: "tenant-admin@zorvex.com", firstName: "Tenant", lastName: "Admin", role: Role.SUPER_ADMIN, isSystemAdmin: false },
     { email: "aizazkhan6241@gmail.com", firstName: "Muhammad Aizaz", lastName: "Khan", role: Role.HR, isSystemAdmin: false },
     { email: "agent1@zorvex.com", firstName: "John", lastName: "Agent", role: Role.AGENT, isSystemAdmin: false },
     { email: "agent2@zorvex.com", firstName: "Sarah", lastName: "Agent", role: Role.AGENT, isSystemAdmin: false },
@@ -124,6 +125,7 @@ async function main() {
   // 5. Create Employee Profiles for each User
   const profilesData = [
     { email: "admin@zorvex.com", department: "Administration", designation: "Executive Director", salary: 35000 },
+    { email: "tenant-admin@zorvex.com", department: "Administration", designation: "Tenant General Manager", salary: 25000 },
     { email: "aizazkhan6241@gmail.com", department: "Human Resources", designation: "HR Manager", salary: 15000 },
     { email: "agent1@zorvex.com", department: "Sales", designation: "Senior Property Consultant", salary: 12000 },
     { email: "agent2@zorvex.com", department: "Sales", designation: "Junior Property Consultant", salary: 10000 },
@@ -762,6 +764,74 @@ async function main() {
       { subscriptionId: hamraSub.id, amount: 3000.0, status: "SUCCESS", paymentDate: new Date("2026-05-02"), billingPeriod: "2026-05" },
       { subscriptionId: hamraSub.id, amount: 3000.0, status: "SUCCESS", paymentDate: new Date("2026-04-02"), billingPeriod: "2026-04" },
     ]
+  });
+
+  // Seed basic CRM data for Al Hamra Properties to populate its dashboard
+  const hamraOwner = await prisma.owner.create({
+    data: {
+      name: "Yousef Al-Hosani",
+      email: "yousef.hosani@gmail.com",
+      phone: "+971509998888",
+      status: "ACTIVE",
+      organizationId: hamraOrg.id,
+      assignedToId: hamraAdmin.id
+    }
+  });
+
+  await prisma.property.create({
+    data: {
+      title: "Al Hamra Village Townhouse",
+      description: "Charming 3-bedroom townhouse near the golf club and beach in Al Hamra Village, Ras Al Khaimah.",
+      type: "VILLA",
+      status: "PUBLISHED",
+      listingType: "RENT",
+      price: 85000,
+      location: "Al Hamra Village, Ras Al Khaimah, UAE",
+      bedrooms: 3,
+      bathrooms: 4,
+      areaSqft: 2700,
+      images: ["https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80"],
+      organizationId: hamraOrg.id,
+      assignedToId: hamraAdmin.id,
+      ownerId: hamraOwner.id
+    }
+  });
+
+  await prisma.lead.create({
+    data: {
+      name: "Mustafa Kamal",
+      email: "mustafa@gmail.com",
+      phone: "+971523334444",
+      source: "WEBSITE",
+      status: "NEW",
+      score: 65,
+      organizationId: hamraOrg.id,
+      assignedToId: hamraAdmin.id
+    }
+  });
+
+  await prisma.client.create({
+    data: {
+      name: "Fatima Al-Suwaidi",
+      email: "fatima.suwaidi@gmail.com",
+      phone: "+971556667777",
+      type: "BUYER",
+      organizationId: hamraOrg.id,
+      assignedToId: hamraAdmin.id,
+      stage: "INQUIRY",
+      budget: 1500000
+    }
+  });
+
+  await prisma.task.create({
+    data: {
+      title: "Call landlord for key access",
+      description: "Discuss scheduling a viewing for the townhouse.",
+      status: "PENDING",
+      dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+      organizationId: hamraOrg.id,
+      assignedToId: hamraAdmin.id
+    }
   });
 
   // Seed AI usage logs for last 30 days
