@@ -16,13 +16,17 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiRagService } from './rag/ai-rag.service';
+import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('ai')
 export class AiController {
   constructor(
     private readonly aiService: AiService,
-    private prisma: PrismaService
+    private prisma: PrismaService,
+    private readonly ragService: AiRagService,
+    private readonly ragEvaluatorService: AiRagEvaluatorService
   ) {}
 
   // -----------------------------------------------------------------------------
@@ -166,6 +170,7 @@ export class AiController {
         toolData: result.toolData,
         citations: result.citations,
         createdAt: new Date().toISOString(),
+        workspaceState: result.workspaceState,
       };
 
       const updatedMessages = [...history, userMsg, modelMsg];
@@ -371,5 +376,59 @@ Provide ONLY the translated text as the output. Do NOT include any extra explana
     } catch (err) {
       return { translatedText: text }; // Fallback to original text on failure
     }
+  }
+
+  // -----------------------------------------------------------------------------
+  // Standalone RAG Query & Ingestion Endpoints (Separated from Main Chat)
+  // -----------------------------------------------------------------------------
+  @Post('rag/query')
+  async queryRag(
+    @Body('query') query: string,
+    @Request() req,
+    @Body('threshold') threshold?: number,
+    @Body('limit') limit?: number
+  ) {
+    if (!query || !query.trim()) {
+      throw new HttpException('Query cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+    return this.ragService.query(query, req.user.organizationId, req.user.id, req.user.role, {
+      threshold,
+      limit
+    });
+  }
+
+  @Post('rag/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadRagDocument(
+    @UploadedFile() file: any,
+    @Body('allowedRoles') allowedRolesStr: string,
+    @Request() req
+  ) {
+    if (!file) {
+      throw new HttpException('No file uploaded', HttpStatus.BAD_REQUEST);
+    }
+    const allowedRoles = allowedRolesStr ? allowedRolesStr.split(',') : [];
+    return this.ragService.ingestDocument(
+      file.buffer,
+      file.originalname.toLowerCase().endsWith('.pdf') ? 'PDF' : 'TXT',
+      file.originalname,
+      req.user.organizationId,
+      req.user.id,
+      allowedRoles
+    );
+  }
+
+  @Get('rag/traces')
+  async getRagTraces() {
+    return this.ragService.getTraces();
+  }
+
+  @Get('rag/eval')
+  async runRagEvaluation(@Request() req) {
+    return this.ragEvaluatorService.runEvaluation(
+      req.user.organizationId,
+      req.user.id,
+      req.user.role
+    );
   }
 }

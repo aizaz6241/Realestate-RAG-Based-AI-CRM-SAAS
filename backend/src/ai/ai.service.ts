@@ -357,31 +357,132 @@ export class AiService {
   }
 
   // -----------------------------------------------------------------------------
+  private validateActionReadiness(tool: string, params: any): { isReady: boolean; missingFields: string[]; readinessFields: string[] } {
+    const missingFields: string[] = [];
+    const readinessFields: string[] = [];
+    
+    if (tool === 'createMeeting') {
+      const participant = params.targetUserIds || params.targetRoles || params.employeeName || params.participant;
+      const startTime = params.startTime;
+      
+      if (!participant) {
+        missingFields.push('Participant');
+        readinessFields.push('participant');
+      }
+      if (!startTime) {
+        missingFields.push('Date and Time');
+        readinessFields.push('startTime');
+      }
+      return { isReady: missingFields.length === 0, missingFields, readinessFields };
+    }
+    
+    if (tool === 'createTask') {
+      const title = params.title;
+      const employeeName = params.employeeName || params.assignedToId;
+      const dueDate = params.dueDate;
+      
+      if (!title) {
+        missingFields.push('Title');
+        readinessFields.push('title');
+      }
+      if (!employeeName) {
+        missingFields.push('Assignee');
+        readinessFields.push('employeeName');
+      }
+      if (!dueDate) {
+        missingFields.push('Due Date');
+        readinessFields.push('dueDate');
+      }
+      return { isReady: missingFields.length === 0, missingFields, readinessFields };
+    }
+    
+    return { isReady: true, missingFields: [], readinessFields: [] };
+  }
+
+  private async mergePendingAction(
+    pendingAction: any,
+    userMessage: string,
+    organizationId: string,
+    userId: string
+  ): Promise<{ mergedParams: any; isComplete: boolean; missingFields: string[] }> {
+    const systemPrompt = `You are an Action Parameters Merger for an enterprise AI Operating System.
+We have a pending action draft:
+${JSON.stringify(pendingAction, null, 2)}
+
+The user provided this new input/response:
+"${userMessage}"
+
+Current Local Date & Time: ${new Date().toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}
+
+Your task:
+1. Merge the new inputs into the pending action params.
+2. Resolve any relative dates/times (like "tomorrow 4 PM" or "next Monday") relative to the Current Local Date & Time context, converting them into ISO 8601 strings (e.g. "2026-06-10T16:00:00+05:00").
+3. Determine if the action is now fully complete (contains all required fields: for MEETINGS: Participant, Date, Time; for TASKS: Title, Assignee, Due Date).
+4. Output the result strictly in JSON matching this structure:
+{
+  "params": { ... },
+  "isComplete": true | false,
+  "missingFields": ["field name", ...]
+}
+Do not write any markdown code blocks or backticks. Return raw JSON only.`;
+
+    try {
+      const response = await this.llmService.callLLM(systemPrompt, "Merge parameters", [], false, organizationId, userId);
+      const cleanResponse = response.trim();
+      const jsonStart = cleanResponse.indexOf('{');
+      const jsonEnd = cleanResponse.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        return JSON.parse(cleanResponse.substring(jsonStart, jsonEnd + 1));
+      }
+    } catch (err) {
+      this.logger.error(`Error merging pending action parameters: ${err.message}`);
+    }
+    return { mergedParams: pendingAction.params || {}, isComplete: false, missingFields: pendingAction.missingFields || [] };
+  }
+
+  // -----------------------------------------------------------------------------
   // Context-Aware Query Refiner (Pronoun & Reference Resolution)
   // -----------------------------------------------------------------------------
   async refineQuery(
     userMessage: string,
     history: { role: 'user' | 'model'; content: string }[],
+    workspaceState: any,
     organizationId?: string,
     userId?: string
   ): Promise<string> {
-    if (history.length === 0) return userMessage;
+    let userName = 'Admin';
+    if (userId) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (user) {
+        userName = `${user.firstName} ${user.lastName || ''}`.trim();
+      }
+    }
 
     const systemPrompt = `You are a Context Resolver for a premium Real Estate ERP CRM.
-Your job is to analyze the conversation history and the user's latest message, and resolve any ambiguous references, pronouns (like "he", "she", "him", "her", "them", "their", "employee", "staff", "uski", "unki", "iski", "is ko", "unko", "in dono"), or implicit filters.
+Your job is to analyze the conversation history, the active workspace state, and the user's latest message, and resolve any ambiguous references, pronouns (like "he", "she", "him", "her", "them", "their", "employee", "staff", "it", "this", "that", "uski", "unki", "iski", "is ko", "unko", "in dono"), or implicit filters.
 
 Current Local Date & Time: ${new Date().toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}
-(Today is ${new Date().toLocaleDateString([], { weekday: 'long' })}, ${new Date().toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' })}. Relative references like 'this Sunday', 'till Sunday', or 'tomorrow' must resolve exactly from this clock date baseline.)
+(Today is ${new Date().toLocaleDateString([], { weekday: 'long' })}, ${new Date().toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' })}.)
+
+CURRENT SESSION USER:
+- Name: "${userName}"
+- ID: "${userId}"
+* IMPORTANT: If the user says "me", "myself", "my tasks", "my attendance", "assigned to me", "for me", "schedule for me", resolve these references to the Current Session User's name: "${userName}". For example, rewrite "Create task for me" to "Create task for ${userName}" and "Show my attendance" to "Show attendance of ${userName}".
+
+ACTIVE WORKSPACE STATE MEMORY (Use these to resolve references like "it", "him", "her", "this property", "that lead", "the owner", etc.):
+${JSON.stringify(workspaceState, null, 2)}
 
 CONVERSATIONAL CONTEXT HISTORY:
 ${history.map(h => `${h.role === 'user' ? 'User' : 'AI'}: ${h.content}`).join('\n')}
 
 INSTRUCTIONS:
-1. Scan the history (especially the most recent turns) to identify the latest active referenced entities (such as employees, clients, properties, or tasks).
-2. If the user's latest message has pronouns or references like "his", "her", "him", "them", "he", "she", "iski", "uski", "in dono ki", "unki", "unka", "is employee ko", "us property ko", resolve them by replacing them with the explicit name(s) or ID of the entity discussed. For example, rewrite "list his designation" to "List Aizaz Khan's designation" if Aizaz Khan is the active employee.
-3. If the user mentions department names colloquially (e.g. "sales wale", "hr ka staff", "finance wale", "logistics wale"), expand them to their database equivalent department names (e.g., "Sales", "Human Resources", "Finance", "Logistics").
-4. If the user requests charts (e.g. "line graph me dikhao", "pie chart me", "compare visually"), ensure the rewritten message explicitly states the chart type requested.
-5. If the user refers to locations in Roman Urdu or phonetic spelling like "meri na", "meri na dubai", or "marina", resolve them explicitly as "Dubai Marina". Similarly, map "down town" or "down town dubai" to "Downtown Dubai". Do NOT resolve them as Urdu pronouns or conversational fillers (like resolving "meri na" as a pronoun chatter meaning "mine, right?").
+1. Scan the history and the Active Workspace State Memory to identify the latest active referenced entities (such as employees, clients, properties, tasks, or leave requests).
+2. If the user's latest message has pronouns or references like "his", "her", "him", "them", "he", "she", "it", "this", "that", "iski", "uski", "in dono ki", "unki", "unka", "is employee ko", "us property ko", "owner", resolve them by replacing them with the explicit name(s), ID, or details of the entity discussed in the workspace state. For example:
+   - If activeProperty is "Downtown Apartment", rewrite "Who owns it?" to "Who is the owner of Downtown Apartment?".
+   - If activeContext is LEAVE_DISCUSSION regarding Sarah, rewrite "arrange a meeting" to "schedule meeting regarding Sarah's leave request".
+3. If the user mentions department names colloquially (e.g. "sales wale", "hr ka staff"), expand them to their database equivalent department names (e.g., "Sales", "Human Resources", "Finance", "Logistics").
+4. If the user requests charts, ensure the rewritten message explicitly states the chart type requested.
+5. If the user refers to locations in Roman Urdu or phonetic spelling like "meri na" or "marina", resolve them explicitly as "Dubai Marina". Similarly, map "down town" to "Downtown Dubai".
 6. Output ONLY the refined, fully-explicit, and resolved query in the exact same language (e.g. English, Urdu, Roman Urdu) as the user's query. Do not add any preamble, conversational text, quotes, or markdown. Start directly with the resolved text.`;
 
     try {
@@ -401,6 +502,7 @@ INSTRUCTIONS:
     activeLead: any;
     activeMeeting: any;
   }>();
+
   async chat(
     userMessage: string,
     userId: string,
@@ -410,17 +512,105 @@ INSTRUCTIONS:
     callPersona?: string,
     sessionId?: string
   ): Promise<any> {
+    let workspaceState: any = {
+      activeProperty: null,
+      activeOwner: null,
+      activeLead: null,
+      activeTask: null,
+      activeMeeting: null,
+      activeEmployee: null,
+      activeComparison: null,
+      activeFilters: null,
+      activeModule: null,
+      activeEntity: null,
+      activeEntityType: null,
+      activeRecord: null,
+      activeCollection: null,
+      activeContext: null,
+      pendingAction: null
+    };
     try {
-      this.logger.log(`Starting Zorvex-AOS v7 cognitive operating system pipeline for: "${userMessage}"`);
+      this.logger.log(`Starting Zorvex-AOS v8 cognitive operating system pipeline for: "${userMessage}"`);
+
+      if (sessionId) {
+        const session = await this.prisma.aiChatSession.findUnique({
+          where: { id: sessionId }
+        });
+        if (session && Array.isArray(session.messages)) {
+          for (let i = session.messages.length - 1; i >= 0; i--) {
+            const msg = session.messages[i] as any;
+            if (msg.role === 'model' && msg.workspaceState) {
+              workspaceState = { ...workspaceState, ...msg.workspaceState };
+              break;
+            }
+          }
+        }
+      }
 
       // STEP 0 — CONTEXT-AWARE QUERY REFINEMENT (PRONOUN & REFERENCE RESOLUTION)
-      const refinedMessage = await this.refineQuery(userMessage, history, organizationId, userId);
+      const refinedMessage = await this.refineQuery(userMessage, history, workspaceState, organizationId, userId);
       const rawUserMessage = userMessage; // save original raw message for history
       userMessage = refinedMessage; // use refined message throughout pipeline
 
+      // STEP 0.5 — RESUME PENDING ACTION (DRAFT MEMORY RESUMPTION)
+      let wasPendingResumed = false;
+      let resumedToolCall: any = null;
+
+      if (workspaceState.pendingAction) {
+        const lowerMsg = userMessage.toLowerCase().trim();
+        const isConfirmation = ['yes', 'confirm', 'haan', 'ji', 'ok', 'okay', 'bilkul', 'karo'].some(word => lowerMsg.includes(word));
+        
+        if (workspaceState.pendingAction.missingFields && workspaceState.pendingAction.missingFields.length === 0) {
+          if (isConfirmation) {
+            this.logger.log(`User confirmed pending action. Resuming execution.`);
+            wasPendingResumed = true;
+            let finalParams = workspaceState.pendingAction.params || {};
+            if (workspaceState.pendingAction.resolvedAssignee) {
+              if (finalParams.employeeName) {
+                finalParams.employeeName = workspaceState.pendingAction.resolvedAssignee;
+              }
+              if (finalParams.participant) {
+                finalParams.participant = workspaceState.pendingAction.resolvedAssignee;
+              }
+            }
+            resumedToolCall = {
+              tool: workspaceState.pendingAction.type === 'MEETING' ? 'createMeeting' : 'createTask',
+              params: finalParams
+            };
+            workspaceState.pendingAction = null;
+          } else {
+            this.logger.log(`User did not confirm action. Cancelling pending action draft.`);
+            workspaceState.pendingAction = null;
+          }
+        } else {
+          this.logger.log(`Resuming and merging parameters for pending action: ${workspaceState.pendingAction.type}`);
+          const mergeResult = await this.mergePendingAction(workspaceState.pendingAction, userMessage, organizationId, userId);
+          if (mergeResult.isComplete) {
+            wasPendingResumed = true;
+            resumedToolCall = {
+              tool: workspaceState.pendingAction.type === 'MEETING' ? 'createMeeting' : 'createTask',
+              params: mergeResult.mergedParams
+            };
+            workspaceState.pendingAction = null;
+          } else {
+            workspaceState.pendingAction.params = mergeResult.mergedParams;
+            workspaceState.pendingAction.missingFields = mergeResult.missingFields;
+            const promptMsg = `I still need the following details to complete the ${workspaceState.pendingAction.type.toLowerCase()}: ${mergeResult.missingFields.join(', ')}. Please provide them.`;
+            return {
+              response: promptMsg,
+              spokenResponse: callPersona ? promptMsg : undefined,
+              toolExecuted: null,
+              toolData: null,
+              citations: [],
+              workspaceState
+            };
+          }
+        }
+      }
+
       // STEP 1 — COGNITIVE ANALYZER (SINGLE LLM CALL)
       const currentDateTimeStr = new Date().toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
-      const cognitiveAnalyzerPrompt = `You are the Zorvex AOS v7 Cognitive Analyzer (Step 1).
+      const cognitiveAnalyzerPrompt = `You are the Zorvex AOS v8 Cognitive Analyzer (Step 1).
 Analyze the user message, resolve references/pronouns from context history, and output structured JSON.
 Current Date/Time context: ${currentDateTimeStr}
 
@@ -448,7 +638,7 @@ INSTRUCTIONS:
      - For meetings: "startTime" (e.g. "2026-06-10T10:00:00+05:00") and "endTime" (default to 1 hour after startTime if not specified, e.g. "2026-06-10T11:00:00+05:00").
 
 4. Assess complexity: "low", "medium", or "high".
-5. Set confidence score (0-100) reflecting how clear, unambiguous, and fully specified the user query is. Be strict: if there is missing data or vague intent, set confidence under 60.
+5. Set confidence score (0-100) reflecting how clear, unambiguous, and fully specified the user query is. Be strict: if there is missing data or vague intent, set confidence under 75.
 
 Output strictly in JSON:
 {
@@ -491,7 +681,7 @@ Do not write markdown block backticks. Output raw JSON only.`;
       const isGreeting = ["hello", "hi", "salam", "hey", "assalam o alaikum", "aoa"].some(phrase => userMessage.toLowerCase().trim() === phrase || userMessage.toLowerCase().trim().startsWith(phrase + " "));
 
       // STEP 1.5 — CONFIDENCE ENGINE ENFORCEMENT & INTENT BYPASS
-      if (analyzerResult.confidence < 60) {
+      if (analyzerResult.confidence < 70) {
         const systemPrompt = `You are the Zorvex Low-Confidence Responder.
 State clearly that you could not find enough information, and ask a relevant follow-up question to clarify the user's intent.
 Keep the response extremely short, human, and professional in the user's language.`;
@@ -505,7 +695,8 @@ Keep the response extremely short, human, and professional in the user's languag
           spokenResponse: callPersona ? finalLowConf : undefined,
           toolExecuted: null,
           toolData: null,
-          citations: []
+          citations: [],
+          workspaceState
         };
       }
 
@@ -522,7 +713,8 @@ Keep it short, direct, and human.`;
           spokenResponse: callPersona ? responseText.trim() : undefined,
           toolExecuted: null,
           toolData: null,
-          citations: []
+          citations: [],
+          workspaceState
         };
       }
 
@@ -537,12 +729,13 @@ Keep it extremely short, professional, and clear.`;
           spokenResponse: callPersona ? responseText.trim() : undefined,
           toolExecuted: null,
           toolData: null,
-          citations: []
+          citations: [],
+          workspaceState
         };
       }
 
       // STEP 2 — EXECUTIVE ORCHESTRATOR
-      const executiveOrchestratorPrompt = `You are the Zorvex AOS v7 Executive Orchestrator (Step 2).
+      const executiveOrchestratorPrompt = `You are the Zorvex AOS v8 Executive Orchestrator (Step 2).
 Based on the cognitive analysis, plan the execution graph (step-by-step tool calls).
 Crucial: If parameters (like dueDate, startTime, endTime, title, employeeName, etc.) were already computed in the Cognitive Analyzer parameters object: ${JSON.stringify(analyzerResult.parameters)}, you MUST map and use those pre-computed values exactly for tool parameters instead of raw strings.
 
@@ -595,7 +788,46 @@ Do not write markdown block backticks. Output raw JSON only.`;
 
       // STEP 3 & 4 & 8 — MULTI-TOOL PARALLEL EXECUTION ENGINE & QUERY PLANNING LAYER & HUMAN APPROVAL GATE
       const executedResults: any[] = [];
-      const toolCalls = orchestratorResult.executionGraph || [];
+      const toolCalls = wasPendingResumed ? [resumedToolCall] : (orchestratorResult.executionGraph || []);
+
+      // Confidence Gating (70-89) for Fresh Action Requests
+      if (!wasPendingResumed && analyzerResult.confidence >= 70 && analyzerResult.confidence <= 89 && analyzerResult.intent === 'ACTION_REQUEST') {
+        const firstAction = toolCalls[0];
+        if (firstAction && (firstAction.tool === 'createMeeting' || firstAction.tool === 'createTask')) {
+          const readiness = this.validateActionReadiness(firstAction.tool, firstAction.params);
+          if (!readiness.isReady) {
+            workspaceState.pendingAction = {
+              type: firstAction.tool === 'createMeeting' ? 'MEETING' : 'TASK',
+              params: firstAction.params,
+              missingFields: readiness.missingFields
+            };
+            const promptMsg = `I need the following details to schedule the ${workspaceState.pendingAction.type.toLowerCase()}: ${readiness.missingFields.join(', ')}. Please provide them.`;
+            return {
+              response: promptMsg,
+              spokenResponse: callPersona ? promptMsg : undefined,
+              toolExecuted: firstAction.tool,
+              toolData: null,
+              citations: [],
+              workspaceState
+            };
+          } else {
+            workspaceState.pendingAction = {
+              type: firstAction.tool === 'createMeeting' ? 'MEETING' : 'TASK',
+              params: firstAction.params,
+              missingFields: []
+            };
+            const confirmMsg = `I have drafted the action for you. Would you like me to proceed with executing it? (Type "Yes" or "Confirm" to proceed).`;
+            return {
+              response: confirmMsg,
+              spokenResponse: callPersona ? confirmMsg : undefined,
+              toolExecuted: firstAction.tool,
+              toolData: firstAction.params,
+              citations: [],
+              workspaceState
+            };
+          }
+        }
+      }
 
       for (let i = 0; i < toolCalls.length; i++) {
         const toolCall = toolCalls[i];
@@ -607,8 +839,30 @@ Do not write markdown block backticks. Output raw JSON only.`;
             response: "Clearance Required: Your user profile is not cleared to access secure operations or finance databases.",
             toolExecuted: toolCall.tool,
             toolData: null,
-            citations: []
+            citations: [],
+            workspaceState
           };
+        }
+
+        // Action Readiness Validation (Inputs Check)
+        if (!wasPendingResumed && (toolCall.tool === 'createMeeting' || toolCall.tool === 'createTask')) {
+          const readiness = this.validateActionReadiness(toolCall.tool, toolCall.params);
+          if (!readiness.isReady) {
+            workspaceState.pendingAction = {
+              type: toolCall.tool === 'createMeeting' ? 'MEETING' : 'TASK',
+              params: toolCall.params,
+              missingFields: readiness.missingFields
+            };
+            const promptMsg = `I still need the following details to complete the ${workspaceState.pendingAction.type.toLowerCase()}: ${readiness.missingFields.join(', ')}. Please provide them.`;
+            return {
+              response: promptMsg,
+              spokenResponse: callPersona ? promptMsg : undefined,
+              toolExecuted: toolCall.tool,
+              toolData: null,
+              citations: [],
+              workspaceState
+            };
+          }
         }
 
         // STEP 8: HUMAN APPROVAL GATE
@@ -627,7 +881,6 @@ Do not write markdown block backticks. Output raw JSON only.`;
             executedResults
           });
 
-          // Broadcast notification to frontend
           this.zorvexGateway.broadcastToOrganization(organizationId, 'approval_required', {
             approvalId,
             tool: toolCall.tool,
@@ -640,7 +893,8 @@ Do not write markdown block backticks. Output raw JSON only.`;
             response: `⚠️ Executive Authorization Required: The planned action (${toolCall.tool}) requires corporate approval before executing.`,
             toolExecuted: toolCall.tool,
             toolData: toolCall.params,
-            citations: []
+            citations: [],
+            workspaceState
           };
         }
 
@@ -653,6 +907,25 @@ Do not write markdown block backticks. Output raw JSON only.`;
           userRole,
           userId
         );
+
+        // Handle fuzzy matching mismatch confirmation block
+        if (toolData && toolData.error === 'CONFIRMATION_REQUIRED') {
+          workspaceState.pendingAction = {
+            type: toolCall.tool === 'createMeeting' ? 'MEETING' : 'TASK',
+            params: toolCall.params,
+            resolvedAssignee: toolData.resolvedAssignee,
+            missingFields: []
+          };
+          const confirmMsg = `${toolData.message} (Type "Yes" or "Confirm" to proceed).`;
+          return {
+            response: confirmMsg,
+            spokenResponse: callPersona ? confirmMsg : undefined,
+            toolExecuted: toolCall.tool,
+            toolData: null,
+            citations: [],
+            workspaceState
+          };
+        }
 
         executedResults.push({
           tool: toolCall.tool,
@@ -671,17 +944,19 @@ Do not write markdown block backticks. Output raw JSON only.`;
         orchestratorResult.requiredAgents,
         executedResults,
         callPersona,
-        analyzerResult.intent
+        analyzerResult.intent,
+        workspaceState
       );
 
     } catch (err) {
-      this.logger.error(`AOS v7 pipeline breakdown: ${err.message}`);
+      this.logger.error(`AOS v8 pipeline breakdown: ${err.message}`);
       return {
         response: "🤖 System Alert: An operational bottleneck has interrupted Zorvex AI. Please verify data parameters and retry.",
         spokenResponse: callPersona ? "System error has occurred, please retry." : undefined,
         toolExecuted: null,
         toolData: null,
-        citations: []
+        citations: [],
+        workspaceState
       };
     }
   }
@@ -726,7 +1001,7 @@ Do not write markdown block backticks. Output raw JSON only.`;
     }
 
     try {
-      this.logger.log(`Resuming paused Zorvex v7 execution graph for approvalId: ${approvalId}`);
+      this.logger.log(`Resuming paused Zorvex v8 execution graph for approvalId: ${approvalId}`);
       const { userId, organizationId, userRole, history, userMessage, sessionId, callPersona, executionGraph, toolCallIndex, executedResults } = state;
 
       for (let i = toolCallIndex; i < executionGraph.length; i++) {
@@ -749,6 +1024,40 @@ Do not write markdown block backticks. Output raw JSON only.`;
         });
       }
 
+      // Reconstruct workspaceState
+      let workspaceState: any = {
+        activeProperty: null,
+        activeOwner: null,
+        activeLead: null,
+        activeTask: null,
+        activeMeeting: null,
+        activeEmployee: null,
+        activeComparison: null,
+        activeFilters: null,
+        activeModule: null,
+        activeEntity: null,
+        activeEntityType: null,
+        activeRecord: null,
+        activeCollection: null,
+        activeContext: null,
+        pendingAction: null
+      };
+
+      if (sessionId) {
+        const session = await this.prisma.aiChatSession.findUnique({
+          where: { id: sessionId }
+        });
+        if (session && Array.isArray(session.messages)) {
+          for (let i = session.messages.length - 1; i >= 0; i--) {
+            const msg = session.messages[i] as any;
+            if (msg.role === 'model' && msg.workspaceState) {
+              workspaceState = { ...workspaceState, ...msg.workspaceState };
+              break;
+            }
+          }
+        }
+      }
+
       const finalResult = await this.compileFinalResponse(
         userMessage,
         userId,
@@ -758,7 +1067,8 @@ Do not write markdown block backticks. Output raw JSON only.`;
         [], 
         executedResults,
         callPersona,
-        'ACTION_REQUEST'
+        'ACTION_REQUEST',
+        workspaceState
       );
 
       // Save history if active session
@@ -781,7 +1091,8 @@ Do not write markdown block backticks. Output raw JSON only.`;
             toolExecuted: finalResult.toolExecuted,
             toolData: finalResult.toolData,
             citations: finalResult.citations,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            workspaceState: finalResult.workspaceState
           };
           await this.prisma.aiChatSession.update({
             where: { id: sessionId },
@@ -805,6 +1116,61 @@ Do not write markdown block backticks. Output raw JSON only.`;
     }
   }
 
+  private selectSmartVisualization(toolName: string, data: any, query: string): any {
+    if (!data) return null;
+    const lowerQuery = query.toLowerCase();
+    
+    if (toolName === 'getAttendanceRecord') {
+      return {
+        type: 'line_chart',
+        title: 'Attendance Comparison & Trends',
+        config: { xKey: 'dateStr', yKeys: ['status'] }
+      };
+    }
+    if (toolName === 'getLeaveRequests') {
+      return {
+        type: 'pie_chart',
+        title: 'Leave Status Distribution',
+        config: { nameKey: 'status', valueKey: 'count' }
+      };
+    }
+    if (toolName === 'searchProperties') {
+      return {
+        type: 'pie_chart',
+        title: 'Property Status Distribution',
+        config: { nameKey: 'status', valueKey: 'count' }
+      };
+    }
+    if (toolName === 'searchClients' || toolName === 'getTasksBoard') {
+      return {
+        type: 'bar_chart',
+        title: toolName === 'searchClients' ? 'Lead Status Funnel' : 'Tasks Status Distribution',
+        config: { xKey: 'status', yKeys: ['count'] }
+      };
+    }
+    if (toolName === 'getFinanceAnalytics') {
+      return {
+        type: 'line_chart',
+        title: 'Revenue and Salary Trends',
+        config: { xKey: 'month', yKeys: ['netSalary'] }
+      };
+    }
+    if (toolName === 'runQueryPlan') {
+      if (lowerQuery.includes('attendance')) {
+        return { type: 'line_chart', title: 'Attendance Trends' };
+      } else if (lowerQuery.includes('leave')) {
+        return { type: 'pie_chart', title: 'Leave Distribution' };
+      } else if (lowerQuery.includes('property')) {
+        return { type: 'pie_chart', title: 'Property Status' };
+      } else if (lowerQuery.includes('client') || lowerQuery.includes('lead')) {
+        return { type: 'bar_chart', title: 'Lead Status Funnel' };
+      } else if (lowerQuery.includes('finance') || lowerQuery.includes('salary') || lowerQuery.includes('payroll')) {
+        return { type: 'line_chart', title: 'Financial Trends' };
+      }
+    }
+    return null;
+  }
+
   private async compileFinalResponse(
     userMessage: string,
     userId: string,
@@ -814,9 +1180,39 @@ Do not write markdown block backticks. Output raw JSON only.`;
     requiredAgents: string[],
     executedResults: any[],
     callPersona?: string,
-    intent?: string
+    intent?: string,
+    workspaceState?: any
   ): Promise<any> {
-    const primaryResult = executedResults[0] || null;
+    // STEP 4.5 — RESPONSE RELEVANCY ENGINE & DYNAMIC UI ASSET ROUTER
+    let primaryResult = executedResults[0] || null;
+    const lowerQuery = userMessage.toLowerCase();
+    let preferredTool: string | null = null;
+    
+    if (lowerQuery.includes('attendance') || lowerQuery.includes('hazri') || lowerQuery.includes('late') || lowerQuery.includes('present') || lowerQuery.includes('absent')) {
+      preferredTool = 'getAttendanceRecord';
+    } else if (lowerQuery.includes('leave') || lowerQuery.includes('chutti') || lowerQuery.includes('vacation')) {
+      preferredTool = 'getLeaveRequests';
+    } else if (lowerQuery.includes('task') || lowerQuery.includes('kam') || lowerQuery.includes('todo') || lowerQuery.includes('checklist')) {
+      preferredTool = 'getTasksBoard';
+      const createTaskRes = executedResults.find(r => r.tool === 'createTask');
+      if (createTaskRes) primaryResult = createTaskRes;
+    } else if (lowerQuery.includes('meeting') || lowerQuery.includes('schedule') || lowerQuery.includes('calendar') || lowerQuery.includes('appointment')) {
+      preferredTool = 'getMeetingsAnalytics';
+      const createMeetingRes = executedResults.find(r => r.tool === 'createMeeting');
+      if (createMeetingRes) primaryResult = createMeetingRes;
+    } else if (lowerQuery.includes('property') || lowerQuery.includes('listing') || lowerQuery.includes('villa') || lowerQuery.includes('apartment') || lowerQuery.includes('rent') || lowerQuery.includes('sale')) {
+      preferredTool = 'searchProperties';
+    } else if (lowerQuery.includes('client') || lowerQuery.includes('lead') || lowerQuery.includes('buyer') || lowerQuery.includes('customer')) {
+      preferredTool = 'searchClients';
+    }
+
+    if (preferredTool) {
+      const match = executedResults.find(r => r.tool === preferredTool);
+      if (match) {
+        primaryResult = match;
+      }
+    }
+
     const toolExecuted = primaryResult ? primaryResult.tool : null;
     const toolData = primaryResult ? primaryResult.data : null;
 
@@ -831,7 +1227,7 @@ Do not write markdown block backticks. Output raw JSON only.`;
         fallbackAreas = toolData.nearbyLocationsSearched;
       } else if (toolData.rows && toolData.rows.isNearbyFallback) {
         isFallback = true;
-        fallbackOrigLoc = toolData.rows.originalLocation;
+        fallbackOrigLoc = toolData.originalLocation;
         fallbackAreas = toolData.rows.nearbyLocationsSearched;
       }
     }
@@ -1013,6 +1409,155 @@ ${proactiveSuggestions}`;
     let responseText = await this.llmService.callLLM(composerPrompt, databaseFeedPrompt, history, false, organizationId, userId);
     let cleanedResponse = responseText.trim();
 
+    // STEP 11 — ZERO HALLUCINATION RESPONSE VALIDATION V4
+    let verificationPassed = false;
+    let retries = 0;
+    
+    while (!verificationPassed && retries < 2) {
+      const countsMap: Record<string, number> = {};
+      for (const res of executedResults) {
+        if (res.success && res.data) {
+          let count = 0;
+          if (Array.isArray(res.data)) count = res.data.length;
+          else if (res.data.rows && Array.isArray(res.data.rows)) count = res.data.rows.length;
+          else if (res.data.count !== undefined) count = res.data.count;
+          countsMap[res.tool] = count;
+        }
+      }
+
+      const verificationPrompt = `You are the Zorvex Zero-Hallucination Verification Engine V4.
+Your job is to compare the AI's generated response against the actual database records and verify all facts.
+
+ACTUAL DATABASE RECORDS & COUNTS:
+${JSON.stringify(executedResults.map(r => ({ tool: r.tool, data: r.data })), null, 2)}
+Counts: ${JSON.stringify(countsMap)}
+
+GENERATED RESPONSE TO AUDIT:
+"""
+${cleanedResponse}
+"""
+
+STRICT RULES TO VALIDATE:
+1. Record Counts: If a query returned 0 records, the response must report 0 or no records. It must never fabricate lists, names, or values.
+2. Names & Entities: The response must only mention names of employees, clients, owners, or properties that are present in the actual database records. Any unrecognized names must be marked as hallucinations.
+3. Tasks & Meetings: The response must only mention tasks, meetings, or schedules that were actually found or successfully created in the database records.
+4. Property Ownership: The response must not make up or assume who owns a property unless it is explicitly stated in the owner relation of the property records.
+
+If any of the rules are violated, output RETRY followed by the exact list of discrepancies.
+If the response is 100% factual and matches the database records, output PASS.
+Output ONLY 'PASS' or 'RETRY: <discrepancies>' - do not add any other text.`;
+
+      const checkResult = await this.llmService.callLLM(verificationPrompt, "Validate response facts", [], false, organizationId, userId);
+      if (checkResult.trim().startsWith("PASS")) {
+        verificationPassed = true;
+      } else {
+        this.logger.warn(`Verification V4 Failed (Attempt ${retries + 1}): ${checkResult.trim()}`);
+        retries++;
+        const correctionPrompt = `${composerPrompt}\n\n⚠️ SYSTEM CORRECTION ALERT: Your previous response was rejected by the Verification Engine due to facts/hallucinations mismatch: ${checkResult.trim()}. You must correct these discrepancies and output a completely factual response matching the database records.`;
+        responseText = await this.llmService.callLLM(correctionPrompt, databaseFeedPrompt, history, false, organizationId, userId);
+        cleanedResponse = responseText.trim();
+      }
+    }
+
+    // Update workspaceState active context and entities
+    if (workspaceState) {
+      for (const res of executedResults) {
+        if (res.success && res.data) {
+          if (res.tool === 'searchProperties' && Array.isArray(res.data) && res.data.length > 0) {
+            const prop = res.data[0];
+            workspaceState.activeProperty = {
+              id: prop.id,
+              title: prop.title,
+              ownerId: prop.ownerId || null,
+              ownerName: prop.owner?.name || null
+            };
+            workspaceState.activeEntityType = 'Property';
+            workspaceState.activeEntity = workspaceState.activeProperty;
+            workspaceState.activeRecord = workspaceState.activeProperty;
+            workspaceState.activeModule = 'Property';
+            workspaceState.activeContext = {
+              type: 'PROPERTY_DISCUSSION',
+              propertyId: prop.id
+            };
+          }
+          if (res.tool === 'searchEmployees' && Array.isArray(res.data) && res.data.length > 0) {
+            const emp = res.data[0];
+            workspaceState.activeEmployee = {
+              id: emp.id,
+              name: `${emp.user?.firstName || ''} ${emp.user?.lastName || ''}`.trim(),
+              department: emp.department
+            };
+            workspaceState.activeEntityType = 'Employee';
+            workspaceState.activeEntity = workspaceState.activeEmployee;
+            workspaceState.activeRecord = workspaceState.activeEmployee;
+            workspaceState.activeModule = 'HR';
+            workspaceState.activeContext = {
+              type: 'ATTENDANCE_DISCUSSION',
+              employeeId: emp.id
+            };
+          }
+          if (res.tool === 'getLeaveRequests' && Array.isArray(res.data) && res.data.length > 0) {
+            const leave = res.data[0];
+            workspaceState.activeEntityType = 'Leave Request';
+            workspaceState.activeModule = 'HR';
+            workspaceState.activeContext = {
+              type: 'LEAVE_DISCUSSION',
+              employeeId: leave.employeeProfileId || null,
+              leaveRequestId: leave.id
+            };
+          }
+          if ((res.tool === 'getTasksBoard' || res.tool === 'createTask') && res.data) {
+            const task = Array.isArray(res.data) ? res.data[0] : res.data;
+            if (task) {
+              workspaceState.activeTask = {
+                id: task.id,
+                title: task.title,
+                assignedToId: task.assignedToId
+              };
+              workspaceState.activeEntityType = 'Task';
+              workspaceState.activeModule = 'Operations';
+              workspaceState.activeContext = {
+                type: 'TASK_DISCUSSION',
+                taskId: task.id
+              };
+            }
+          }
+          if ((res.tool === 'getMeetingsAnalytics' || res.tool === 'createMeeting') && res.data) {
+            const mtg = Array.isArray(res.data) ? res.data[0] : (res.data.event || res.data);
+            if (mtg) {
+              workspaceState.activeMeeting = {
+                id: mtg.id,
+                title: mtg.title,
+                startTime: mtg.startTime
+              };
+              workspaceState.activeEntityType = 'Meeting';
+              workspaceState.activeModule = 'Operations';
+              workspaceState.activeContext = {
+                type: 'MEETING_DISCUSSION',
+                meetingId: mtg.id
+              };
+            }
+          }
+          if (res.tool === 'searchClients' && Array.isArray(res.data) && res.data.length > 0) {
+            const client = res.data[0];
+            workspaceState.activeLead = {
+              id: client.id,
+              name: client.name,
+              type: client.type
+            };
+            workspaceState.activeEntityType = client.type === 'OWNER' ? 'Owner' : 'Lead';
+            workspaceState.activeEntity = workspaceState.activeLead;
+            workspaceState.activeRecord = workspaceState.activeLead;
+            workspaceState.activeModule = 'Sales';
+            workspaceState.activeContext = {
+              type: client.type === 'OWNER' ? 'OWNER_DISCUSSION' : 'LEAD_DISCUSSION',
+              leadId: client.id
+            };
+          }
+        }
+      }
+    }
+
     cleanedResponse = cleanedResponse
       .replace(/(?:runQueryPlan|runDatabaseQuery|searchEmployees|searchClients|searchProperties|executeDatabaseTool|getAttendanceRecord|getLeaveRequests|getTasksBoard|getMeetingsAnalytics|getFinanceAnalytics|getLogisticsAnalytics|createTask|createMeeting)\s*(?:tool|query|SQL|system)/gi, '')
       .replace(/Postgres|database|PrismaClientKnownRequestError|SQL query/gi, 'system lookup')
@@ -1057,12 +1602,16 @@ ${proactiveSuggestions}`;
       finalSpoken = await this.generateSpokenSummary(cleanedResponse, userMessage, organizationId, userId);
     }
 
+    const visualization = this.selectSmartVisualization(toolExecuted || '', toolData, userMessage);
+
     return {
       response: cleanedResponse,
       spokenResponse: finalSpoken,
       toolExecuted,
       toolData,
-      citations
+      citations,
+      visualization,
+      workspaceState
     };
   }
 

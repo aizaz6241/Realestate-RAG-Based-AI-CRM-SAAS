@@ -646,6 +646,8 @@ model AiDocument {
   fileUrl        String?           // Local path or URL
   fileType       String            // PDF, TXT, NOTE, etc.
   fileSize       Int?              // in bytes
+  version        Int               @default(1)
+  metadata       Json?             // Author, access permission roles, duplicate status
   
   organizationId String
   organization   Organization      @relation(fields: [organizationId], references: [id])
@@ -663,6 +665,7 @@ model AiDocumentChunk {
   id           String     @id @default(uuid())
   content      String     @db.Text
   embedding    Float[]    // stores the floating point vector representation (768 for Gemini, 1536 for OpenAI)
+  metadata     Json?      // Page number, paragraph index, citation, etc.
   
   documentId   String
   document     AiDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)

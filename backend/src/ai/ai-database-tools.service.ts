@@ -318,14 +318,21 @@ export class AiDatabaseToolsService {
               searchName = undefined;
             }
           }
+
+          const whereClause: any = {
+            organizationId,
+            type: type || undefined,
+            name: searchName ? { contains: searchName, mode: 'insensitive' } : undefined,
+            budget: budget ? { lte: parseFloat(budget) } : undefined,
+            preferences: preferences ? { contains: preferences, mode: 'insensitive' } : undefined,
+          };
+
+          if (userRole === 'AGENT') {
+            whereClause.assignedToId = userId;
+          }
+
           return this.prisma.client.findMany({
-            where: {
-              organizationId,
-              type: type || undefined,
-              name: searchName ? { contains: searchName, mode: 'insensitive' } : undefined,
-              budget: budget ? { lte: parseFloat(budget) } : undefined,
-              preferences: preferences ? { contains: preferences, mode: 'insensitive' } : undefined,
-            },
+            where: whereClause,
             orderBy: { createdAt: 'desc' },
             take: 8,
           });
@@ -456,7 +463,9 @@ export class AiDatabaseToolsService {
               : undefined,
           };
 
-          if (filterName) {
+          if (userRole === 'AGENT') {
+            whereClause.assignedToId = userId;
+          } else if (filterName) {
             const matches = await this.findEmployeeFuzzy(filterName, organizationId);
             if (matches.length > 0) {
               whereClause.assignedToId = { in: matches.map(m => m.id) };
@@ -964,6 +973,13 @@ export class AiDatabaseToolsService {
             const baseFilter = getBaseTenantFilter(entityKey, organizationId);
             const whereClause = { ...baseFilter, ...cleanFilters };
 
+            // Apply AGENT security boundaries
+            if (userRole === 'AGENT') {
+              if (['lead', 'task', 'client', 'clientpropertyinterest', 'clientviewing', 'clientcommunication'].includes(entityKey)) {
+                whereClause.assignedToId = userId;
+              }
+            }
+
             try {
               if (operation === 'aggregate') {
                 const aggregateArgs: any = {
@@ -1135,6 +1151,23 @@ export class AiDatabaseToolsService {
           }
 
           const targetEmployee = matches[0];
+
+          const requestedAssignee = employeeName.trim().toLowerCase();
+          const resolvedFirstName = targetEmployee.firstName.toLowerCase();
+          const resolvedLastName = (targetEmployee.lastName || '').toLowerCase();
+
+          const isDirectMatch = resolvedFirstName.includes(requestedAssignee) || 
+                                resolvedLastName.includes(requestedAssignee) || 
+                                requestedAssignee.includes(resolvedFirstName);
+
+          if (!isDirectMatch && targetEmployee.similarityScore < 0.6) {
+            return {
+              error: 'CONFIRMATION_REQUIRED',
+              requestedAssignee: employeeName,
+              resolvedAssignee: `${targetEmployee.firstName} ${targetEmployee.lastName || ''}`.trim(),
+              message: `I found "${targetEmployee.firstName} ${targetEmployee.lastName || ''}" as the closest match for "${employeeName}". Do you want to assign the task to them?`
+            };
+          }
 
           const activeTasksCount = await this.prisma.task.count({
             where: {
