@@ -34,17 +34,27 @@ export class ResultFusionService {
     query: string,
     input: FusionInput,
     organizationId: string,
-    userId: string
+    userId: string,
+    classification?: string
   ): Promise<FusionOutput> {
-    this.logger.log(`[Result Fusion & Cross Validation] Fusing results for query: "${query}"`);
+    this.logger.log(`[Result Fusion & Cross Validation] Fusing results for query: "${query}" (Classification: ${classification})`);
 
     const dbRows = input.dbResult?.rows || [];
     const docChunks = input.docResult?.chunks || [];
     const memories = input.memResult?.memories || [];
 
     // 1. Cross Validation: Check for contradictions using LLM context auditing
-    // Priority: Live Database > Approved Documents > Archived Documents
-    const crossValidationPrompt = `You are the Zorvex AI V9 Cross Validation Engine.
+    // Bypass cross-validation if either database records or document chunks are empty
+    let conflicts: string[] = [];
+    let isConsistent = true;
+
+    const skipCrossValidation = dbRows.length === 0 || docChunks.length === 0;
+
+    if (skipCrossValidation) {
+      this.logger.log(`[Cross Validation Skipped] Skipping LLM contradiction check since dbRowsCount=${dbRows.length}, docChunksCount=${docChunks.length}`);
+    } else {
+      // Priority: Live Database > Approved Documents > Archived Documents
+      const crossValidationPrompt = `You are the Zorvex AI V9 Cross Validation Engine.
 Analyze the retrieved structured database records and the unstructured document chunks for any factual contradictions or inconsistencies.
 
 Live Database Records (PRIORITY 1):
@@ -65,40 +75,86 @@ Return strictly JSON matching this structure:
 }
 Do not write markdown backticks. Return raw JSON only.`;
 
-    let conflicts: string[] = [];
-    let isConsistent = true;
-    try {
-      const resText = await this.llmService.callLLM(
-        crossValidationPrompt,
-        "Analyze source alignment",
-        [],
-        false,
-        organizationId,
-        userId
-      );
-      const cleanJson = resText.trim();
-      const jsonStart = cleanJson.indexOf('{');
-      const jsonEnd = cleanJson.lastIndexOf('}');
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        const parsed = JSON.parse(cleanJson.substring(jsonStart, jsonEnd + 1));
-        conflicts = parsed.conflicts || [];
-        isConsistent = parsed.isConsistent ?? true;
+      try {
+        const resText = await this.llmService.callLLM(
+          crossValidationPrompt,
+          "Analyze source alignment",
+          [],
+          false,
+          organizationId,
+          userId
+        );
+        const cleanJson = resText.trim();
+        const jsonStart = cleanJson.indexOf('{');
+        const jsonEnd = cleanJson.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          const parsed = JSON.parse(cleanJson.substring(jsonStart, jsonEnd + 1));
+          conflicts = parsed.conflicts || [];
+          isConsistent = parsed.isConsistent ?? true;
+        }
+      } catch (e) {
+        this.logger.warn(`Cross Validation check failed: ${e.message}`);
       }
-    } catch (e) {
-      this.logger.warn(`Cross Validation check failed: ${e.message}`);
     }
 
     // 2. Confidence Engine: Calculate aggregate confidence score
-    // finalConfidence = (SQLConfidence * 0.40) + (RAGConfidence * 0.40) + (ConsistencyScore * 0.20)
-    const dbConf = input.dbResult?.confidenceScore || 0;
-    const docConf = (input.docResult?.confidenceScore || 0) * 100; // Convert 0-1.0 scale to 0-100
+    const dbConf = input.dbResult?.confidenceScore ?? 0;
+    const docConf = (input.docResult?.confidenceScore ?? 0) * 100; // Convert 0-1.0 scale to 0-100
+    const memConf = memories.length > 0 ? 100 : 0;
     const consistencyScore = isConsistent ? 100 : 50;
 
-    const finalConfidence = Math.round(
-      (dbConf * 0.45) + (docConf * 0.35) + (consistencyScore * 0.20)
-    );
+    let finalConfidence = 0;
 
-    this.logger.log(`Aggregate Confidence Score: ${finalConfidence} (DB: ${dbConf}, Doc: ${docConf}, Consistency: ${consistencyScore})`);
+    const hasDB = dbRows.length > 0;
+    const hasDoc = docChunks.length > 0;
+
+    if (classification === 'DATABASE_ONLY') {
+      finalConfidence = Math.round((dbConf * 0.8) + (consistencyScore * 0.2));
+    } else if (classification === 'DOCUMENT_ONLY') {
+      finalConfidence = Math.round((docConf * 0.8) + (consistencyScore * 0.2));
+    } else if (classification === 'MEMORY_ONLY') {
+      finalConfidence = Math.round((memConf * 0.8) + (consistencyScore * 0.2));
+    } else if (classification === 'HYBRID') {
+      // Dynamic rebalancing in Hybrid Mode if only one source exists
+      if (hasDB && hasDoc) {
+        finalConfidence = Math.round((dbConf * 0.4) + (docConf * 0.4) + (consistencyScore * 0.2));
+      } else if (hasDB) {
+        finalConfidence = Math.round((dbConf * 0.8) + (consistencyScore * 0.2));
+      } else if (hasDoc) {
+        finalConfidence = Math.round((docConf * 0.8) + (consistencyScore * 0.2));
+      } else {
+        finalConfidence = Math.round(consistencyScore);
+      }
+    } else {
+      // Fallback
+      if (hasDB && hasDoc) {
+        finalConfidence = Math.round((dbConf * 0.4) + (docConf * 0.4) + (consistencyScore * 0.2));
+      } else if (hasDB) {
+        finalConfidence = Math.round((dbConf * 0.8) + (consistencyScore * 0.2));
+      } else if (hasDoc) {
+        finalConfidence = Math.round((docConf * 0.8) + (consistencyScore * 0.2));
+      } else {
+        finalConfidence = Math.round(consistencyScore);
+      }
+    }
+
+    // Required Debug Telemetries
+    this.logger.log(`[Confidence Engine Breakdown]
+    {
+      "sqlConfidence": ${dbConf},
+      "ragConfidence": ${docConf},
+      "memoryConfidence": ${memConf},
+      "consistencyScore": ${consistencyScore},
+      "finalConfidence": ${finalConfidence}
+    }`);
+
+    this.logger.log(`[Cross Validation Telemetry]
+    {
+      "crossValidationExecuted": ${!skipCrossValidation},
+      "dbRowsCount": ${dbRows.length},
+      "docChunksCount": ${docChunks.length},
+      "conflicts": ${JSON.stringify(conflicts)}
+    }`);
 
     // 3. Construct Grounded Evidence string
     const dbFeed = dbRows.length > 0

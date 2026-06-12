@@ -52,6 +52,7 @@ export class CognitiveGatewayService {
   ): Promise<CognitiveGatewayOutput> {
     this.logger.log(`[Layer 1: Cognitive Gateway] Normalizing incoming request: "${userMessage}"`);
 
+    const chatHistory = history || [];
     let userName = 'Admin';
     try {
       const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -84,7 +85,7 @@ Active Workspace State Memory:
 ${JSON.stringify(workspaceState || {}, null, 2)}
 
 Conversational History Context:
-${history.map(h => `${h.role === 'user' ? 'User' : 'AI'}: ${h.content}`).join('\n')}
+${chatHistory.map(h => `${h.role === 'user' ? 'User' : 'AI'}: ${h.content}`).join('\n')}
 
 Output ONLY the resolved and fully normalized query text in the matching language. Do not add markdown quotes, preface explanation, or wrappers.`;
 
@@ -113,7 +114,7 @@ Output ONLY the resolved and fully normalized query text in the matching languag
       userId,
       timestamp: currentLocalTime,
       conversationContext: {
-        history,
+        history: chatHistory,
         workspaceState
       }
     };

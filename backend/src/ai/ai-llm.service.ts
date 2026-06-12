@@ -194,6 +194,7 @@ export class AiLlmService {
     if (mode === 'local_only') return 'local';
     if (mode === 'cloud_only') return 'cloud';
 
+    history = history || [];
     const historyLength = history.reduce((sum, h) => sum + h.content.length, 0);
     const totalApproxLength = userMessage.length + historyLength;
     if (totalApproxLength > 8000) {
@@ -445,6 +446,7 @@ export class AiLlmService {
     organizationId?: string,
     userId?: string
   ): Promise<string> {
+    history = history || [];
     const tier = forceCloud ? 'cloud' : this.determineExecutionTier(userPrompt, history);
     const totalPromptLength = systemPrompt.length + userPrompt.length + history.reduce((sum, h) => sum + h.content.length, 0);
     

@@ -9,6 +9,10 @@ export interface DatabasePipelineResult {
   tablesUsed: string[];
   queriesRun: string[];
   errors: string[];
+  rawLlmResponse?: string;
+  parseError?: string;
+  generatedPlan?: any;
+  validationResult?: any;
 }
 
 // Layer 1: Schema Registry
@@ -194,8 +198,9 @@ Instructions:
 
 Return ONLY raw JSON matching the format. Do not include markdown code block tags.`;
 
+    let resText = '';
     try {
-      const resText = await this.llmService.callLLM(
+      resText = await this.llmService.callLLM(
         nlsPrompt,
         `Generate query parameters`,
         [],
@@ -207,20 +212,31 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
       const jsonStart = cleanJson.indexOf('{');
       const jsonEnd = cleanJson.lastIndexOf('}');
       if (jsonStart !== -1 && jsonEnd !== -1) {
-        const parsed = JSON.parse(cleanJson.substring(jsonStart, jsonEnd + 1));
-        return parsed;
+        let rawJson = cleanJson.substring(jsonStart, jsonEnd + 1);
+        // Strip single-line comments (//...)
+        rawJson = rawJson.replace(/\/\/.*$/gm, '');
+        // Strip multi-line comments (/*...*/)
+        rawJson = rawJson.replace(/\/\*[\s\S]*?\*\//g, '');
+        const parsed = JSON.parse(rawJson);
+        return {
+          ...parsed,
+          _rawLlmResponse: resText,
+          _parseError: null
+        };
+      } else {
+        throw new Error('No JSON object boundaries found in response.');
       }
     } catch (e) {
       this.logger.warn(`NL-to-SQL engine parsing failed: ${e.message}`);
+      return {
+        operation: 'fetch',
+        entities: mappedEntities,
+        filters: {},
+        take: 20,
+        _rawLlmResponse: resText,
+        _parseError: e.message
+      };
     }
-
-    // Default basic prisma arguments fallback
-    return {
-      operation: 'fetch',
-      entities: mappedEntities,
-      filters: {},
-      take: 20
-    };
   }
 
   // Layer 4 & 5: SQL Validation Engine & Query Optimization Engine
@@ -358,9 +374,20 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
           if (optimizedPlan.metrics && optimizedPlan.metrics.length > 0) {
             aggArgs._sum = {};
             aggArgs._avg = {};
+            const validNumericFields = [
+              'price', 'bedrooms', 'bathrooms', 'areaSqft', 'salary', 
+              'netSalary', 'baseSalary', 'allowances', 'deductions', 
+              'cost', 'amount', 'rating', 'duration', 'progress'
+            ];
             for (const m of optimizedPlan.metrics) {
+              if (m === 'count') continue;
+              if (!validNumericFields.includes(m)) continue;
               aggArgs._sum[m] = true;
               aggArgs._avg[m] = true;
+            }
+            if (Object.keys(aggArgs._sum).length === 0) {
+              delete aggArgs._sum;
+              delete aggArgs._avg;
             }
           }
 
@@ -511,7 +538,11 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
         confidenceScore: 0,
         tablesUsed: plan.entities,
         queriesRun,
-        errors
+        errors,
+        rawLlmResponse: plan._rawLlmResponse,
+        parseError: plan._parseError,
+        generatedPlan: plan,
+        validationResult: validation
       };
     }
 
@@ -544,7 +575,11 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
       confidenceScore,
       tablesUsed: plan.entities,
       queriesRun,
-      errors
+      errors,
+      rawLlmResponse: plan._rawLlmResponse,
+      parseError: plan._parseError,
+      generatedPlan: plan,
+      validationResult: validation
     };
   }
 }

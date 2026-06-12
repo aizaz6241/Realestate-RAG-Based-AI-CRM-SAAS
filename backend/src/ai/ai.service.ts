@@ -196,6 +196,7 @@ export class AiService {
     organizationId?: string,
     userId?: string
   ): Promise<string> {
+    history = history || [];
     return this.llmService.callLLM(systemPrompt, userPrompt, history, forceCloud, organizationId, userId);
   }
 
@@ -466,6 +467,7 @@ Do not write any markdown code blocks or backticks. Return raw JSON only.`;
     organizationId?: string,
     userId?: string
   ): Promise<string> {
+    history = history || [];
     let userName = 'Admin';
     if (userId) {
       const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -529,6 +531,7 @@ INSTRUCTIONS:
     sessionId?: string,
     debug?: boolean
   ): Promise<any> {
+    history = history || [];
     const startTime = Date.now();
     const traceId = 'trace-' + Math.random().toString(36).substring(2, 15);
 
@@ -853,8 +856,19 @@ Matches the language of the user's query. Keep it short, professional, and clear
           userRole
         );
 
-        // Fallback: Prisma Query Templates
-        if ((res.rows.length === 0 || res.confidenceScore < 50) && res.errors.length === 0) {
+        const primaryFailed = (res.rows.length === 0 || res.confidenceScore < 50) && res.errors.length === 0;
+
+        if (primaryFailed) {
+          // Log NL-to-SQL failure diagnostics EXACTLY as requested
+          this.logger.error(`[NL-to-SQL FAILURE DIAGNOSTICS]
+          {
+            "rawLlmResponse": ${JSON.stringify(res.rawLlmResponse || "", null, 2)},
+            "parseError": ${JSON.stringify(res.parseError || "", null, 2)},
+            "generatedPlan": ${JSON.stringify(res.generatedPlan || {}, null, 2)},
+            "validationResult": ${JSON.stringify(res.validationResult || {}, null, 2)},
+            "fallbackTriggered": true
+          }`);
+
           emitTraceStep(9, "SQL_PIPELINE_FALLBACK", "WARNING", step.params || {}, "SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates...", sqlStartTime);
           this.logger.log(`[Database Fallback] SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates.`);
           try {
@@ -889,6 +903,15 @@ Matches the language of the user's query. Keep it short, professional, and clear
           } catch (err) {
             this.logger.error(`Database Fallback execution failed: ${err.message}`);
           }
+        } else {
+          // Log NL-to-SQL success diagnostics EXACTLY as requested
+          this.logger.log(`[NL-to-SQL SUCCESS DIAGNOSTICS]
+          {
+            "generatedPlan": ${JSON.stringify(res.generatedPlan || {}, null, 2)},
+            "validationResult": ${JSON.stringify(res.validationResult || {}, null, 2)},
+            "executionResult": { "rowsCount": ${res.rows.length} },
+            "fallbackTriggered": false
+          }`);
         }
 
         emitTraceStep(9, "SQL_PIPELINE_END", res.errors.length > 0 ? "FAILED" : "SUCCESS", step.params || {}, { rowsCount: res.rows.length, verified: res.verified, confidenceScore: res.confidenceScore, queriesRun: res.queriesRun, errors: res.errors }, sqlStartTime);
@@ -951,7 +974,8 @@ Matches the language of the user's query. Keep it short, professional, and clear
         gatewayOutput.query,
         { dbResult, docResult, memResult },
         organizationId,
-        userId
+        userId,
+        intentObj.classification
       );
       emitTraceStep(12, "RESULT_FUSION", "SUCCESS", { dbResultSize: dbResult.rows.length, docChunksSize: docResult.chunks.length, memResultSize: memResult.memories.length }, { finalConfidence: fusionOutput.finalConfidence, groundedEvidenceLength: fusionOutput.groundedEvidence.length }, fusionStartTime);
       emitTraceStep(13, "CROSS_VALIDATION", fusionOutput.conflicts && fusionOutput.conflicts.length > 0 ? "WARNING" : "SUCCESS", { dbResultSize: dbResult.rows.length, docChunksSize: docResult.chunks.length }, { conflicts: fusionOutput.conflicts || [] }, fusionStartTime);
