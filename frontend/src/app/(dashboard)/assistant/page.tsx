@@ -46,6 +46,7 @@ import DatabaseWidgets from "./components/DatabaseWidgets";
 import VoiceCallingConsole from "./components/VoiceCallingConsole";
 import AudioSynthesizer from "./components/AudioSynthesizer";
 import FormattedAiMessage from "./components/FormattedAiMessage";
+import { io } from "socket.io-client";
 
 const SPEECH_LANGUAGES = [
   { code: "en-US", name: "English (US)", flag: "🇺🇸", label: "EN" },
@@ -828,7 +829,8 @@ export default function AssistantPage() {
               body: JSON.stringify({
                 message: transcript,
                 sessionId: activeSessionId || undefined,
-                callPersona: "ORCHESTRATOR"
+                callPersona: "ORCHESTRATOR",
+                debug: debugMode
               })
             });
 
@@ -1025,6 +1027,78 @@ export default function AssistantPage() {
       }
     };
   }, []);
+
+  // Zorvex V9 Real-Time Trace Panel Debug states
+  const [debugMode, setDebugMode] = useState(false);
+  const [traceLogs, setTraceLogs] = useState<any[]>([]);
+  const [activeTraceId, setActiveTraceId] = useState<string | null>(null);
+  const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({});
+  const [isTraceWindowOpen, setIsTraceWindowOpen] = useState(false);
+  const debugSocketRef = useRef<any>(null);
+  const traceEndRef = useRef<HTMLDivElement>(null);
+
+  // Hook to join WebSocket room and listen to V9 telemetry trace logs
+  useEffect(() => {
+    if (!token || !currentUser?.organizationId || !debugMode) {
+      if (debugSocketRef.current) {
+        debugSocketRef.current.disconnect();
+        debugSocketRef.current = null;
+      }
+      return;
+    }
+
+    const socketUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    const socket = io(socketUrl, {
+      transports: ['websocket'],
+      forceNew: true
+    });
+    debugSocketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('🔬 Connected to Zorvex Debug Telemetry Socket');
+      socket.emit('join', { organizationId: currentUser.organizationId, userId: currentUser.id });
+    });
+
+    socket.on('ai_trace_step', (data: any) => {
+      console.log('🔬 Telemetry trace step received:', data);
+      if (data.userId === currentUser.id) {
+        setTraceLogs(prev => {
+          if (data.stepNumber === 1) {
+            setActiveTraceId(data.traceId);
+            setIsTraceWindowOpen(true); // Auto expand when new query runs
+            // Reset expanded state for new trace
+            setExpandedSteps({});
+            return [data];
+          }
+          // Only collect steps that belong to the active traceId to avoid mixed sessions
+          const updated = [...prev.filter(t => t.traceId === data.traceId), data];
+          return updated.sort((a, b) => a.stepNumber - b.stepNumber);
+        });
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('❌ Disconnected from Debug Telemetry Socket');
+    });
+
+    return () => {
+      socket.disconnect();
+      debugSocketRef.current = null;
+    };
+  }, [token, currentUser, debugMode]);
+
+  // Auto scroll debug trace logs
+  useEffect(() => {
+    if (isTraceWindowOpen) {
+      setTimeout(() => {
+        traceEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  }, [traceLogs, isTraceWindowOpen]);
+
+  const toggleStepDetails = (stepNum: number) => {
+    setExpandedSteps(prev => ({ ...prev, [stepNum]: !prev[stepNum] }));
+  };
 
   // Data States
   const [messages, setMessages] = useState<any[]>([
@@ -1234,7 +1308,8 @@ export default function AssistantPage() {
         },
         body: JSON.stringify({
           message: userMessageText,
-          sessionId: activeSessionId
+          sessionId: activeSessionId,
+          debug: debugMode
         })
       });
 
@@ -1435,6 +1510,41 @@ export default function AssistantPage() {
             AI Chat Assistant
           </h1>
           <p className="text-muted-foreground mt-1">RAG-based conversational AI. Ask questions about your database or upload documents to query manuals in real-time.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {debugMode && (
+            <button
+              type="button"
+              onClick={() => setIsTraceWindowOpen(!isTraceWindowOpen)}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer border ${
+                isTraceWindowOpen
+                  ? "bg-amber-500/20 border-amber-500/40 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.15)]"
+                  : "bg-secondary/40 border-border/40 text-gray-400 hover:text-white"
+              }`}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              {isTraceWindowOpen ? "Hide Trace" : "Show Trace"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              const nextMode = !debugMode;
+              setDebugMode(nextMode);
+              if (!nextMode) {
+                setIsTraceWindowOpen(false);
+                setTraceLogs([]);
+              }
+            }}
+            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer border ${
+              debugMode
+                ? "bg-red-500/20 border-red-500/40 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.15)] animate-pulse"
+                : "bg-secondary/40 border-border/40 text-gray-400 hover:text-white hover:border-border/60"
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            {debugMode ? "Debug: ON" : "Debug Mode"}
+          </button>
         </div>
       </div>
 
@@ -2175,6 +2285,150 @@ export default function AssistantPage() {
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Query Execution Trace Drawer (Debug Mode Only) */}
+      {debugMode && isTraceWindowOpen && (
+        <div className="fixed inset-y-0 right-0 w-[450px] bg-slate-950/90 backdrop-blur-md border-l border-border/60 z-50 flex flex-col shadow-[0_0_40px_rgba(0,0,0,0.85)] animate-fade-in">
+          {/* Header */}
+          <div className="p-4 border-b border-border/40 flex justify-between items-center bg-secondary/10 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-primary animate-pulse" />
+              <div>
+                <h3 className="text-xs font-black uppercase text-white tracking-widest">Cognitive Trace Engine</h3>
+                <p className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">V9 Debug Observability</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setTraceLogs([])}
+                className="text-[9px] font-black uppercase px-2 py-1 rounded bg-secondary/60 hover:bg-secondary border border-border/40 text-gray-400 hover:text-white transition-all cursor-pointer"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsTraceWindowOpen(false)}
+                className="p-1 rounded bg-secondary/40 border border-border/40 text-gray-400 hover:text-white transition-all cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Trace Steps Container */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin select-text">
+            {traceLogs.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center p-6 gap-2">
+                <div className="w-10 h-10 rounded-xl bg-secondary/30 border border-border/40 flex items-center justify-center text-gray-500">
+                  <Terminal className="w-5 h-5 animate-pulse" />
+                </div>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400">No telemetry data</h4>
+                <p className="text-[9px] text-gray-500 leading-relaxed max-w-[200px]">Send a message to see the 17-layer cognitive execution trace stream live.</p>
+              </div>
+            ) : (
+              traceLogs.map((log: any, idx: number) => {
+                const stepNum = log.stepNumber;
+                const isExpanded = !!expandedSteps[stepNum];
+
+                // Color code logic
+                let statusColor = "text-gray-400 border-border/40 bg-secondary/20";
+                let dotColor = "bg-gray-400";
+                let stepBorderColor = "border-border/30";
+
+                if (log.status === "SUCCESS") {
+                  statusColor = "text-emerald-400 border-emerald-500/20 bg-emerald-500/5";
+                  dotColor = "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]";
+                  stepBorderColor = "border-emerald-500/10";
+                } else if (log.status === "PROCESSING" || log.status === "WARNING") {
+                  statusColor = "text-amber-400 border-amber-500/20 bg-amber-500/5";
+                  dotColor = "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]";
+                  stepBorderColor = "border-amber-500/10";
+                } else if (log.status === "FAILED") {
+                  statusColor = "text-red-400 border-red-500/20 bg-red-500/5";
+                  dotColor = "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.5)]";
+                  stepBorderColor = "border-red-500/10";
+                }
+
+                return (
+                  <div key={idx} className={`p-3 rounded-2xl border ${stepBorderColor} bg-card/10 space-y-2.5 transition-all hover:bg-secondary/5`}>
+                    
+                    {/* Log Step Row Header */}
+                    <div 
+                      onClick={() => toggleStepDetails(stepNum)}
+                      className="flex justify-between items-center cursor-pointer select-none"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[9px] font-bold font-mono text-gray-500">
+                          #{String(stepNum).padStart(2, "0")}
+                        </span>
+                        <h4 className="text-[10px] font-black uppercase text-gray-200 tracking-wider truncate">
+                          {log.stepName.replace(/_/g, " ")}
+                        </h4>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {log.latency !== undefined && (
+                          <span className="text-[8px] font-semibold text-gray-400 font-mono bg-secondary/40 px-1 py-0.5 rounded border border-border/20">
+                            {log.latency}ms
+                          </span>
+                        )}
+                        <span className={`px-2 py-0.5 rounded border text-[8px] font-black uppercase flex items-center gap-1.5 ${statusColor}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+                          {log.status}
+                        </span>
+                        <ChevronDown className={`w-3.5 h-3.5 text-gray-500 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                      </div>
+                    </div>
+
+                    {/* Step details dropdown */}
+                    {isExpanded && (
+                      <div className="pt-2.5 border-t border-border/25 space-y-2.5 text-[9px] font-mono leading-relaxed text-left">
+                        {/* Time metadata */}
+                        <div className="text-gray-500 text-[8px] flex justify-between uppercase">
+                          <span>Timestamp:</span>
+                          <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
+                        </div>
+
+                        {/* Input context */}
+                        {log.input && (
+                          <div className="space-y-1">
+                            <span className="text-gray-400 font-bold block uppercase text-[8px] tracking-wider">Input Payload:</span>
+                            <pre className="p-2 rounded-xl bg-slate-900 border border-border/30 overflow-x-auto max-h-32 text-gray-300 whitespace-pre-wrap select-text scrollbar-thin">
+                              {log.input}
+                            </pre>
+                          </div>
+                        )}
+
+                        {/* Output payload */}
+                        {log.output && (
+                          <div className="space-y-1">
+                            <span className="text-gray-400 font-bold block uppercase text-[8px] tracking-wider">Output / Return:</span>
+                            <pre className="p-2 rounded-xl bg-slate-900 border border-border/30 overflow-x-auto max-h-48 text-gray-300 whitespace-pre-wrap select-text scrollbar-thin">
+                              {log.output}
+                            </pre>
+                          </div>
+                        )}
+
+                        {/* Error stack if any */}
+                        {log.error && (
+                          <div className="space-y-1">
+                            <span className="text-red-400 font-bold block uppercase text-[8px] tracking-wider">Error Details:</span>
+                            <pre className="p-2 rounded-xl bg-red-950/40 border border-red-500/20 text-red-300 overflow-x-auto max-h-32 whitespace-pre-wrap select-text scrollbar-thin">
+                              {log.error}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            <div ref={traceEndRef} />
           </div>
         </div>
       )}

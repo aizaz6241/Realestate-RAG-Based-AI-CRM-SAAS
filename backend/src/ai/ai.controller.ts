@@ -114,7 +114,8 @@ export class AiController {
     @Body('message') message: string,
     @Request() req,
     @Body('sessionId') sessionId?: string,
-    @Body('callPersona') callPersona?: string
+    @Body('callPersona') callPersona?: string,
+    @Body('debug') debug?: boolean
   ) {
     if (!message || !message.trim()) {
       throw new HttpException('Message cannot be empty', HttpStatus.BAD_REQUEST);
@@ -150,7 +151,8 @@ export class AiController {
       req.user.role,
       aiHistory,
       callPersona,
-      sessionId
+      sessionId,
+      debug
     );
 
     // Save history if active session and not paused for approval

@@ -526,10 +526,34 @@ INSTRUCTIONS:
     userRole: string,
     history: { role: 'user' | 'model'; content: string }[] = [],
     callPersona?: string,
-    sessionId?: string
+    sessionId?: string,
+    debug?: boolean
   ): Promise<any> {
     const startTime = Date.now();
     const traceId = 'trace-' + Math.random().toString(36).substring(2, 15);
+
+    const emitTraceStep = (
+      stepNumber: number,
+      stepName: string,
+      status: 'SUCCESS' | 'WARNING' | 'FAILED' | 'PROCESSING',
+      input: any,
+      output: any,
+      stepStartTime: number
+    ) => {
+      if (!debug) return;
+      const latency = Date.now() - stepStartTime;
+      this.zorvexGateway.broadcastToOrganization(organizationId, 'ai_trace_step', {
+        traceId,
+        userId,
+        stepNumber,
+        stepName,
+        status,
+        input: typeof input === 'string' ? input : (input ? JSON.stringify(input, null, 2) : ''),
+        output: typeof output === 'string' ? output : (output ? JSON.stringify(output, null, 2) : ''),
+        latency,
+        timestamp: new Date().toISOString()
+      });
+    };
     let workspaceState: any = {
       activeProperty: null,
       activeOwner: null,
@@ -549,6 +573,7 @@ INSTRUCTIONS:
     };
 
     try {
+      emitTraceStep(1, "INCOMING_QUERY", "SUCCESS", userMessage, { userId, organizationId, userRole }, startTime);
       if (sessionId) {
         const session = await this.prisma.aiChatSession.findUnique({
           where: { id: sessionId }
@@ -565,6 +590,7 @@ INSTRUCTIONS:
       }
 
       // STEP 0 — CONTEXT-AWARE QUERY REFINEMENT & COGNITIVE GATEWAY (Layer 1)
+      const gatewayStartTime = Date.now();
       const gatewayOutput = await this.cognitiveGatewayService.cognitiveGateway(
         userMessage,
         userId,
@@ -573,6 +599,7 @@ INSTRUCTIONS:
         history,
         workspaceState
       );
+      emitTraceStep(2, "COGNITIVE_GATEWAY", "SUCCESS", userMessage, gatewayOutput, gatewayStartTime);
 
       // STEP 0.5 — RESUME PENDING ACTION (DRAFT MEMORY RESUMPTION)
       let wasPendingResumed = false;
@@ -669,7 +696,10 @@ INSTRUCTIONS:
       }
 
       // STEP 1 — QUERY UNDERSTANDING ENGINE (Layer 2)
+      const understandingStartTime = Date.now();
       const intentObj = await this.cognitiveGatewayService.queryUnderstanding(gatewayOutput);
+      emitTraceStep(3, "INTENT_CLASSIFICATION", "SUCCESS", gatewayOutput.query, { intent: intentObj.intent, classification: intentObj.classification, complexity: intentObj.complexity }, understandingStartTime);
+      emitTraceStep(4, "ENTITY_EXTRACTION", "SUCCESS", gatewayOutput.query, intentObj.entities, understandingStartTime);
 
       // Greetings & voice bypass checks
       const isVoiceCheck = ["can you hear me", "voice test", "mic check", "connection check"].some(phrase => gatewayOutput.query.toLowerCase().includes(phrase));
@@ -681,6 +711,7 @@ INSTRUCTIONS:
 Acknowledge user greeting or query naturally.
 Maintain an Executive Assistant/COO tone. Matches the language of user query. Keep it short, direct, and human.`;
         const responseText = await this.llmService.callLLM(systemPrompt, `User: "${gatewayOutput.query}". Name: "${name}"`, [], false, organizationId, userId);
+        emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, { response: responseText.trim(), conversational: true }, startTime);
         return {
           response: responseText.trim(),
           spokenResponse: callPersona ? responseText.trim() : undefined,
@@ -696,6 +727,7 @@ Maintain an Executive Assistant/COO tone. Matches the language of user query. Ke
 Explain concisely what tasks and modules you can help the user with (Real Estate Listings, Meetings, Tasks, Logistics, Finance, Attendance).
 Matches the language of the user's query. Keep it short, professional, and clear.`;
         const responseText = await this.llmService.callLLM(systemPrompt, `Query: "${gatewayOutput.query}"`, [], false, organizationId, userId);
+        emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, { response: responseText.trim(), conversational: true }, startTime);
         return {
           response: responseText.trim(),
           spokenResponse: callPersona ? responseText.trim() : undefined,
@@ -707,6 +739,7 @@ Matches the language of the user's query. Keep it short, professional, and clear
       }
 
       // STEP 2 — PLANNING ENGINE (Layer 3) & TOOL SELECTION ENGINE (Layer 5)
+      const planningStartTime = Date.now();
       const executionPlan = await this.planningEngineService.generateExecutionPlan(
         gatewayOutput.query,
         intentObj,
@@ -714,8 +747,11 @@ Matches the language of the user's query. Keep it short, professional, and clear
         userId,
         userRole
       );
+      emitTraceStep(5, "PLANNING_ENGINE", "SUCCESS", { query: gatewayOutput.query, intent: intentObj.intent }, executionPlan.steps, planningStartTime);
+      emitTraceStep(7, "TOOL_SELECTION", "SUCCESS", gatewayOutput.query, { classification: intentObj.classification, steps: executionPlan.steps.map(s => s.tool) }, planningStartTime);
 
       // STEP 3 — PERMISSION ENGINE (Layer 4)
+      const permissionStartTime = Date.now();
       const isPlanAuthorized = executionPlan.steps.every(step => {
         if (step.tool === 'SQL_ENGINE' && step.params && step.params.entities) {
           return step.params.entities.every(ent => 
@@ -727,8 +763,10 @@ Matches the language of the user's query. Keep it short, professional, and clear
         }
         return true;
       });
+      emitTraceStep(6, "PERMISSION_ENGINE", isPlanAuthorized ? "SUCCESS" : "FAILED", { requiredRoles: executionPlan.requiredRoles, userRole }, { isPlanAuthorized }, permissionStartTime);
 
       if (!isPlanAuthorized) {
+        emitTraceStep(17, "FINAL_OUTPUT_SENT", "FAILED", userMessage, "Clearance Required: Your user profile is not cleared to access secure operations or finance databases.", startTime);
         return {
           response: "Clearance Required: Your user profile is not cleared to access secure operations or finance databases.",
           toolExecuted: null,
@@ -800,9 +838,13 @@ Matches the language of the user's query. Keep it short, professional, and clear
       let docResult: any = { chunks: [], confidenceScore: 0 };
       let memResult: any = { memories: [] };
 
+      emitTraceStep(8, "PARALLEL_EXECUTION_START", "SUCCESS", executionPlan.steps, "Executing backend retrieval pipelines in parallel...", startTime);
+
       const executionPromises: Promise<any>[] = [];
 
       const runSqlStep = async (step: any) => {
+        const sqlStartTime = Date.now();
+        emitTraceStep(9, "SQL_PIPELINE_START", "PROCESSING", step.params || {}, "Executing database retrieval pipeline...", sqlStartTime);
         // Primary: NL-to-SQL
         let res = await this.databasePipelineService.runDatabaseRetrievalPipeline(
           gatewayOutput.query,
@@ -813,6 +855,7 @@ Matches the language of the user's query. Keep it short, professional, and clear
 
         // Fallback: Prisma Query Templates
         if ((res.rows.length === 0 || res.confidenceScore < 50) && res.errors.length === 0) {
+          emitTraceStep(9, "SQL_PIPELINE_FALLBACK", "WARNING", step.params || {}, "SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates...", sqlStartTime);
           this.logger.log(`[Database Fallback] SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates.`);
           try {
             const fallbackTool = this.planningEngineService['deduceEntityFromQuery'](gatewayOutput.query);
@@ -848,10 +891,13 @@ Matches the language of the user's query. Keep it short, professional, and clear
           }
         }
 
+        emitTraceStep(9, "SQL_PIPELINE_END", res.errors.length > 0 ? "FAILED" : "SUCCESS", step.params || {}, { rowsCount: res.rows.length, verified: res.verified, confidenceScore: res.confidenceScore, queriesRun: res.queriesRun, errors: res.errors }, sqlStartTime);
         dbResult = res;
       };
 
       const runRagStep = async (step: any) => {
+        const ragStartTime = Date.now();
+        emitTraceStep(10, "RAG_PIPELINE_START", "PROCESSING", gatewayOutput.query, "Executing RAG retrieval...", ragStartTime);
         try {
           const res = await this.ragService.query(
             gatewayOutput.query,
@@ -867,17 +913,23 @@ Matches the language of the user's query. Keep it short, professional, and clear
             })),
             confidenceScore: res.confidenceScore
           };
+          emitTraceStep(10, "RAG_PIPELINE_END", "SUCCESS", gatewayOutput.query, { chunksCount: docResult.chunks.length, confidenceScore: res.confidenceScore, citations: res.citations }, ragStartTime);
         } catch (e) {
           this.logger.error(`Document Pipeline execution failed: ${e.message}`);
+          emitTraceStep(10, "RAG_PIPELINE_FAILED", "FAILED", gatewayOutput.query, { error: e.message }, ragStartTime);
         }
       };
 
       const runMemStep = async () => {
+        const memStartTime = Date.now();
+        emitTraceStep(11, "MEMORY_RETRIEVAL_START", "PROCESSING", gatewayOutput.query, "Retrieving historical memories...", memStartTime);
         try {
           const memories = await this.retrieveRelevantMemories(gatewayOutput.query, organizationId, 5);
           memResult = { memories };
+          emitTraceStep(11, "MEMORY_RETRIEVAL_END", "SUCCESS", gatewayOutput.query, { memoriesCount: memories.length, categories: memories.map(m => m.category) }, memStartTime);
         } catch (e) {
           this.logger.error(`Memory Pipeline execution failed: ${e.message}`);
+          emitTraceStep(11, "MEMORY_RETRIEVAL_FAILED", "FAILED", gatewayOutput.query, { error: e.message }, memStartTime);
         }
       };
 
@@ -894,12 +946,16 @@ Matches the language of the user's query. Keep it short, professional, and clear
       await Promise.all(executionPromises);
 
       // STEP 5 — RESULT FUSION ENGINE & CROSS VALIDATION ENGINE
+      const fusionStartTime = Date.now();
       const fusionOutput = await this.resultFusionService.fuseAndValidate(
         gatewayOutput.query,
         { dbResult, docResult, memResult },
         organizationId,
         userId
       );
+      emitTraceStep(12, "RESULT_FUSION", "SUCCESS", { dbResultSize: dbResult.rows.length, docChunksSize: docResult.chunks.length, memResultSize: memResult.memories.length }, { finalConfidence: fusionOutput.finalConfidence, groundedEvidenceLength: fusionOutput.groundedEvidence.length }, fusionStartTime);
+      emitTraceStep(13, "CROSS_VALIDATION", fusionOutput.conflicts && fusionOutput.conflicts.length > 0 ? "WARNING" : "SUCCESS", { dbResultSize: dbResult.rows.length, docChunksSize: docResult.chunks.length }, { conflicts: fusionOutput.conflicts || [] }, fusionStartTime);
+      emitTraceStep(14, "CONFIDENCE_SCORE_BREAKDOWN", fusionOutput.finalConfidence >= 85 ? "SUCCESS" : "FAILED", gatewayOutput.query, { finalConfidence: fusionOutput.finalConfidence, threshold: 85 }, fusionStartTime);
 
       // Confidence Gating: Refuse if aggregate confidence < 85
       if (fusionOutput.finalConfidence < 85) {
@@ -922,6 +978,8 @@ Matches the language of the user's query. Keep it short, professional, and clear
           securityViolations: dbResult.errors || [],
           workflowSuccess: false
         }, organizationId);
+
+        emitTraceStep(17, "FINAL_OUTPUT_SENT", "FAILED", userMessage, { response: "Insufficient evidence available to answer confidently.", reason: `Confidence score ${fusionOutput.finalConfidence} is below gating threshold of 85` }, startTime);
 
         return {
           response: "Insufficient evidence available to answer confidently.",
@@ -961,6 +1019,7 @@ Risks: ${JSON.stringify(execAnalysis.risks)}
 Opportunities: ${JSON.stringify(execAnalysis.opportunities)}
 Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
 
+      const composerStartTime = Date.now();
       const finalResponseText = await this.llmService.callLLM(
         composerPrompt,
         `Generate grounded response for query: "${gatewayOutput.query}"`,
@@ -971,6 +1030,7 @@ Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
       );
 
       const cleanedResponse = finalResponseText.trim();
+      emitTraceStep(15, "FINAL_RESPONSE_GENERATION", "SUCCESS", { query: gatewayOutput.query }, { responseLength: cleanedResponse.length }, composerStartTime);
 
       // Update active contexts in WorkspaceState
       if (dbResult.rows.length > 0) {
@@ -1003,6 +1063,7 @@ Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
         finalSpoken = await this.generateSpokenSummary(cleanedResponse, gatewayOutput.query, organizationId, userId);
       }
 
+      const citationStartTime = Date.now();
       // Citation mapping
       const citations = docResult.chunks.map((chunk: any) => ({
         documentId: chunk.documentId || 'policy-doc',
@@ -1011,6 +1072,7 @@ Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
         page: chunk.metadata?.page || 1,
         paragraph: chunk.metadata?.paragraph || 1
       }));
+      emitTraceStep(16, "CITATION_ATTACHMENT", "SUCCESS", { chunksCount: docResult.chunks.length }, citations, citationStartTime);
 
       // Learning Engine & Memory Persistence
       await this.learningMemoryService.storeInteraction({
@@ -1054,6 +1116,8 @@ Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
       // Whitelisted Visualization Decision
       const visualization = this.selectSmartVisualization(dbResult.tablesUsed[0] || '', dbResult.rows, gatewayOutput.query);
 
+      emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, { response: cleanedResponse, toolExecuted: dbResult.tablesUsed[0] || null, citationsCount: citations.length, totalLatency: Date.now() - startTime }, startTime);
+
       return {
         response: cleanedResponse,
         spokenResponse: finalSpoken,
@@ -1066,6 +1130,7 @@ Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
 
     } catch (err) {
       this.logger.error(`AOS v9 Cognitive Core Pipeline breakdown: ${err.message}`);
+      emitTraceStep(17, "FINAL_OUTPUT_SENT", "FAILED", userMessage, { error: err.message }, startTime);
       return {
         response: "🤖 System Alert: An operational bottleneck has interrupted Zorvex AI. Please verify data parameters and retry.",
         spokenResponse: callPersona ? "System error has occurred, please retry." : undefined,
