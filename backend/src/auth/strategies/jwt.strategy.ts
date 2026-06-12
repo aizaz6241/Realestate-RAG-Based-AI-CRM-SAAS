@@ -1,10 +1,11 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor() {
+  constructor(private prisma: PrismaService) {
     const secret = process.env.JWT_SECRET || 'SECRET_KEY_FOR_DEV';
     console.log("JWTSTRATEGY SECRET IS:", secret);
     super({
@@ -15,13 +16,23 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    // The payload returned here will be attached to the Request object as req.user
-    return { 
-      id: payload.sub, 
-      email: payload.email, 
-      role: payload.role,
-      organizationId: payload.organizationId,
-      isSystemAdmin: payload.isSystemAdmin
-    };
+    // Fetch user from DB to verify existence and avoid stale JWT/session issues after db resets
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        organizationId: true,
+        isSystemAdmin: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User session is invalid or has expired');
+    }
+
+    return user;
   }
 }
+
