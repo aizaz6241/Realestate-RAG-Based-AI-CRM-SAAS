@@ -12,6 +12,14 @@ import { ZorvexGateway } from './zorvex.gateway';
 import { ExecutiveDecisionService } from './executive-decision.service';
 import { RealEstateIntelligenceService } from './real-estate-intelligence.service';
 
+// V9 Core Services
+import { CognitiveGatewayService } from './cognitive-gateway.service';
+import { PlanningEngineService } from './planning-engine.service';
+import { DatabasePipelineService } from './database-pipeline.service';
+import { ResultFusionService } from './result-fusion.service';
+import { LearningMemoryService } from './learning-memory.service';
+import { ObservabilityService } from './observability.service';
+
 // RAG Services
 import { AiRagService } from './rag/ai-rag.service';
 import { AiRagIngestionService } from './rag/ai-rag-ingestion.service';
@@ -33,6 +41,12 @@ import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
     ZorvexGateway,
     ExecutiveDecisionService,
     RealEstateIntelligenceService,
+    CognitiveGatewayService,
+    PlanningEngineService,
+    DatabasePipelineService,
+    ResultFusionService,
+    LearningMemoryService,
+    ObservabilityService,
     AiRagService,
     AiRagIngestionService,
     AiRagRetrievalService,
@@ -49,6 +63,12 @@ import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
     ZorvexGateway,
     ExecutiveDecisionService,
     RealEstateIntelligenceService,
+    CognitiveGatewayService,
+    PlanningEngineService,
+    DatabasePipelineService,
+    ResultFusionService,
+    LearningMemoryService,
+    ObservabilityService,
     AiRagService,
     AiRagIngestionService,
     AiRagRetrievalService,

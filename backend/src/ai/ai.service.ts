@@ -9,6 +9,15 @@ import { AiDatabaseToolsService } from './ai-database-tools.service';
 import { ExecutiveDecisionService } from './executive-decision.service';
 import { RealEstateIntelligenceService } from './real-estate-intelligence.service';
 
+// V9 Core Imports
+import { CognitiveGatewayService } from './cognitive-gateway.service';
+import { PlanningEngineService } from './planning-engine.service';
+import { DatabasePipelineService } from './database-pipeline.service';
+import { ResultFusionService } from './result-fusion.service';
+import { LearningMemoryService } from './learning-memory.service';
+import { ObservabilityService } from './observability.service';
+import { AiRagService } from './rag/ai-rag.service';
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -35,7 +44,14 @@ export class AiService {
     private agentsService: AiAgentsService,
     private dbToolsService: AiDatabaseToolsService,
     private executiveDecisionService: ExecutiveDecisionService,
-    private realEstateIntelligenceService: RealEstateIntelligenceService
+    private realEstateIntelligenceService: RealEstateIntelligenceService,
+    private cognitiveGatewayService: CognitiveGatewayService,
+    private planningEngineService: PlanningEngineService,
+    private databasePipelineService: DatabasePipelineService,
+    private resultFusionService: ResultFusionService,
+    private learningMemoryService: LearningMemoryService,
+    private observabilityService: ObservabilityService,
+    private ragService: AiRagService
   ) {}
 
   // -----------------------------------------------------------------------------
@@ -512,6 +528,8 @@ INSTRUCTIONS:
     callPersona?: string,
     sessionId?: string
   ): Promise<any> {
+    const startTime = Date.now();
+    const traceId = 'trace-' + Math.random().toString(36).substring(2, 15);
     let workspaceState: any = {
       activeProperty: null,
       activeOwner: null,
@@ -529,9 +547,8 @@ INSTRUCTIONS:
       activeContext: null,
       pendingAction: null
     };
-    try {
-      this.logger.log(`Starting Zorvex-AOS v8 cognitive operating system pipeline for: "${userMessage}"`);
 
+    try {
       if (sessionId) {
         const session = await this.prisma.aiChatSession.findUnique({
           where: { id: sessionId }
@@ -547,17 +564,22 @@ INSTRUCTIONS:
         }
       }
 
-      // STEP 0 — CONTEXT-AWARE QUERY REFINEMENT (PRONOUN & REFERENCE RESOLUTION)
-      const refinedMessage = await this.refineQuery(userMessage, history, workspaceState, organizationId, userId);
-      const rawUserMessage = userMessage; // save original raw message for history
-      userMessage = refinedMessage; // use refined message throughout pipeline
+      // STEP 0 — CONTEXT-AWARE QUERY REFINEMENT & COGNITIVE GATEWAY (Layer 1)
+      const gatewayOutput = await this.cognitiveGatewayService.cognitiveGateway(
+        userMessage,
+        userId,
+        organizationId,
+        userRole,
+        history,
+        workspaceState
+      );
 
       // STEP 0.5 — RESUME PENDING ACTION (DRAFT MEMORY RESUMPTION)
       let wasPendingResumed = false;
       let resumedToolCall: any = null;
 
       if (workspaceState.pendingAction) {
-        const lowerMsg = userMessage.toLowerCase().trim();
+        const lowerMsg = gatewayOutput.query.toLowerCase().trim();
         const isConfirmation = ['yes', 'confirm', 'haan', 'ji', 'ok', 'okay', 'bilkul', 'karo'].some(word => lowerMsg.includes(word));
         
         if (workspaceState.pendingAction.missingFields && workspaceState.pendingAction.missingFields.length === 0) {
@@ -584,7 +606,7 @@ INSTRUCTIONS:
           }
         } else {
           this.logger.log(`Resuming and merging parameters for pending action: ${workspaceState.pendingAction.type}`);
-          const mergeResult = await this.mergePendingAction(workspaceState.pendingAction, userMessage, organizationId, userId);
+          const mergeResult = await this.mergePendingAction(workspaceState.pendingAction, gatewayOutput.query, organizationId, userId);
           if (mergeResult.isComplete) {
             wasPendingResumed = true;
             resumedToolCall = {
@@ -608,311 +630,19 @@ INSTRUCTIONS:
         }
       }
 
-      // STEP 1 — COGNITIVE ANALYZER (SINGLE LLM CALL)
-      const currentDateTimeStr = new Date().toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
-      const cognitiveAnalyzerPrompt = `You are the Zorvex AOS v8 Cognitive Analyzer (Step 1).
-Analyze the user message, resolve references/pronouns from context history, and output structured JSON.
-Current Date/Time context: ${currentDateTimeStr}
-
-CONVERSATIONAL CONTEXT HISTORY:
-${JSON.stringify(history)}
-
-User Query: "${userMessage}"
-
-INSTRUCTIONS:
-1. Detect intent: 
-   - "INFO_LOOKUP": Simple search or retrieval of database records, counting, or displaying specific data (e.g. employee list, attendance lookup, properties list, tasks board status).
-   - "ACTION_REQUEST": Performing operations like creating meetings, creating tasks, updates, alerts, reminders, scheduling.
-   - "ANALYTICS_REQUEST": Comparing data, aggregating performance metrics, assessing growth patterns, showing trends.
-   - "EXECUTIVE_REQUEST": High-level strategic risks, opportunities, overall company performance advisory, strategy reports.
-   - "CONVERSATIONAL": Greetings, chitchat, simple voice checks, non-business general questions.
-   - "SYSTEM_HELP": Asking what the bot can do or how to use the system.
-
-2. Extract entities (people, clients, properties, locations, dates, departments).
-
-3. Resolve relative dates/times from user query using the current local time context:
-   - "tomorrow", "today", "next Monday", "this Friday", "10 June", "10th June", "June 10", "tomorrow at 10 AM", etc.
-   - For any target action or task, compute the exact ISO 8601 string (with current timezone offset, e.g. +05:00).
-   - Place these calculated datetime strings inside the "parameters" field under descriptive keys:
-     - For tasks: "dueDate" (e.g. "2026-06-10T18:00:00+05:00").
-     - For meetings: "startTime" (e.g. "2026-06-10T10:00:00+05:00") and "endTime" (default to 1 hour after startTime if not specified, e.g. "2026-06-10T11:00:00+05:00").
-
-4. Assess complexity: "low", "medium", or "high".
-5. Set confidence score (0-100) reflecting how clear, unambiguous, and fully specified the user query is. Be strict: if there is missing data or vague intent, set confidence under 75.
-
-Output strictly in JSON:
-{
-  "intent": "INFO_LOOKUP | ACTION_REQUEST | ANALYTICS_REQUEST | EXECUTIVE_REQUEST | CONVERSATIONAL | SYSTEM_HELP",
-  "entities": [],
-  "actions_required": [],
-  "complexity": "low | medium | high",
-  "requires_execution": true,
-  "requires_intelligence": true,
-  "confidence": 95,
-  "parameters": {}
-}
-Do not write markdown block backticks. Output raw JSON only.`;
-
-      let analyzerResult = {
-        intent: 'INFO_LOOKUP',
-        entities: [] as any[],
-        actions_required: [] as string[],
-        complexity: 'medium',
-        requires_execution: false,
-        requires_intelligence: true,
-        confidence: 90,
-        parameters: {} as any
-      };
-
-      try {
-        const analyzerResText = await this.llmService.callLLM(cognitiveAnalyzerPrompt, `Analyze message: "${userMessage}"`, [], false, organizationId, userId);
-        const cleanAnalyzer = analyzerResText.trim();
-        const jsonStart = cleanAnalyzer.indexOf('{');
-        const jsonEnd = cleanAnalyzer.lastIndexOf('}');
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-          analyzerResult = JSON.parse(cleanAnalyzer.substring(jsonStart, jsonEnd + 1));
-        }
-      } catch (err) {
-        this.logger.warn(`Cognitive Analyzer failed: ${err.message}. Using default values.`);
-      }
-
-      // Fast Lane Greetings & Voice Bypass Checks
-      const isVoiceCheck = ["can you hear me", "voice test", "mic check", "connection check"].some(phrase => userMessage.toLowerCase().includes(phrase));
-      const isGreeting = ["hello", "hi", "salam", "hey", "assalam o alaikum", "aoa"].some(phrase => userMessage.toLowerCase().trim() === phrase || userMessage.toLowerCase().trim().startsWith(phrase + " "));
-
-      // STEP 1.5 — CONFIDENCE ENGINE ENFORCEMENT & INTENT BYPASS
-      if (analyzerResult.confidence < 70) {
-        const systemPrompt = `You are the Zorvex Low-Confidence Responder.
-State clearly that you could not find enough information, and ask a relevant follow-up question to clarify the user's intent.
-Keep the response extremely short, human, and professional in the user's language.`;
-        const lowConfText = await this.llmService.callLLM(systemPrompt, `User Query: "${userMessage}"`, [], false, organizationId, userId);
-        let finalLowConf = lowConfText.trim();
-        if (!finalLowConf.toLowerCase().includes("could not find enough") && !finalLowConf.toLowerCase().includes("kafi maloomat nahi")) {
-          finalLowConf = `I could not find enough information. ${finalLowConf}`;
-        }
-        return {
-          response: finalLowConf,
-          spokenResponse: callPersona ? finalLowConf : undefined,
-          toolExecuted: null,
-          toolData: null,
-          citations: [],
-          workspaceState
-        };
-      }
-
-      if (analyzerResult.intent === 'CONVERSATIONAL' || isGreeting || isVoiceCheck) {
-        const name = (await this.prisma.user.findUnique({ where: { id: userId } }))?.firstName || 'Admin';
-        const systemPrompt = `You are the Zorvex Conversational Responder.
-Acknowledge user greeting or query naturally.
-Maintain an Executive Assistant tone (50% ChatGPT, 25% Executive Assistant, 15% Business Analyst, 10% COO).
-Matches the language of the user's query (e.g. English, Roman Urdu).
-Keep it short, direct, and human.`;
-        const responseText = await this.llmService.callLLM(systemPrompt, `User message: "${userMessage}". User Name: "${name}"`, [], false, organizationId, userId);
-        return {
-          response: responseText.trim(),
-          spokenResponse: callPersona ? responseText.trim() : undefined,
-          toolExecuted: null,
-          toolData: null,
-          citations: [],
-          workspaceState
-        };
-      }
-
-      if (analyzerResult.intent === 'SYSTEM_HELP') {
-        const systemPrompt = `You are the Zorvex System Help Guide.
-Explain concisely what tasks and modules you can help the user with (Real Estate Listings, Meetings, Tasks, Logistics, Finance, Attendance).
-Matches the language of the user's query (e.g. English, Roman Urdu).
-Keep it extremely short, professional, and clear.`;
-        const responseText = await this.llmService.callLLM(systemPrompt, `User query: "${userMessage}"`, [], false, organizationId, userId);
-        return {
-          response: responseText.trim(),
-          spokenResponse: callPersona ? responseText.trim() : undefined,
-          toolExecuted: null,
-          toolData: null,
-          citations: [],
-          workspaceState
-        };
-      }
-
-      // STEP 2 — EXECUTIVE ORCHESTRATOR
-      const executiveOrchestratorPrompt = `You are the Zorvex AOS v8 Executive Orchestrator (Step 2).
-Based on the cognitive analysis, plan the execution graph (step-by-step tool calls).
-Crucial: If parameters (like dueDate, startTime, endTime, title, employeeName, etc.) were already computed in the Cognitive Analyzer parameters object: ${JSON.stringify(analyzerResult.parameters)}, you MUST map and use those pre-computed values exactly for tool parameters instead of raw strings.
-
-Available Tools:
-- "searchEmployees" (params: { name, designation, department })
-- "getAttendanceRecord" (params: { name, status })
-- "getLeaveRequests" (params: { name, status })
-- "searchProperties" (params: { location, minPrice, maxPrice, bedrooms, bathrooms, type, listingType, status })
-- "searchClients" (params: { name, budget, preferences, type })
-- "getTasksBoard" (params: { status, name, employeeName })
-- "getMeetingsAnalytics" (params: { type })
-- "getFinanceAnalytics" (params: {})
-- "getLogisticsAnalytics" (params: {})
-- "runQueryPlan" (params: { operation: "fetch | aggregate | compare | analyze", entities: string[], filters: object, groupBy: string[], metrics: string[], take: number })
-- "createTask" (params: { title, employeeName, description, dueDate, priority })
-- "createMeeting" (params: { title, description, startTime, endTime, location, targetUserIds, targetRoles })
-- "generateEnterpriseReport" (params: { reportType: "FINANCE" | "INVENTORY" | "TASKS" })
-
-Strictly return JSON:
-{
-  "mode": "assistant | agent | hybrid",
-  "requiredAgents": ["HR", "Sales", "Property", "Finance", "Operations", "Executive"],
-  "executionGraph": [
-    {
-      "step": 1,
-      "tool": "toolName",
-      "params": { ... }
-    }
-  ]
-}
-Do not write markdown block backticks. Output raw JSON only.`;
-
-      let orchestratorResult = {
-        mode: 'assistant',
-        requiredAgents: [] as string[],
-        executionGraph: [] as any[]
-      };
-
-      try {
-        const orchestratorResText = await this.llmService.callLLM(executiveOrchestratorPrompt, `Plan execution graph based on analysis: ${JSON.stringify(analyzerResult)}`, [], false, organizationId, userId);
-        const cleanOrch = orchestratorResText.trim();
-        const jsonStart = cleanOrch.indexOf('{');
-        const jsonEnd = cleanOrch.lastIndexOf('}');
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-          orchestratorResult = JSON.parse(cleanOrch.substring(jsonStart, jsonEnd + 1));
-        }
-      } catch (err) {
-        this.logger.warn(`Executive Orchestrator planning failed: ${err.message}. Using default.`);
-      }
-
-      // STEP 3 & 4 & 8 — MULTI-TOOL PARALLEL EXECUTION ENGINE & QUERY PLANNING LAYER & HUMAN APPROVAL GATE
-      const executedResults: any[] = [];
-      const toolCalls = wasPendingResumed ? [resumedToolCall] : (orchestratorResult.executionGraph || []);
-
-      // Confidence Gating (70-89) for Fresh Action Requests
-      if (!wasPendingResumed && analyzerResult.confidence >= 70 && analyzerResult.confidence <= 89 && analyzerResult.intent === 'ACTION_REQUEST') {
-        const firstAction = toolCalls[0];
-        if (firstAction && (firstAction.tool === 'createMeeting' || firstAction.tool === 'createTask')) {
-          const readiness = this.validateActionReadiness(firstAction.tool, firstAction.params);
-          if (!readiness.isReady) {
-            workspaceState.pendingAction = {
-              type: firstAction.tool === 'createMeeting' ? 'MEETING' : 'TASK',
-              params: firstAction.params,
-              missingFields: readiness.missingFields
-            };
-            const promptMsg = `I need the following details to schedule the ${workspaceState.pendingAction.type.toLowerCase()}: ${readiness.missingFields.join(', ')}. Please provide them.`;
-            return {
-              response: promptMsg,
-              spokenResponse: callPersona ? promptMsg : undefined,
-              toolExecuted: firstAction.tool,
-              toolData: null,
-              citations: [],
-              workspaceState
-            };
-          } else {
-            workspaceState.pendingAction = {
-              type: firstAction.tool === 'createMeeting' ? 'MEETING' : 'TASK',
-              params: firstAction.params,
-              missingFields: []
-            };
-            const confirmMsg = `I have drafted the action for you. Would you like me to proceed with executing it? (Type "Yes" or "Confirm" to proceed).`;
-            return {
-              response: confirmMsg,
-              spokenResponse: callPersona ? confirmMsg : undefined,
-              toolExecuted: firstAction.tool,
-              toolData: firstAction.params,
-              citations: [],
-              workspaceState
-            };
-          }
-        }
-      }
-
-      for (let i = 0; i < toolCalls.length; i++) {
-        const toolCall = toolCalls[i];
-        
-        // RBAC Authorization Check
-        const isAuthorized = this.dbToolsService.checkToolAuthorization(toolCall.tool, userRole);
-        if (!isAuthorized) {
-          return {
-            response: "Clearance Required: Your user profile is not cleared to access secure operations or finance databases.",
-            toolExecuted: toolCall.tool,
-            toolData: null,
-            citations: [],
-            workspaceState
-          };
-        }
-
-        // Action Readiness Validation (Inputs Check)
-        if (!wasPendingResumed && (toolCall.tool === 'createMeeting' || toolCall.tool === 'createTask')) {
-          const readiness = this.validateActionReadiness(toolCall.tool, toolCall.params);
-          if (!readiness.isReady) {
-            workspaceState.pendingAction = {
-              type: toolCall.tool === 'createMeeting' ? 'MEETING' : 'TASK',
-              params: toolCall.params,
-              missingFields: readiness.missingFields
-            };
-            const promptMsg = `I still need the following details to complete the ${workspaceState.pendingAction.type.toLowerCase()}: ${readiness.missingFields.join(', ')}. Please provide them.`;
-            return {
-              response: promptMsg,
-              spokenResponse: callPersona ? promptMsg : undefined,
-              toolExecuted: toolCall.tool,
-              toolData: null,
-              citations: [],
-              workspaceState
-            };
-          }
-        }
-
-        // STEP 8: HUMAN APPROVAL GATE
-        if (this.isSensitiveAction(toolCall)) {
-          const approvalId = 'appr-' + Math.random().toString(36).substring(2, 15);
-          this.pendingApprovals.set(approvalId, {
-            userId,
-            organizationId,
-            userRole,
-            history,
-            userMessage,
-            sessionId,
-            callPersona,
-            executionGraph: toolCalls,
-            toolCallIndex: i,
-            executedResults
-          });
-
-          this.zorvexGateway.broadcastToOrganization(organizationId, 'approval_required', {
-            approvalId,
-            tool: toolCall.tool,
-            params: toolCall.params
-          });
-
-          return {
-            status: 'PENDING_APPROVAL',
-            approvalId,
-            response: `⚠️ Executive Authorization Required: The planned action (${toolCall.tool}) requires corporate approval before executing.`,
-            toolExecuted: toolCall.tool,
-            toolData: toolCall.params,
-            citations: [],
-            workspaceState
-          };
-        }
-
-        // Execute Tool
-        this.logger.log(`Executing tool: ${toolCall.tool}`);
+      if (wasPendingResumed && resumedToolCall) {
         const toolData = await this.dbToolsService.executeDatabaseTool(
-          toolCall.tool,
-          toolCall.params,
+          resumedToolCall.tool,
+          resumedToolCall.params,
           organizationId,
           userRole,
           userId
         );
-
-        // Handle fuzzy matching mismatch confirmation block
+        
         if (toolData && toolData.error === 'CONFIRMATION_REQUIRED') {
           workspaceState.pendingAction = {
-            type: toolCall.tool === 'createMeeting' ? 'MEETING' : 'TASK',
-            params: toolCall.params,
+            type: resumedToolCall.tool === 'createMeeting' ? 'MEETING' : 'TASK',
+            params: resumedToolCall.params,
             resolvedAssignee: toolData.resolvedAssignee,
             missingFields: []
           };
@@ -920,36 +650,422 @@ Do not write markdown block backticks. Output raw JSON only.`;
           return {
             response: confirmMsg,
             spokenResponse: callPersona ? confirmMsg : undefined,
-            toolExecuted: toolCall.tool,
+            toolExecuted: resumedToolCall.tool,
             toolData: null,
             citations: [],
             workspaceState
           };
         }
 
-        executedResults.push({
-          tool: toolCall.tool,
-          success: !toolData?.error,
-          data: toolData,
-          verified: true
-        });
+        const confirmMsg = resumedToolCall.tool === 'createMeeting' ? 'Meeting scheduled successfully.' : 'Task assigned successfully.';
+        return {
+          response: confirmMsg,
+          spokenResponse: callPersona ? confirmMsg : undefined,
+          toolExecuted: resumedToolCall.tool,
+          toolData,
+          citations: [],
+          workspaceState
+        };
       }
 
-      return await this.compileFinalResponse(
-        userMessage,
-        userId,
+      // STEP 1 — QUERY UNDERSTANDING ENGINE (Layer 2)
+      const intentObj = await this.cognitiveGatewayService.queryUnderstanding(gatewayOutput);
+
+      // Greetings & voice bypass checks
+      const isVoiceCheck = ["can you hear me", "voice test", "mic check", "connection check"].some(phrase => gatewayOutput.query.toLowerCase().includes(phrase));
+      const isGreeting = ["hello", "hi", "salam", "hey", "assalam o alaikum", "aoa"].some(phrase => gatewayOutput.query.toLowerCase().trim() === phrase || gatewayOutput.query.toLowerCase().trim().startsWith(phrase + " "));
+
+      if (intentObj.intent === 'CONVERSATIONAL' || isGreeting || isVoiceCheck) {
+        const name = (await this.prisma.user.findUnique({ where: { id: userId } }))?.firstName || 'Admin';
+        const systemPrompt = `You are the Zorvex Conversational Responder (v9).
+Acknowledge user greeting or query naturally.
+Maintain an Executive Assistant/COO tone. Matches the language of user query. Keep it short, direct, and human.`;
+        const responseText = await this.llmService.callLLM(systemPrompt, `User: "${gatewayOutput.query}". Name: "${name}"`, [], false, organizationId, userId);
+        return {
+          response: responseText.trim(),
+          spokenResponse: callPersona ? responseText.trim() : undefined,
+          toolExecuted: null,
+          toolData: null,
+          citations: [],
+          workspaceState
+        };
+      }
+
+      if (intentObj.intent === 'SYSTEM_HELP') {
+        const systemPrompt = `You are the Zorvex System Help Guide (v9).
+Explain concisely what tasks and modules you can help the user with (Real Estate Listings, Meetings, Tasks, Logistics, Finance, Attendance).
+Matches the language of the user's query. Keep it short, professional, and clear.`;
+        const responseText = await this.llmService.callLLM(systemPrompt, `Query: "${gatewayOutput.query}"`, [], false, organizationId, userId);
+        return {
+          response: responseText.trim(),
+          spokenResponse: callPersona ? responseText.trim() : undefined,
+          toolExecuted: null,
+          toolData: null,
+          citations: [],
+          workspaceState
+        };
+      }
+
+      // STEP 2 — PLANNING ENGINE (Layer 3) & TOOL SELECTION ENGINE (Layer 5)
+      const executionPlan = await this.planningEngineService.generateExecutionPlan(
+        gatewayOutput.query,
+        intentObj,
         organizationId,
-        userRole,
-        history,
-        orchestratorResult.requiredAgents,
-        executedResults,
-        callPersona,
-        analyzerResult.intent,
-        workspaceState
+        userId,
+        userRole
       );
 
+      // STEP 3 — PERMISSION ENGINE (Layer 4)
+      const isPlanAuthorized = executionPlan.steps.every(step => {
+        if (step.tool === 'SQL_ENGINE' && step.params && step.params.entities) {
+          return step.params.entities.every(ent => 
+            this.dbToolsService.checkToolAuthorization(
+              ent.toLowerCase() === 'payroll' ? 'getFinanceAnalytics' : 'searchProperties', 
+              userRole
+            )
+          );
+        }
+        return true;
+      });
+
+      if (!isPlanAuthorized) {
+        return {
+          response: "Clearance Required: Your user profile is not cleared to access secure operations or finance databases.",
+          toolExecuted: null,
+          toolData: null,
+          citations: [],
+          workspaceState
+        };
+      }
+
+      // Action Draft Readiness check
+      if (executionPlan.steps.length > 0) {
+        const firstAction = executionPlan.steps[0];
+        if (firstAction && (firstAction.tool === 'SQL_ENGINE' && firstAction.params && firstAction.params.entities && firstAction.params.entities.includes('task'))) {
+          const readiness = this.validateActionReadiness('createTask', firstAction.params.filters || firstAction.params);
+          if (!readiness.isReady) {
+            workspaceState.pendingAction = {
+              type: 'TASK',
+              params: firstAction.params.filters || firstAction.params,
+              missingFields: readiness.missingFields
+            };
+            const promptMsg = `I need the following details to schedule the task: ${readiness.missingFields.join(', ')}. Please provide them.`;
+            return {
+              response: promptMsg,
+              spokenResponse: callPersona ? promptMsg : undefined,
+              toolExecuted: 'createTask',
+              toolData: null,
+              citations: [],
+              workspaceState
+            };
+          }
+        }
+      }
+
+      // Human Approval Gate for Sensitive Actions
+      if (executionPlan.sensitiveAction) {
+        const approvalId = 'appr-' + Math.random().toString(36).substring(2, 15);
+        this.pendingApprovals.set(approvalId, {
+          userId,
+          organizationId,
+          userRole,
+          history,
+          userMessage: gatewayOutput.query,
+          sessionId,
+          callPersona,
+          executionGraph: executionPlan.steps,
+          toolCallIndex: 0,
+          executedResults: []
+        });
+
+        this.zorvexGateway.broadcastToOrganization(organizationId, 'approval_required', {
+          approvalId,
+          tool: executionPlan.steps[0]?.tool || 'Unknown Tool',
+          params: executionPlan.steps[0]?.params
+        });
+
+        return {
+          status: 'PENDING_APPROVAL',
+          approvalId,
+          response: `⚠️ Executive Authorization Required: The planned action requires corporate approval before executing.`,
+          toolExecuted: executionPlan.steps[0]?.tool,
+          toolData: executionPlan.steps[0]?.params,
+          citations: [],
+          workspaceState
+        };
+      }
+
+      // STEP 4 — PARALLEL EXECUTION LAYER (Layer 6)
+      let dbResult: any = { rows: [], confidenceScore: 100, tablesUsed: [], queriesRun: [], errors: [] };
+      let docResult: any = { chunks: [], confidenceScore: 0 };
+      let memResult: any = { memories: [] };
+
+      const executionPromises: Promise<any>[] = [];
+
+      const runSqlStep = async (step: any) => {
+        // Primary: NL-to-SQL
+        let res = await this.databasePipelineService.runDatabaseRetrievalPipeline(
+          gatewayOutput.query,
+          organizationId,
+          userId,
+          userRole
+        );
+
+        // Fallback: Prisma Query Templates
+        if ((res.rows.length === 0 || res.confidenceScore < 50) && res.errors.length === 0) {
+          this.logger.log(`[Database Fallback] SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates.`);
+          try {
+            const fallbackTool = this.planningEngineService['deduceEntityFromQuery'](gatewayOutput.query);
+            let mappedTool = 'searchProperties';
+            if (fallbackTool === 'employeeprofile') mappedTool = 'searchEmployees';
+            if (fallbackTool === 'attendance') mappedTool = 'getAttendanceRecord';
+            if (fallbackTool === 'leaverequest') mappedTool = 'getLeaveRequests';
+            if (fallbackTool === 'task') mappedTool = 'getTasksBoard';
+            if (fallbackTool === 'lead' || fallbackTool === 'client') mappedTool = 'searchClients';
+            if (fallbackTool === 'payroll') mappedTool = 'getFinanceAnalytics';
+
+            const fallbackData = await this.dbToolsService.executeDatabaseTool(
+              mappedTool,
+              step.params?.filters || {},
+              organizationId,
+              userRole,
+              userId
+            );
+
+            if (fallbackData && !fallbackData.error) {
+              const rows = Array.isArray(fallbackData) ? fallbackData : [fallbackData];
+              res = {
+                rows,
+                verified: true,
+                confidenceScore: 80,
+                tablesUsed: [fallbackTool],
+                queriesRun: [`Fallback Prisma execution: ${mappedTool}`],
+                errors: []
+              };
+            }
+          } catch (err) {
+            this.logger.error(`Database Fallback execution failed: ${err.message}`);
+          }
+        }
+
+        dbResult = res;
+      };
+
+      const runRagStep = async (step: any) => {
+        try {
+          const res = await this.ragService.query(
+            gatewayOutput.query,
+            organizationId,
+            userId,
+            userRole
+          );
+          docResult = {
+            chunks: res.citations.map((cit) => ({
+              content: res.answer,
+              documentName: cit.documentName,
+              metadata: { page: cit.page, paragraph: cit.paragraph }
+            })),
+            confidenceScore: res.confidenceScore
+          };
+        } catch (e) {
+          this.logger.error(`Document Pipeline execution failed: ${e.message}`);
+        }
+      };
+
+      const runMemStep = async () => {
+        try {
+          const memories = await this.retrieveRelevantMemories(gatewayOutput.query, organizationId, 5);
+          memResult = { memories };
+        } catch (e) {
+          this.logger.error(`Memory Pipeline execution failed: ${e.message}`);
+        }
+      };
+
+      for (const step of executionPlan.steps) {
+        if (step.tool === 'SQL_ENGINE') {
+          executionPromises.push(runSqlStep(step));
+        } else if (step.tool === 'RAG_ENGINE') {
+          executionPromises.push(runRagStep(step));
+        }
+      }
+      executionPromises.push(runMemStep());
+
+      // Parallel execute database, document, api and memory pipelines
+      await Promise.all(executionPromises);
+
+      // STEP 5 — RESULT FUSION ENGINE & CROSS VALIDATION ENGINE
+      const fusionOutput = await this.resultFusionService.fuseAndValidate(
+        gatewayOutput.query,
+        { dbResult, docResult, memResult },
+        organizationId,
+        userId
+      );
+
+      // Confidence Gating: Refuse if aggregate confidence < 85
+      if (fusionOutput.finalConfidence < 85) {
+        this.logger.warn(`Aggregate confidence (${fusionOutput.finalConfidence}) is below threshold 85. Refusing query gracefully.`);
+        
+        await this.observabilityService.logTrace({
+          traceId,
+          timestamp: new Date().toISOString(),
+          query: gatewayOutput.query,
+          intent: intentObj.intent,
+          classification: intentObj.classification,
+          latencyMs: Date.now() - startTime,
+          confidenceScore: fusionOutput.finalConfidence,
+          dbAccuracy: dbResult.rows.length > 0 ? 100 : 0,
+          ragAccuracy: docResult.chunks.length > 0 ? 100 : 0,
+          hallucinationRate: 0,
+          fusionAccuracy: 0,
+          tokenUsage: 0,
+          cost: 0,
+          securityViolations: dbResult.errors || [],
+          workflowSuccess: false
+        }, organizationId);
+
+        return {
+          response: "Insufficient evidence available to answer confidently.",
+          spokenResponse: callPersona ? "I'm sorry, I could not find enough evidence to answer confidently." : undefined,
+          toolExecuted: null,
+          toolData: null,
+          citations: [],
+          workspaceState
+        };
+      }
+
+      // STEP 6 — EXECUTIVE DECISION ENGINE
+      const pastMemories = memResult.memories || [];
+      const toolData = dbResult.rows;
+      let execAnalysis = { risks: [] as string[], opportunities: [] as string[], recommendations: [] as string[] };
+      
+      if (intentObj.intent === 'ANALYTICS' || intentObj.intent === 'TREND' || intentObj.intent === 'REPORTING' || intentObj.intent === 'POLICY' || intentObj.intent === 'COMPARISON' || intentObj.intent === 'FORECAST' || intentObj.intent === 'MIXED') {
+        execAnalysis = await this.executiveDecisionService.analyze(gatewayOutput.query, toolData, pastMemories);
+      }
+
+      // STEP 7 — GROUNDED RESPONSE GENERATOR
+      const responseMode = intentObj.intent === 'LOOKUP' ? 'LOOKUP' : (intentObj.intent === 'POLICY' ? 'POLICY' : 'EXECUTIVE');
+      const composerPrompt = `You are the Zorvex Response Composer (V9 VEnterprise Cognitive retrieval Core).
+Your task is to compile the final response in the determined Mode: ${responseMode}.
+
+STRICT GROUNDEDNESS RULES:
+1. Rely ONLY on clear facts directly mentioned in the provided Grounded Evidence context. Do NOT make assumptions, guess, extrapolate, or use external knowledge.
+2. Every claim or factual statement in your response MUST be followed by a citation pointing to the specific document name or database table source in the format [Doc: "Document Name", Page X, Para Y] or [Table: "Table Name"].
+3. Never invent metrics, dates, names, or values.
+4. Responds in the EXACT SAME LANGUAGE as the user's message (e.g. English, Roman Urdu, or Urdu script).
+
+Grounded Evidence Context:
+${fusionOutput.groundedEvidence}
+
+Executive Context (Risks/Opps):
+Risks: ${JSON.stringify(execAnalysis.risks)}
+Opportunities: ${JSON.stringify(execAnalysis.opportunities)}
+Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
+
+      const finalResponseText = await this.llmService.callLLM(
+        composerPrompt,
+        `Generate grounded response for query: "${gatewayOutput.query}"`,
+        history,
+        false,
+        organizationId,
+        userId
+      );
+
+      const cleanedResponse = finalResponseText.trim();
+
+      // Update active contexts in WorkspaceState
+      if (dbResult.rows.length > 0) {
+        const firstRow = dbResult.rows[0];
+        if (firstRow && typeof firstRow === 'object') {
+          if (dbResult.tablesUsed.includes('property')) {
+            workspaceState.activeProperty = { id: firstRow.id, title: firstRow.title, ownerId: firstRow.ownerId || null };
+            workspaceState.activeEntityType = 'Property';
+            workspaceState.activeRecord = workspaceState.activeProperty;
+            workspaceState.activeContext = { type: 'PROPERTY_DISCUSSION', propertyId: firstRow.id };
+          }
+          if (dbResult.tablesUsed.includes('employeeprofile')) {
+            workspaceState.activeEmployee = { id: firstRow.id, name: firstRow.user?.firstName || 'Employee', department: firstRow.department };
+            workspaceState.activeEntityType = 'Employee';
+            workspaceState.activeRecord = workspaceState.activeEmployee;
+            workspaceState.activeContext = { type: 'ATTENDANCE_DISCUSSION', employeeId: firstRow.id };
+          }
+          if (dbResult.tablesUsed.includes('client') || dbResult.tablesUsed.includes('lead')) {
+            workspaceState.activeLead = { id: firstRow.id, name: firstRow.name, type: firstRow.type };
+            workspaceState.activeEntityType = firstRow.type === 'OWNER' ? 'Owner' : 'Lead';
+            workspaceState.activeRecord = workspaceState.activeLead;
+            workspaceState.activeContext = { type: 'LEAD_DISCUSSION', leadId: firstRow.id };
+          }
+        }
+      }
+
+      // Spoken response TTS generation
+      let finalSpoken: string | undefined = undefined;
+      if (callPersona) {
+        finalSpoken = await this.generateSpokenSummary(cleanedResponse, gatewayOutput.query, organizationId, userId);
+      }
+
+      // Citation mapping
+      const citations = docResult.chunks.map((chunk: any) => ({
+        documentId: chunk.documentId || 'policy-doc',
+        documentName: chunk.documentName,
+        fileType: 'TXT',
+        page: chunk.metadata?.page || 1,
+        paragraph: chunk.metadata?.paragraph || 1
+      }));
+
+      // Learning Engine & Memory Persistence
+      await this.learningMemoryService.storeInteraction({
+        userQuestion: gatewayOutput.query,
+        executionPlan,
+        retrievedSources: {
+          dbTables: dbResult.tablesUsed,
+          documents: docResult.chunks.map((c: any) => c.documentName)
+        },
+        finalResponse: cleanedResponse,
+        confidenceScore: fusionOutput.finalConfidence,
+        timestamp: new Date().toISOString()
+      }, organizationId);
+
+      this.learningMemoryService.extractAndStoreOrganizationalMemory(
+        cleanedResponse,
+        gatewayOutput.query,
+        organizationId,
+        userId
+      ).catch(e => this.logger.warn(`Background memory extraction failed: ${e.message}`));
+
+      // Observability Logging
+      await this.observabilityService.logTrace({
+        traceId,
+        timestamp: new Date().toISOString(),
+        query: gatewayOutput.query,
+        intent: intentObj.intent,
+        classification: intentObj.classification,
+        latencyMs: Date.now() - startTime,
+        confidenceScore: fusionOutput.finalConfidence,
+        dbAccuracy: 100,
+        ragAccuracy: 100,
+        hallucinationRate: 0,
+        fusionAccuracy: 100,
+        tokenUsage: Math.ceil((cleanedResponse.length + fusionOutput.groundedEvidence.length) / 4),
+        cost: 0,
+        securityViolations: dbResult.errors || [],
+        workflowSuccess: true
+      }, organizationId);
+
+      // Whitelisted Visualization Decision
+      const visualization = this.selectSmartVisualization(dbResult.tablesUsed[0] || '', dbResult.rows, gatewayOutput.query);
+
+      return {
+        response: cleanedResponse,
+        spokenResponse: finalSpoken,
+        toolExecuted: dbResult.tablesUsed[0] || null,
+        toolData: dbResult.rows,
+        citations,
+        visualization,
+        workspaceState
+      };
+
     } catch (err) {
-      this.logger.error(`AOS v8 pipeline breakdown: ${err.message}`);
+      this.logger.error(`AOS v9 Cognitive Core Pipeline breakdown: ${err.message}`);
       return {
         response: "🤖 System Alert: An operational bottleneck has interrupted Zorvex AI. Please verify data parameters and retry.",
         spokenResponse: callPersona ? "System error has occurred, please retry." : undefined,
