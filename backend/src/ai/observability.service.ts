@@ -18,6 +18,13 @@ export interface TraceRecord {
   cost: number; // estimated USD cost
   securityViolations: string[];
   workflowSuccess: boolean;
+  plannerDuplicateRate?: number;
+  fallbackRate?: number;
+  confidenceFailureRate?: number;
+  roleContaminationIncidents?: number;
+  executionRetries?: number;
+  queryRewriteCount?: number;
+  intentMisclassificationRate?: number;
 }
 
 @Injectable()

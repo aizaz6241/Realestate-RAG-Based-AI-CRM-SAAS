@@ -6,6 +6,11 @@ export interface FusionInput {
     rows: any[];
     confidenceScore: number;
     tablesUsed: string[];
+    errors?: string[];
+    parseError?: string;
+    validationResult?: any;
+    verified?: boolean;
+    queriesRun?: string[];
   };
   docResult: {
     chunks: any[];
@@ -97,53 +102,64 @@ Do not write markdown backticks. Return raw JSON only.`;
       }
     }
 
-    // 2. Confidence Engine: Calculate aggregate confidence score
+    // 2. Confidence Engine: Calculate aggregate confidence score using multi-dimensional formula
     const dbConf = input.dbResult?.confidenceScore ?? 0;
-    const docConf = (input.docResult?.confidenceScore ?? 0) * 100; // Convert 0-1.0 scale to 0-100
-    const memConf = memories.length > 0 ? 100 : 0;
+    const docConf = (input.docResult?.confidenceScore ?? 0) * 100;
     const consistencyScore = isConsistent ? 100 : 50;
 
-    let finalConfidence = 0;
-
-    const hasDB = dbRows.length > 0;
-    const hasDoc = docChunks.length > 0;
-
-    if (classification === 'DATABASE_ONLY') {
-      finalConfidence = Math.round((dbConf * 0.8) + (consistencyScore * 0.2));
-    } else if (classification === 'DOCUMENT_ONLY') {
-      finalConfidence = Math.round((docConf * 0.8) + (consistencyScore * 0.2));
-    } else if (classification === 'MEMORY_ONLY') {
-      finalConfidence = Math.round((memConf * 0.8) + (consistencyScore * 0.2));
-    } else if (classification === 'HYBRID') {
-      // Dynamic rebalancing in Hybrid Mode if only one source exists
-      if (hasDB && hasDoc) {
-        finalConfidence = Math.round((dbConf * 0.4) + (docConf * 0.4) + (consistencyScore * 0.2));
-      } else if (hasDB) {
-        finalConfidence = Math.round((dbConf * 0.8) + (consistencyScore * 0.2));
-      } else if (hasDoc) {
-        finalConfidence = Math.round((docConf * 0.8) + (consistencyScore * 0.2));
-      } else {
-        finalConfidence = Math.round(consistencyScore);
-      }
-    } else {
-      // Fallback
-      if (hasDB && hasDoc) {
-        finalConfidence = Math.round((dbConf * 0.4) + (docConf * 0.4) + (consistencyScore * 0.2));
-      } else if (hasDB) {
-        finalConfidence = Math.round((dbConf * 0.8) + (consistencyScore * 0.2));
-      } else if (hasDoc) {
-        finalConfidence = Math.round((docConf * 0.8) + (consistencyScore * 0.2));
-      } else {
-        finalConfidence = Math.round(consistencyScore);
-      }
+    // Dimension 1: queryMatchScore
+    let queryMatchScore = 100;
+    if (classification === 'DATABASE_ONLY' && input.docResult?.chunks?.length > 0) {
+      queryMatchScore = 60; // Penalty for mismatch in expected pipelines
+    } else if (classification === 'DOCUMENT_ONLY' && input.dbResult?.rows?.length > 0) {
+      queryMatchScore = 60;
+    } else if (input.dbResult?.queriesRun?.some((q: string) => q.includes('Fallback'))) {
+      queryMatchScore = 90; // Minor deduction for templates fallback query match
     }
+
+    // Dimension 2: executionScore
+    let executionScore = 100;
+    if (classification === 'DATABASE_ONLY' || classification === 'HYBRID') {
+      const dbErrors = input.dbResult?.errors || [];
+      const isDbVerified = input.dbResult?.verified ?? false;
+      if (dbErrors.length > 0) {
+        executionScore = 0;
+      } else if (isDbVerified) {
+        executionScore = 100; // Verification sets execution to 100
+      } else {
+        executionScore = dbConf;
+      }
+    } else if (classification === 'DOCUMENT_ONLY') {
+      executionScore = docConf;
+    }
+
+    // Dimension 3: schemaMatchScore
+    let schemaMatchScore = 100;
+    if (input.dbResult?.parseError) {
+      schemaMatchScore = 70; // JSON comment cleaning parse recovery
+    }
+    if (input.dbResult?.validationResult?.isValid === false) {
+      schemaMatchScore = 0;
+    }
+
+    // Dimension 4: consistencyScore
+    // Evaluated above as consistencyScore (100 or 50)
+
+    // SUGGESTED FORMULA:
+    // finalConfidence = (queryMatchScore * 0.35 + executionScore * 0.35 + schemaMatchScore * 0.15 + consistencyScore * 0.15)
+    const finalConfidence = Math.round(
+      (queryMatchScore * 0.35) + 
+      (executionScore * 0.35) + 
+      (schemaMatchScore * 0.15) + 
+      (consistencyScore * 0.15)
+    );
 
     // Required Debug Telemetries
     this.logger.log(`[Confidence Engine Breakdown]
     {
-      "sqlConfidence": ${dbConf},
-      "ragConfidence": ${docConf},
-      "memoryConfidence": ${memConf},
+      "queryMatchScore": ${queryMatchScore},
+      "executionScore": ${executionScore},
+      "schemaMatchScore": ${schemaMatchScore},
       "consistencyScore": ${consistencyScore},
       "finalConfidence": ${finalConfidence}
     }`);

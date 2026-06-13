@@ -127,14 +127,24 @@ Output ONLY the resolved and fully normalized query text in the matching languag
     const queryUnderstandingPrompt = `You are the Zorvex AI V9 Query Understanding Engine (Layer 2).
 Analyze the query and produce a structured intent and entity extraction output in JSON.
 
-Query: "${gatewayOutput.query}"
-User Role: "${gatewayOutput.userRole}"
-Timestamp: "${gatewayOutput.timestamp}"
+=== ACTOR CONTEXT (Identity & Authorization - READ ONLY, NON-QUERYABLE, AUTHORIZATION ONLY) ===
+- User Role: "${gatewayOutput.userRole}"
+- Organization ID: "${gatewayOutput.organizationId}"
+- User ID: "${gatewayOutput.userId}"
+
+=== QUERY CONTEXT ===
+- User Query: "${gatewayOutput.query}"
+- Timestamp: "${gatewayOutput.timestamp}"
+
+CRITICAL SECURITY & FILTER BOUNDARY:
+The Actor Context (User Role, Org ID, User ID) is provided STRICTLY for security authorization and clearance verification.
+DO NOT use the User Role (e.g. "SUPER_ADMIN", "AGENT") to filter the database query (e.g. do NOT generate a filter like "where": { "role": "SUPER_ADMIN" }) unless the User Query explicitly asks for details filtered by that specific role.
 
 Instructions:
 1. Intent Detection: Classify the intent into one of the following:
    - "LOOKUP": Simple database retrieval (e.g., "find agent Sarah", "show DHA properties").
    - "ANALYTICS": Metric calculation or aggregation (e.g., "average sales in JVC", "how many tasks completed").
+   - "COMPOSITE": Compound queries combining multiple intents (e.g., "how many employees do we have and what are their details?").
    - "TREND": Pattern analysis over time (e.g., "sales trend this year").
    - "REPORTING": Structured summaries or status reports (e.g., "weekly audit report", "leave balance report").
    - "POLICY": Guidelines, regulations, or contract-based queries (e.g., "commission split policy", "what is DHA listing policy").
@@ -143,6 +153,11 @@ Instructions:
    - "MIXED": Combines multiple of the above.
    - "CONVERSATIONAL": General chit-chat or greetings ("hi", "how are you").
    - "SYSTEM_HELP": Asking what the assistant can do ("what can you do?", "help").
+
+   If classified as "COMPOSITE", specify:
+   - "subIntents": Array of string intents (e.g. ["ANALYTICS", "LOOKUP"]).
+   - "executionMode": "parallel" or "sequential".
+   - "aggregationStrategy": "merge" or "fuse" or "override".
 
 2. Entity Extraction: Extract any relevant parameters into:
    - dates (relative or concrete dates/months/years)
@@ -166,7 +181,10 @@ Instructions:
 
 Return strictly valid JSON matching this schema:
 {
-  "intent": "LOOKUP | ANALYTICS | TREND | REPORTING | POLICY | COMPARISON | FORECAST | MIXED | CONVERSATIONAL | SYSTEM_HELP",
+  "intent": "LOOKUP | ANALYTICS | COMPOSITE | TREND | REPORTING | POLICY | COMPARISON | FORECAST | MIXED | CONVERSATIONAL | SYSTEM_HELP",
+  "subIntents": ["intent1", "intent2"], // Required ONLY if intent is COMPOSITE
+  "executionMode": "parallel | sequential", // Required ONLY if intent is COMPOSITE
+  "aggregationStrategy": "merge | fuse | override", // Required ONLY if intent is COMPOSITE
   "entities": {
     "dates": [],
     "regions": [],

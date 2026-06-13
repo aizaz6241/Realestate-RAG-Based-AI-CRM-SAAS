@@ -109,9 +109,119 @@ export const SCHEMA_REGISTRY = {
   }
 };
 
+export const SCHEMA_RELATION_REGISTRY = {
+  employeeprofile: {
+    relations: {
+      user: { model: 'user', foreignKey: 'userId', fields: ['firstName', 'lastName', 'email', 'role', 'name'] }
+    }
+  },
+  property: {
+    relations: {
+      owner: { model: 'owner', foreignKey: 'ownerId', fields: ['name', 'phone'] }
+    }
+  },
+  lead: {
+    relations: {
+      assignedTo: { model: 'user', foreignKey: 'assignedToId', fields: ['firstName', 'lastName'] }
+    }
+  },
+  task: {
+    relations: {
+      assignedTo: { model: 'user', foreignKey: 'assignedToId', fields: ['firstName', 'lastName'] }
+    }
+  }
+};
+
 @Injectable()
 export class DatabasePipelineService {
   private readonly logger = new Logger(DatabasePipelineService.name);
+
+  private levenshtein(a: string, b: string): number {
+    const matrix: number[][] = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            Math.min(
+              matrix[i][j - 1] + 1,
+              matrix[i - 1][j] + 1
+            )
+          );
+        }
+      }
+    }
+    return matrix[b.length][a.length];
+  }
+
+  mapRelationalFilters(entity: string, filters: any): any {
+    if (!filters || typeof filters !== 'object') return filters;
+    
+    const entKey = entity.toLowerCase();
+    const registry = SCHEMA_RELATION_REGISTRY[entKey];
+    if (!registry) return filters;
+    
+    const mapped: any = {};
+    for (const key of Object.keys(filters)) {
+      const val = filters[key];
+      let resolved = false;
+      
+      for (const relKey of Object.keys(registry.relations)) {
+        const relConfig = registry.relations[relKey];
+        if (relConfig.fields.includes(key)) {
+          mapped[relKey] = mapped[relKey] || {};
+          if (key === 'name') {
+            mapped[relKey]['firstName'] = val;
+          } else {
+            mapped[relKey][key] = val;
+          }
+          resolved = true;
+          break;
+        }
+      }
+      
+      if (!resolved) {
+        mapped[key] = val;
+      }
+    }
+    
+    return mapped;
+  }
+
+  buildStageWhereClause(baseWhere: any, stage: number): any {
+    const where = JSON.parse(JSON.stringify(baseWhere));
+    
+    const transformValue = (val: any, s: number): any => {
+      if (typeof val === 'string') {
+        if (s === 1) return val;
+        if (s === 2) return { equals: val, mode: 'insensitive' };
+        if (s === 3) return { contains: val, mode: 'insensitive' };
+        if (s === 4) return { contains: val, mode: 'insensitive' };
+      }
+      if (typeof val === 'object' && val !== null) {
+        // Skip operators like contains, mode, equals
+        if (val.contains !== undefined || val.equals !== undefined) return val;
+        const trans: any = {};
+        for (const k of Object.keys(val)) {
+          trans[k] = transformValue(val[k], s);
+        }
+        return trans;
+      }
+      return val;
+    };
+
+    const transformed: any = {};
+    for (const k of Object.keys(where)) {
+      transformed[k] = transformValue(where[k], stage);
+    }
+    return transformed;
+  }
+
 
   constructor(
     private prisma: PrismaService,
@@ -356,7 +466,8 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
 
       const model = this.prisma[modelKey];
       const tenantFilter = getBaseTenantFilter(ent.toLowerCase(), organizationId);
-      const whereClause = { ...tenantFilter, ...cleanFilters };
+      const mappedFilters = this.mapRelationalFilters(ent, cleanFilters);
+      const whereClause = { ...tenantFilter, ...mappedFilters };
 
       // Role boundaries injection
       if (userRole === 'AGENT') {
@@ -367,46 +478,62 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
 
       try {
         if (optimizedPlan.operation === 'aggregate') {
-          const aggArgs: any = {
-            where: whereClause,
-            _count: true
-          };
-          if (optimizedPlan.metrics && optimizedPlan.metrics.length > 0) {
-            aggArgs._sum = {};
-            aggArgs._avg = {};
-            const validNumericFields = [
-              'price', 'bedrooms', 'bathrooms', 'areaSqft', 'salary', 
-              'netSalary', 'baseSalary', 'allowances', 'deductions', 
-              'cost', 'amount', 'rating', 'duration', 'progress'
-            ];
-            for (const m of optimizedPlan.metrics) {
-              if (m === 'count') continue;
-              if (!validNumericFields.includes(m)) continue;
-              aggArgs._sum[m] = true;
-              aggArgs._avg[m] = true;
-            }
-            if (Object.keys(aggArgs._sum).length === 0) {
-              delete aggArgs._sum;
-              delete aggArgs._avg;
-            }
-          }
-
-          if (optimizedPlan.groupBy && optimizedPlan.groupBy.length > 0) {
-            const groupByArgs = {
-              by: optimizedPlan.groupBy,
-              where: whereClause,
-              _count: true,
-              ...(optimizedPlan.metrics && optimizedPlan.metrics.length > 0 ? {
-                _sum: aggArgs._sum,
-                _avg: aggArgs._avg
-              } : {})
+          let rows: any[] = [];
+          for (let stage = 1; stage <= 4; stage++) {
+            const stageWhere = this.buildStageWhereClause(whereClause, stage);
+            const aggArgs: any = {
+              where: stageWhere,
+              _count: true
             };
-            const rows = await model.groupBy(groupByArgs);
-            results.push(...rows);
-          } else {
-            const aggResult = await model.aggregate(aggArgs);
-            results.push(aggResult);
+            if (optimizedPlan.metrics && optimizedPlan.metrics.length > 0) {
+              aggArgs._sum = {};
+              aggArgs._avg = {};
+              const validNumericFields = [
+                'price', 'bedrooms', 'bathrooms', 'areaSqft', 'salary', 
+                'netSalary', 'baseSalary', 'allowances', 'deductions', 
+                'cost', 'amount', 'rating', 'duration', 'progress'
+              ];
+              for (const m of optimizedPlan.metrics) {
+                if (m === 'count') continue;
+                if (!validNumericFields.includes(m)) continue;
+                aggArgs._sum[m] = true;
+                aggArgs._avg[m] = true;
+              }
+              if (Object.keys(aggArgs._sum).length === 0) {
+                delete aggArgs._sum;
+                delete aggArgs._avg;
+              }
+            }
+
+            if (optimizedPlan.groupBy && optimizedPlan.groupBy.length > 0) {
+              const groupByArgs = {
+                by: optimizedPlan.groupBy,
+                where: stageWhere,
+                _count: true,
+                ...(optimizedPlan.metrics && optimizedPlan.metrics.length > 0 ? {
+                  _sum: aggArgs._sum,
+                  _avg: aggArgs._avg
+                } : {})
+              };
+              rows = await model.groupBy(groupByArgs).catch(() => []);
+            } else {
+              const aggResult = await model.aggregate(aggArgs).catch(() => null);
+              rows = aggResult ? [aggResult] : [];
+            }
+
+            const countVal = rows[0]?._count;
+            const hasResults = rows.length > 0 && (
+              countVal === undefined || 
+              (typeof countVal === 'number' && countVal > 0) ||
+              (typeof countVal === 'object' && countVal !== null && Object.values(countVal).some((v: any) => v > 0))
+            );
+
+            if (hasResults) {
+              this.logger.log(`[Multi-Stage Search Aggregate] Succeeded at Stage ${stage}`);
+              break;
+            }
           }
+          results.push(...rows);
         } else {
           // Default: Fetch rows
           let includeOptions: any = undefined;
@@ -414,20 +541,59 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
             includeOptions = { owner: { select: { name: true, phone: true } } };
           } else if (ent.toLowerCase() === 'employeeprofile') {
             includeOptions = { user: { select: { id: true, firstName: true, lastName: true, email: true, role: true } } };
+          } else if (ent.toLowerCase() === 'lead' || ent.toLowerCase() === 'task') {
+            includeOptions = { assignedTo: { select: { firstName: true, lastName: true, email: true } } };
           }
 
-          const rows = await model.findMany({
-            where: whereClause,
-            include: includeOptions,
-            take: optimizedPlan.take,
-            orderBy: { createdAt: 'desc' } as any
-          }).catch(async () => {
-            return await model.findMany({
-              where: whereClause,
+          let rows: any[] = [];
+          for (let stage = 1; stage <= 4; stage++) {
+            if (stage === 4) {
+              // Fuzzy matching via local Levenshtein filtering for string values
+              const searchStr = (cleanFilters.location || cleanFilters.name || cleanFilters.firstName);
+              if (searchStr && typeof searchStr === 'string') {
+                try {
+                  const allRecords = await model.findMany({
+                    where: { ...tenantFilter },
+                    include: includeOptions
+                  });
+                  const cleanSearch = searchStr.toLowerCase().trim();
+                  rows = allRecords.filter((rec: any) => {
+                    const loc = (rec.location || '').toLowerCase();
+                    const fName = (rec.user?.firstName || rec.firstName || rec.name || '').toLowerCase();
+                    return loc.includes(cleanSearch) || cleanSearch.includes(loc) ||
+                           fName.includes(cleanSearch) || cleanSearch.includes(fName) ||
+                           (loc.length > 2 && this.levenshtein(loc, cleanSearch) <= 3) ||
+                           (fName.length > 2 && this.levenshtein(fName, cleanSearch) <= 3);
+                  }).slice(0, optimizedPlan.take);
+                  if (rows.length > 0) {
+                    this.logger.log(`[Multi-Stage Search Fetch] Succeeded at Stage 4 (Fuzzy local match)`);
+                    break;
+                  }
+                } catch (e) {
+                  this.logger.warn(`Stage 4 fuzzy match local failed: ${e.message}`);
+                }
+              }
+            }
+
+            const stageWhere = this.buildStageWhereClause(whereClause, stage);
+            rows = await model.findMany({
+              where: stageWhere,
               include: includeOptions,
-              take: optimizedPlan.take
+              take: optimizedPlan.take,
+              orderBy: { createdAt: 'desc' } as any
+            }).catch(async () => {
+              return await model.findMany({
+                where: stageWhere,
+                include: includeOptions,
+                take: optimizedPlan.take
+              }).catch(() => []);
             });
-          });
+
+            if (rows.length > 0) {
+              this.logger.log(`[Multi-Stage Search Fetch] Succeeded at Stage ${stage}`);
+              break;
+            }
+          }
 
           // Salary masking rule
           if (ent.toLowerCase() === 'employeeprofile') {

@@ -16,6 +16,7 @@ import { DatabasePipelineService } from './database-pipeline.service';
 import { ResultFusionService } from './result-fusion.service';
 import { LearningMemoryService } from './learning-memory.service';
 import { ObservabilityService } from './observability.service';
+import { MultiTierRouterService } from './multi-tier-router.service';
 import { AiRagService } from './rag/ai-rag.service';
 
 @Injectable()
@@ -51,7 +52,8 @@ export class AiService {
     private resultFusionService: ResultFusionService,
     private learningMemoryService: LearningMemoryService,
     private observabilityService: ObservabilityService,
-    private ragService: AiRagService
+    private ragService: AiRagService,
+    private multiTierRouterService: MultiTierRouterService
   ) {}
 
   // -----------------------------------------------------------------------------
@@ -743,21 +745,33 @@ Matches the language of the user's query. Keep it short, professional, and clear
 
       // STEP 2 — PLANNING ENGINE (Layer 3) & TOOL SELECTION ENGINE (Layer 5)
       const planningStartTime = Date.now();
-      const executionPlan = await this.planningEngineService.generateExecutionPlan(
-        gatewayOutput.query,
-        intentObj,
-        organizationId,
-        userId,
-        userRole
-      );
-      emitTraceStep(5, "PLANNING_ENGINE", "SUCCESS", { query: gatewayOutput.query, intent: intentObj.intent }, executionPlan.steps, planningStartTime);
-      emitTraceStep(7, "TOOL_SELECTION", "SUCCESS", gatewayOutput.query, { classification: intentObj.classification, steps: executionPlan.steps.map(s => s.tool) }, planningStartTime);
+      let executionPlan = this.multiTierRouterService.routeQuery(gatewayOutput.query);
+      let isDeterministicBypassed = false;
+      if (executionPlan) {
+        isDeterministicBypassed = true;
+        this.logger.log(`[Multi-Tier Retrieval Router] Bypassing LLM planning. Tier 0/1 Route matched.`);
+      } else {
+        executionPlan = await this.planningEngineService.generateExecutionPlan(
+          gatewayOutput.query,
+          intentObj,
+          organizationId,
+          userId,
+          userRole
+        );
+      }
+      
+      let plannerDuplicateRate = 0;
+      let fallbackRate = 0;
+      let roleContaminationIncidents = 0;
+
+      emitTraceStep(5, "PLANNING_ENGINE", "SUCCESS", { query: gatewayOutput.query, intent: intentObj.intent, deterministicBypassed: isDeterministicBypassed }, executionPlan.nodes || [], planningStartTime);
+      emitTraceStep(7, "TOOL_SELECTION", "SUCCESS", gatewayOutput.query, { classification: intentObj.classification, nodes: (executionPlan.nodes || []).map(n => n.tool) }, planningStartTime);
 
       // STEP 3 — PERMISSION ENGINE (Layer 4)
       const permissionStartTime = Date.now();
-      const isPlanAuthorized = executionPlan.steps.every(step => {
-        if (step.tool === 'SQL_ENGINE' && step.params && step.params.entities) {
-          return step.params.entities.every(ent => 
+      const isPlanAuthorized = (executionPlan.nodes || []).every(node => {
+        if (node.tool === 'SQL_ENGINE' && node.params && node.params.entities) {
+          return node.params.entities.every(ent => 
             this.dbToolsService.checkToolAuthorization(
               ent.toLowerCase() === 'payroll' ? 'getFinanceAnalytics' : 'searchProperties', 
               userRole
@@ -780,8 +794,8 @@ Matches the language of the user's query. Keep it short, professional, and clear
       }
 
       // Action Draft Readiness check
-      if (executionPlan.steps.length > 0) {
-        const firstAction = executionPlan.steps[0];
+      if ((executionPlan.nodes || []).length > 0) {
+        const firstAction = executionPlan.nodes[0];
         if (firstAction && (firstAction.tool === 'SQL_ENGINE' && firstAction.params && firstAction.params.entities && firstAction.params.entities.includes('task'))) {
           const readiness = this.validateActionReadiness('createTask', firstAction.params.filters || firstAction.params);
           if (!readiness.isReady) {
@@ -814,41 +828,70 @@ Matches the language of the user's query. Keep it short, professional, and clear
           userMessage: gatewayOutput.query,
           sessionId,
           callPersona,
-          executionGraph: executionPlan.steps,
+          executionGraph: executionPlan.nodes,
           toolCallIndex: 0,
           executedResults: []
         });
 
         this.zorvexGateway.broadcastToOrganization(organizationId, 'approval_required', {
           approvalId,
-          tool: executionPlan.steps[0]?.tool || 'Unknown Tool',
-          params: executionPlan.steps[0]?.params
+          tool: executionPlan.nodes[0]?.tool || 'Unknown Tool',
+          params: executionPlan.nodes[0]?.params
         });
 
         return {
           status: 'PENDING_APPROVAL',
           approvalId,
           response: `⚠️ Executive Authorization Required: The planned action requires corporate approval before executing.`,
-          toolExecuted: executionPlan.steps[0]?.tool,
-          toolData: executionPlan.steps[0]?.params,
+          toolExecuted: executionPlan.nodes[0]?.tool,
+          toolData: executionPlan.nodes[0]?.params,
           citations: [],
           workspaceState
         };
       }
 
       // STEP 4 — PARALLEL EXECUTION LAYER (Layer 6)
-      let dbResult: any = { rows: [], confidenceScore: 100, tablesUsed: [], queriesRun: [], errors: [] };
+      let dbResult: any = { rows: [], confidenceScore: 100, tablesUsed: [], queriesRun: [], errors: [], parseError: null, validationResult: null, verified: true };
       let docResult: any = { chunks: [], confidenceScore: 0 };
       let memResult: any = { memories: [] };
 
-      emitTraceStep(8, "PARALLEL_EXECUTION_START", "SUCCESS", executionPlan.steps, "Executing backend retrieval pipelines in parallel...", startTime);
+      // Telemetry metrics trackers
+      let duplicateStepsSkipped = 0;
+      let totalStepsPlanned = (executionPlan.nodes || []).length;
+      let databasePipelineFallbacks = 0;
+
+      const executedSignatures = new Set<string>();
+
+      emitTraceStep(8, "PARALLEL_EXECUTION_START", "SUCCESS", executionPlan.nodes || [], "Executing backend retrieval pipelines in parallel...", startTime);
 
       const executionPromises: Promise<any>[] = [];
+      const sqlResultsCollector: any[] = [];
+      const ragResultsCollector: any[] = [];
 
-      const runSqlStep = async (step: any) => {
+      const runSqlStep = async (node: any) => {
+        // Request-level loop protection check
+        const normalizedParams = this.planningEngineService['normalizePlanStepParams'](node.params || {});
+        const signature = `${node.tool}_${JSON.stringify(normalizedParams)}`;
+        if (executedSignatures.has(signature)) {
+          duplicateStepsSkipped++;
+          this.logger.log(`[Duplicate Execution Guard] Skipping duplicate execution of node signature: "${signature}"`);
+          return;
+        }
+        executedSignatures.add(signature);
+
+        // Check for potential role contamination in raw filters
+        if (node.params?.filters && typeof node.params.filters === 'object') {
+          for (const key of Object.keys(node.params.filters)) {
+            if (key.toLowerCase() === 'role' && node.params.filters[key] === userRole) {
+              roleContaminationIncidents++;
+              this.logger.warn(`[Role Contamination Alert] Query filters matched userRole context: ${userRole}. Segregating.`);
+            }
+          }
+        }
+
         const sqlStartTime = Date.now();
-        emitTraceStep(9, "SQL_PIPELINE_START", "PROCESSING", step.params || {}, "Executing database retrieval pipeline...", sqlStartTime);
-        // Primary: NL-to-SQL
+        emitTraceStep(9, "SQL_PIPELINE_START", "PROCESSING", node.params || {}, "Executing database retrieval pipeline...", sqlStartTime);
+
         let res = await this.databasePipelineService.runDatabaseRetrievalPipeline(
           gatewayOutput.query,
           organizationId,
@@ -859,7 +902,7 @@ Matches the language of the user's query. Keep it short, professional, and clear
         const primaryFailed = (res.rows.length === 0 || res.confidenceScore < 50) && res.errors.length === 0;
 
         if (primaryFailed) {
-          // Log NL-to-SQL failure diagnostics EXACTLY as requested
+          databasePipelineFallbacks++;
           this.logger.error(`[NL-to-SQL FAILURE DIAGNOSTICS]
           {
             "rawLlmResponse": ${JSON.stringify(res.rawLlmResponse || "", null, 2)},
@@ -869,7 +912,7 @@ Matches the language of the user's query. Keep it short, professional, and clear
             "fallbackTriggered": true
           }`);
 
-          emitTraceStep(9, "SQL_PIPELINE_FALLBACK", "WARNING", step.params || {}, "SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates...", sqlStartTime);
+          emitTraceStep(9, "SQL_PIPELINE_FALLBACK", "WARNING", node.params || {}, "SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates...", sqlStartTime);
           this.logger.log(`[Database Fallback] SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates.`);
           try {
             const fallbackTool = this.planningEngineService['deduceEntityFromQuery'](gatewayOutput.query);
@@ -883,7 +926,7 @@ Matches the language of the user's query. Keep it short, professional, and clear
 
             const fallbackData = await this.dbToolsService.executeDatabaseTool(
               mappedTool,
-              step.params?.filters || {},
+              node.params?.filters || {},
               organizationId,
               userRole,
               userId
@@ -904,7 +947,6 @@ Matches the language of the user's query. Keep it short, professional, and clear
             this.logger.error(`Database Fallback execution failed: ${err.message}`);
           }
         } else {
-          // Log NL-to-SQL success diagnostics EXACTLY as requested
           this.logger.log(`[NL-to-SQL SUCCESS DIAGNOSTICS]
           {
             "generatedPlan": ${JSON.stringify(res.generatedPlan || {}, null, 2)},
@@ -914,11 +956,11 @@ Matches the language of the user's query. Keep it short, professional, and clear
           }`);
         }
 
-        emitTraceStep(9, "SQL_PIPELINE_END", res.errors.length > 0 ? "FAILED" : "SUCCESS", step.params || {}, { rowsCount: res.rows.length, verified: res.verified, confidenceScore: res.confidenceScore, queriesRun: res.queriesRun, errors: res.errors }, sqlStartTime);
-        dbResult = res;
+        emitTraceStep(9, "SQL_PIPELINE_END", res.errors.length > 0 ? "FAILED" : "SUCCESS", node.params || {}, { rowsCount: res.rows.length, verified: res.verified, confidenceScore: res.confidenceScore, queriesRun: res.queriesRun, errors: res.errors }, sqlStartTime);
+        sqlResultsCollector.push(res);
       };
 
-      const runRagStep = async (step: any) => {
+      const runRagStep = async (node: any) => {
         const ragStartTime = Date.now();
         emitTraceStep(10, "RAG_PIPELINE_START", "PROCESSING", gatewayOutput.query, "Executing RAG retrieval...", ragStartTime);
         try {
@@ -928,7 +970,7 @@ Matches the language of the user's query. Keep it short, professional, and clear
             userId,
             userRole
           );
-          docResult = {
+          const formatted = {
             chunks: res.citations.map((cit) => ({
               content: res.answer,
               documentName: cit.documentName,
@@ -936,7 +978,8 @@ Matches the language of the user's query. Keep it short, professional, and clear
             })),
             confidenceScore: res.confidenceScore
           };
-          emitTraceStep(10, "RAG_PIPELINE_END", "SUCCESS", gatewayOutput.query, { chunksCount: docResult.chunks.length, confidenceScore: res.confidenceScore, citations: res.citations }, ragStartTime);
+          emitTraceStep(10, "RAG_PIPELINE_END", "SUCCESS", gatewayOutput.query, { chunksCount: formatted.chunks.length, confidenceScore: res.confidenceScore, citations: res.citations }, ragStartTime);
+          ragResultsCollector.push(formatted);
         } catch (e) {
           this.logger.error(`Document Pipeline execution failed: ${e.message}`);
           emitTraceStep(10, "RAG_PIPELINE_FAILED", "FAILED", gatewayOutput.query, { error: e.message }, ragStartTime);
@@ -956,17 +999,40 @@ Matches the language of the user's query. Keep it short, professional, and clear
         }
       };
 
-      for (const step of executionPlan.steps) {
-        if (step.tool === 'SQL_ENGINE') {
-          executionPromises.push(runSqlStep(step));
-        } else if (step.tool === 'RAG_ENGINE') {
-          executionPromises.push(runRagStep(step));
+      for (const node of (executionPlan.nodes || [])) {
+        if (node.tool === 'SQL_ENGINE') {
+          executionPromises.push(runSqlStep(node));
+        } else if (node.tool === 'RAG_ENGINE') {
+          executionPromises.push(runRagStep(node));
         }
       }
       executionPromises.push(runMemStep());
 
       // Parallel execute database, document, api and memory pipelines
       await Promise.all(executionPromises);
+
+      // MAP-REDUCE FUSION OF RESULTS COLLECTORS
+      if (sqlResultsCollector.length > 0) {
+        dbResult = {
+          rows: sqlResultsCollector.flatMap(r => r.rows || []),
+          verified: sqlResultsCollector.every(r => r.verified ?? true),
+          confidenceScore: Math.min(...sqlResultsCollector.map(r => r.confidenceScore ?? 100)),
+          tablesUsed: Array.from(new Set(sqlResultsCollector.flatMap(r => r.tablesUsed || []))),
+          queriesRun: sqlResultsCollector.flatMap(r => r.queriesRun || []),
+          errors: sqlResultsCollector.flatMap(r => r.errors || []),
+          parseError: sqlResultsCollector.map(r => r.parseError).filter(Boolean).join('; ') || null,
+          validationResult: sqlResultsCollector.find(r => r.validationResult)?.validationResult || null
+        };
+      }
+      if (ragResultsCollector.length > 0) {
+        docResult = {
+          chunks: ragResultsCollector.flatMap(r => r.chunks || []),
+          confidenceScore: Math.min(...ragResultsCollector.map(r => r.confidenceScore ?? 1.0))
+        };
+      }
+
+      plannerDuplicateRate = totalStepsPlanned > 0 ? Math.round((duplicateStepsSkipped / totalStepsPlanned) * 100) : 0;
+      fallbackRate = sqlResultsCollector.length > 0 ? Math.round((databasePipelineFallbacks / sqlResultsCollector.length) * 100) : 0;
 
       // STEP 5 — RESULT FUSION ENGINE & CROSS VALIDATION ENGINE
       const fusionStartTime = Date.now();
@@ -1000,7 +1066,14 @@ Matches the language of the user's query. Keep it short, professional, and clear
           tokenUsage: 0,
           cost: 0,
           securityViolations: dbResult.errors || [],
-          workflowSuccess: false
+          workflowSuccess: false,
+          plannerDuplicateRate,
+          fallbackRate,
+          confidenceFailureRate: 100,
+          roleContaminationIncidents,
+          executionRetries: 0,
+          queryRewriteCount: isDeterministicBypassed ? 0 : 1,
+          intentMisclassificationRate: 0
         }, organizationId);
 
         emitTraceStep(17, "FINAL_OUTPUT_SENT", "FAILED", userMessage, { response: "Insufficient evidence available to answer confidently.", reason: `Confidence score ${fusionOutput.finalConfidence} is below gating threshold of 85` }, startTime);
@@ -1134,7 +1207,14 @@ Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
         tokenUsage: Math.ceil((cleanedResponse.length + fusionOutput.groundedEvidence.length) / 4),
         cost: 0,
         securityViolations: dbResult.errors || [],
-        workflowSuccess: true
+        workflowSuccess: true,
+        plannerDuplicateRate,
+        fallbackRate,
+        confidenceFailureRate: 0,
+        roleContaminationIncidents,
+        executionRetries: 0,
+        queryRewriteCount: isDeterministicBypassed ? 0 : 1,
+        intentMisclassificationRate: 0
       }, organizationId);
 
       // Whitelisted Visualization Decision

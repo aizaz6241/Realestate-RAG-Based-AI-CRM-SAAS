@@ -2,15 +2,23 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AiLlmService } from './ai-llm.service';
 import { IntentObject } from './cognitive-gateway.service';
 
-export interface PlanStep {
-  step: number;
+export interface PlanNode {
+  id: string;
+  type: string;
   description: string;
   tool: 'SQL_ENGINE' | 'RAG_ENGINE' | 'CRM_API' | 'ERP_API' | 'WHATSAPP' | 'EMAIL' | 'CALENDAR' | 'WORKFLOW_ENGINE' | 'MEMORY_ENGINE';
   params: any;
 }
 
+export interface PlanEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
 export interface ExecutionPlan {
-  steps: PlanStep[];
+  nodes: PlanNode[];
+  edges: PlanEdge[];
   sensitiveAction: boolean;
   requiredRoles: string[];
 }
@@ -20,6 +28,24 @@ export class PlanningEngineService {
   private readonly logger = new Logger(PlanningEngineService.name);
 
   constructor(private llmService: AiLlmService) {}
+
+  private normalizePlanStepParams(params: any): any {
+    if (!params || typeof params !== 'object') return params;
+    const clean: any = {};
+    const sortedKeys = Object.keys(params).sort();
+    for (const key of sortedKeys) {
+      const value = params[key];
+      if (key === 'description' || key === 'id' || key === 'take') continue;
+      if (typeof value === 'object' && value !== null) {
+        clean[key] = this.normalizePlanStepParams(value);
+      } else if (typeof value === 'string') {
+        clean[key] = value.toLowerCase().trim();
+      } else {
+        clean[key] = value;
+      }
+    }
+    return clean;
+  }
 
   // Layer 3 & 5: Planning Engine & Tool Selection Engine
   async generateExecutionPlan(
@@ -32,11 +58,18 @@ export class PlanningEngineService {
     this.logger.log(`[Layer 3 & 5: Planning & Tool Selection] Generating plan for query: "${query}"`);
 
     const planningPrompt = `You are the Zorvex AI V9 Planning Engine & Tool Selection Engine (Layer 3 & 5).
-Based on the intent analysis, compile an execution plan consisting of sequential steps with appropriate tool selections.
+Based on the intent analysis, compile an execution graph (DAG) consisting of task nodes and dependency edges.
 
-Query: "${query}"
-Intent Analysis: ${JSON.stringify(intentObj, null, 2)}
-User Role: "${userRole}"
+=== ACTOR CONTEXT (Identity & Authorization - READ ONLY, NON-QUERYABLE, AUTHORIZATION ONLY) ===
+- User Role: "${userRole}"
+
+=== QUERY CONTEXT ===
+- User Query: "${query}"
+- Intent Analysis: ${JSON.stringify(intentObj, null, 2)}
+
+CRITICAL SECURITY & FILTER BOUNDARY:
+The Actor Context (User Role) is provided STRICTLY for security authorization checks.
+DO NOT inject the User Role as a search parameter or filter in the node parameters (e.g. do NOT include "role": "SUPER_ADMIN" inside params.filters) unless the user's query explicitly requests it.
 
 Available Tools:
 - "SQL_ENGINE": For querying structured data in postgres (Properties, Employees, Payroll, Tasks, Leads, Clients, Attendance, Vehicles, Logistics).
@@ -49,18 +82,26 @@ Available Tools:
 - "WHATSAPP", "EMAIL": Messaging alerts (Mocked in V9).
 
 Strict Guidelines:
-1. MANDATORY Execution Plan format: Return a list of sequential steps with parameters.
-2. Sensitive Action Detection: Flag the plan as "sensitiveAction: true" if it involves operations with financial impact (salaries review, terminating staff, payroll, sending reminders to high value clients).
-3. Tool mapping: Ensure target parameters match what the tool needs. For SQL_ENGINE specify "operation" (fetch, aggregate, compare), "entities" (array of prisma models in lower case, e.g. property, task, user, employeeprofile), "filters" (json object for prisma where clause). For RAG_ENGINE specify "queryText" parameter.
+1. DAG Graph structure: Return a list of task nodes and dependency edges mapping topological execution order.
+2. Sensitive Action Detection: Flag the plan as "sensitiveAction: true" if it involves operations with financial impact.
+3. Tool mapping: Specify params matching what the tool needs. For SQL_ENGINE specify "operation" (fetch, aggregate, compare), "entities" (array of prisma models in lower case, e.g. property, task, user, employeeprofile), "filters" (json object for prisma where clause). For RAG_ENGINE specify "queryText" parameter.
 
 Return strictly JSON matching this schema:
 {
-  "steps": [
+  "nodes": [
     {
-      "step": 1,
+      "id": "node_id_1",
+      "type": "COUNT | LIST | AUDIT | ...",
       "description": "Step description",
       "tool": "SQL_ENGINE | RAG_ENGINE | CRM_API | ERP_API | CALENDAR | MEMORY_ENGINE | WORKFLOW_ENGINE",
       "params": { ... }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_id_1",
+      "source": "node_id_1",
+      "target": "node_id_2"
     }
   ],
   "sensitiveAction": true | false,
@@ -83,7 +124,24 @@ Do not write markdown backticks or wrappers. Return raw JSON only.`;
       const jsonEnd = cleanJson.lastIndexOf('}');
       if (jsonStart !== -1 && jsonEnd !== -1) {
         const parsed = JSON.parse(cleanJson.substring(jsonStart, jsonEnd + 1)) as ExecutionPlan;
-        this.logger.log(`Execution plan generated successfully with ${parsed.steps.length} steps. sensitiveAction=${parsed.sensitiveAction}`);
+        
+        // Normalize nodes, prevent duplication, and limit to max 5 nodes
+        const seenSignatures = new Set<string>();
+        const uniqueNodes: PlanNode[] = [];
+        for (const node of parsed.nodes || []) {
+          if (uniqueNodes.length >= 5) break;
+          
+          // Generate unique step representation signature to identify duplicates
+          const normalizedParams = this.normalizePlanStepParams(node.params || {});
+          const sig = `${node.tool}_${JSON.stringify(normalizedParams)}`;
+          if (seenSignatures.has(sig)) continue;
+          seenSignatures.add(sig);
+          
+          uniqueNodes.push(node);
+        }
+        parsed.nodes = uniqueNodes;
+
+        this.logger.log(`Execution plan generated successfully with ${parsed.nodes.length} nodes and ${parsed.edges?.length || 0} edges. sensitiveAction=${parsed.sensitiveAction}`);
         return parsed;
       }
     } catch (err) {
@@ -97,14 +155,16 @@ Do not write markdown backticks or wrappers. Return raw JSON only.`;
       : { operation: 'fetch', entities: [this.deduceEntityFromQuery(query)], filters: {} };
 
     return {
-      steps: [
+      nodes: [
         {
-          step: 1,
+          id: 'step_1',
+          type: 'DIRECT_RETRIEVAL',
           description: `Direct retrieval for user query`,
           tool,
           params
         }
       ],
+      edges: [],
       sensitiveAction: query.toLowerCase().includes('salary') || query.toLowerCase().includes('terminate') || query.toLowerCase().includes('payroll'),
       requiredRoles: []
     };

@@ -19,6 +19,7 @@ import { DatabasePipelineService } from './database-pipeline.service';
 import { ResultFusionService } from './result-fusion.service';
 import { LearningMemoryService } from './learning-memory.service';
 import { ObservabilityService } from './observability.service';
+import { MultiTierRouterService } from './multi-tier-router.service';
 
 // RAG Services
 import { AiRagService } from './rag/ai-rag.service';
@@ -47,6 +48,7 @@ import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
     ResultFusionService,
     LearningMemoryService,
     ObservabilityService,
+    MultiTierRouterService,
     AiRagService,
     AiRagIngestionService,
     AiRagRetrievalService,
@@ -69,6 +71,7 @@ import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
     ResultFusionService,
     LearningMemoryService,
     ObservabilityService,
+    MultiTierRouterService,
     AiRagService,
     AiRagIngestionService,
     AiRagRetrievalService,
