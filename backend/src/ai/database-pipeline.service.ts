@@ -17,6 +17,8 @@ export interface DatabasePipelineResult {
 }
 
 // Layer 1: Schema Registry
+/*
+// ROLLBACK BACKUP: ORIGINAL SCHEMA_REGISTRY
 export const SCHEMA_REGISTRY = {
   tables: {
     property: {
@@ -105,6 +107,225 @@ export const SCHEMA_REGISTRY = {
         type: 'BUYER, SELLER, INVESTOR',
         stage: 'INQUIRY, VIEWING, OFFER, CLOSED',
         budget: 'target investment/rental budget (AED)'
+      }
+    }
+  }
+};
+*/
+
+export const SCHEMA_REGISTRY = {
+  tables: {
+    property: {
+      name: 'Property',
+      description: 'Real estate listings for rent or sale.',
+      columns: {
+        id: 'uuid primary key',
+        title: 'title or name of listing',
+        type: 'APARTMENT, VILLA, COMMERCIAL, PLOT',
+        status: 'DRAFT, PUBLISHED, SOLD, RENTED, AVAILABLE',
+        listingType: 'RENT, SALE',
+        price: 'asking price or rental amount (AED)',
+        location: 'geographical location (e.g. Dubai Marina, JVC, Downtown)',
+        bedrooms: 'number of bedrooms',
+        bathrooms: 'number of bathrooms',
+        areaSqft: 'total area in square feet',
+        ownerId: 'link to landlord/owner profile'
+      }
+    },
+    employeeprofile: {
+      name: 'EmployeeProfile',
+      description: 'Internal staff members and designations.',
+      columns: {
+        id: 'uuid primary key',
+        userId: 'associated user account link',
+        department: 'department (e.g., Sales, HR, Finance, Logistics)',
+        designation: 'job title (e.g. agent, manager, COO)',
+        salary: 'monthly base salary',
+        status: 'ACTIVE, ON_LEAVE, TERMINATED'
+      }
+    },
+    attendance: {
+      name: 'Attendance',
+      description: 'Daily check-in logs for employee attendance.',
+      columns: {
+        id: 'uuid primary key',
+        dateStr: 'format YYYY-MM-DD',
+        checkIn: 'timestamp',
+        checkOut: 'timestamp',
+        status: 'PRESENT, LATE, ABSENT, ON_LEAVE',
+        employeeProfileId: 'link to employee profile'
+      }
+    },
+    payroll: {
+      name: 'Payroll',
+      description: 'Monthly payroll salary batches disbursed to employees.',
+      columns: {
+        id: 'uuid primary key',
+        month: 'format YYYY-MM',
+        baseSalary: 'base salary amount',
+        allowances: 'bonus/allowance amount',
+        deductions: 'deducted amount',
+        netSalary: 'net payout',
+        status: 'PAID, UNPAID',
+        employeeProfileId: 'link to employee profile'
+      }
+    },
+    task: {
+      name: 'Task',
+      description: 'Task checklists and todos assigned to staff.',
+      columns: {
+        id: 'uuid primary key',
+        title: 'title of the task',
+        status: 'PENDING, IN_PROGRESS, COMPLETED',
+        dueDate: 'timestamp when task is due',
+        assignedToId: 'link to user assigned'
+      }
+    },
+    lead: {
+      name: 'Lead',
+      description: 'Open sales leads and prospects.',
+      columns: {
+        id: 'uuid primary key',
+        name: 'lead name',
+        status: 'NEW, CONTACTED, ENGAGED, DISQUALIFIED, CLOSED',
+        score: 'lead score index',
+        assignedToId: 'user assigned to broker this lead'
+      }
+    },
+    client: {
+      name: 'Client',
+      description: 'CRM Clients profiles representing buyers/tenants/investors.',
+      columns: {
+        id: 'uuid primary key',
+        name: 'client name',
+        type: 'BUYER, SELLER, INVESTOR',
+        stage: 'INQUIRY, VIEWING, OFFER, CLOSED',
+        budget: 'target investment/rental budget (AED)'
+      }
+    },
+    leaverequest: {
+      name: 'LeaveRequest',
+      description: 'Employee leave requests and vacation status.',
+      columns: {
+        id: 'uuid primary key',
+        startDate: 'start date of leave (timestamp)',
+        endDate: 'end date of leave (timestamp)',
+        type: 'leave type (SICK, CASUAL, ANNUAL, UNPAID)',
+        status: 'approval status (PENDING, APPROVED, REJECTED)',
+        reason: 'reason explanation for leave Request',
+        employeeProfileId: 'link to employee profile'
+      }
+    },
+    vehicle: {
+      name: 'Vehicle',
+      description: 'Fleet vehicles for logistics or client property viewings.',
+      columns: {
+        id: 'uuid primary key',
+        modelName: 'model or brand name of vehicle',
+        plateNumber: 'unique vehicle plate registration number',
+        status: 'status (ACTIVE, MAINTENANCE, OUT_OF_SERVICE)'
+      }
+    },
+    vehiclemaintenance: {
+      name: 'VehicleMaintenance',
+      description: 'Maintenance and repair logs for fleet vehicles.',
+      columns: {
+        id: 'uuid primary key',
+        description: 'details of maintenance/repair work',
+        cost: 'total maintenance cost (AED)',
+        status: 'status of request (PENDING, COMPLETED, CANCELLED)',
+        requestDate: 'date requested (timestamp)',
+        vehicleId: 'link to vehicle'
+      }
+    },
+    logisticsschedule: {
+      name: 'LogisticsSchedule',
+      description: 'Logistics pickup and drop transport schedules.',
+      columns: {
+        id: 'uuid primary key',
+        visitDate: 'date/time of logistics trip (timestamp)',
+        pickupLocation: 'pickup address location description',
+        dropLocation: 'destination address location description',
+        status: 'trip status (SCHEDULED, IN_TRANSIT, COMPLETED, CANCELLED)',
+        driverId: 'link to driver profile',
+        vehicleId: 'link to vehicle'
+      }
+    },
+    owner: {
+      name: 'Owner',
+      description: 'Property owners, landlords, or property sellers.',
+      columns: {
+        id: 'uuid primary key',
+        name: 'name of landlord or owner',
+        phone: 'phone contact number',
+        email: 'email address of owner',
+        status: 'status (ACTIVE, INACTIVE)',
+        kycVerified: 'boolean value indicating if KYC is verified'
+      }
+    },
+    clientviewing: {
+      name: 'ClientViewing',
+      description: 'Property viewing visits scheduled for potential clients.',
+      columns: {
+        id: 'uuid primary key',
+        viewingDate: 'date and time of viewing visit (timestamp)',
+        feedback: 'client feedback text comments',
+        status: 'status of viewing (SCHEDULED, COMPLETED, CANCELLED)',
+        clientId: 'link to client profile',
+        propertyId: 'link to property listing'
+      }
+    },
+    clientpropertyinterest: {
+      name: 'ClientPropertyInterest',
+      description: 'Mapping of clients who show specific interest in properties.',
+      columns: {
+        id: 'uuid primary key',
+        clientId: 'link to client profile',
+        propertyId: 'link to property listing'
+      }
+    },
+    leadactivity: {
+      name: 'LeadActivity',
+      description: 'Communication activities timeline log for a lead.',
+      columns: {
+        id: 'uuid primary key',
+        type: 'activity type (CALL, EMAIL, NOTES, STATUS_CHANGE)',
+        description: 'summary of what happened during activity',
+        activityDate: 'date of activity (timestamp)',
+        leadId: 'link to lead'
+      }
+    },
+    calendarevent: {
+      name: 'CalendarEvent',
+      description: 'Internal meetings, schedules, and events.',
+      columns: {
+        id: 'uuid primary key',
+        title: 'title of the meeting or event',
+        description: 'detailed description of meeting',
+        startTime: 'start time of meeting (timestamp)',
+        endTime: 'end time of meeting (timestamp)',
+        location: 'room name or address location description'
+      }
+    },
+    keytracker: {
+      name: 'KeyTracker',
+      description: 'Real estate physical keys tracking records.',
+      columns: {
+        id: 'uuid primary key',
+        keyTag: 'unique key tag reference (e.g. KEY-DHA-42)',
+        status: 'current status (IN_OFFICE, CHECKED_OUT, LOST)',
+        propertyId: 'link to property listing'
+      }
+    },
+    keycheckout: {
+      name: 'KeyCheckout',
+      description: 'Audit trails of checked out property keys by staff.',
+      columns: {
+        id: 'uuid primary key',
+        checkoutDate: 'date keys were checked out (timestamp)',
+        returnDate: 'date keys were returned (timestamp)',
+        keyId: 'link to key tracker record',
+        userId: 'link to user who checked out'
       }
     }
   }
@@ -259,6 +480,39 @@ export class DatabasePipelineService {
     }
     if (q.includes('client') || q.includes('buyer') || q.includes('investor') || q.includes('budget')) {
       entities.push('client');
+    }
+    if (q.includes('leave') || q.includes('chutti') || q.includes('vacation')) {
+      entities.push('leaverequest');
+    }
+    if (q.includes('vehicle') || q.includes('gari') || q.includes('car')) {
+      entities.push('vehicle');
+    }
+    if (q.includes('maintenance') || q.includes('repair') || q.includes('kharcha')) {
+      entities.push('vehiclemaintenance');
+    }
+    if (q.includes('logistics') || q.includes('delivery') || q.includes('route') || q.includes('schedule')) {
+      entities.push('logisticsschedule');
+    }
+    if (q.includes('owner') || q.includes('landlord') || q.includes('malik')) {
+      entities.push('owner');
+    }
+    if (q.includes('viewing') || q.includes('visit') || q.includes('dikhana')) {
+      entities.push('clientviewing');
+    }
+    if (q.includes('interest') || q.includes('like') || q.includes('pasand')) {
+      entities.push('clientpropertyinterest');
+    }
+    if (q.includes('activity') || q.includes('lead timeline')) {
+      entities.push('leadactivity');
+    }
+    if (q.includes('event') || q.includes('meeting') || q.includes('calendar')) {
+      entities.push('calendarevent');
+    }
+    if (q.includes('key') || q.includes('chabi')) {
+      entities.push('keytracker');
+    }
+    if (q.includes('checkout') || q.includes('return')) {
+      entities.push('keycheckout');
     }
 
     if (entities.length === 0) {
