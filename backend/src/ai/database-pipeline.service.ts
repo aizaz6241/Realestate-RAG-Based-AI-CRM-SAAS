@@ -780,6 +780,11 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
       };
     }
 
+    // Normalize custom operations to default fetch (except aggregate) to prevent crashes
+    if (optimized.operation !== 'aggregate') {
+      optimized.operation = 'fetch';
+    }
+
     // Optimization step
     if (!optimized.take) {
       optimized.take = 25; // Limit scan sizes
@@ -878,13 +883,30 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
       if (!modelKey) continue;
 
       const model = this.prisma[modelKey];
-      const whereClause = this.tenantIsolationService.injectTenantFilter(ent, cleanFilters, organizationId);
+      const rawWhereClause = this.tenantIsolationService.injectTenantFilter(ent, cleanFilters, organizationId);
 
       // Role boundaries injection
       if (userRole === 'AGENT') {
         if (['lead', 'task', 'client'].includes(ent.toLowerCase())) {
-          whereClause.assignedToId = userId;
+          rawWhereClause.assignedToId = userId;
         }
+      }
+
+      // Filter sanitization to prevent Prisma crashes on invalid schema properties (e.g. from raw planner custom operations)
+      const whereClause: any = {};
+      const schemaCols = SCHEMA_REGISTRY.tables[ent.toLowerCase()]?.columns;
+      if (schemaCols) {
+        const allowedKeys = [...Object.keys(schemaCols), 'organizationId', 'assignedToId', 'userId', 'OR', 'AND', 'NOT'];
+        // Also allow relations that we have defined includes for
+        const relKeys = ['owner', 'user', 'assignedTo', 'employeeProfile', 'vehicle', 'driver', 'client', 'property', 'key'];
+        const allAllowed = allowedKeys.concat(relKeys);
+        for (const k of Object.keys(rawWhereClause)) {
+          if (allAllowed.includes(k)) {
+            whereClause[k] = rawWhereClause[k];
+          }
+        }
+      } else {
+        Object.assign(whereClause, rawWhereClause);
       }
 
       try {
@@ -948,12 +970,58 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
         } else {
           // Default: Fetch rows
           let includeOptions: any = undefined;
-          if (ent.toLowerCase() === 'property') {
+          const entLower = ent.toLowerCase();
+          if (entLower === 'property') {
             includeOptions = { owner: { select: { name: true, phone: true } } };
-          } else if (ent.toLowerCase() === 'employeeprofile') {
+          } else if (entLower === 'employeeprofile') {
             includeOptions = { user: { select: { id: true, firstName: true, lastName: true, email: true, role: true } } };
-          } else if (ent.toLowerCase() === 'lead' || ent.toLowerCase() === 'task') {
+          } else if (entLower === 'lead' || entLower === 'task') {
             includeOptions = { assignedTo: { select: { firstName: true, lastName: true, email: true } } };
+          } else if (entLower === 'leaverequest') {
+            includeOptions = { employeeProfile: { include: { user: { select: { firstName: true, lastName: true, email: true } } } } };
+          } else if (entLower === 'vehiclemaintenance') {
+            includeOptions = { vehicle: { select: { modelName: true, plateNumber: true } } };
+          } else if (entLower === 'logisticsschedule') {
+            includeOptions = {
+              driver: { include: { employeeProfile: { include: { user: { select: { firstName: true, lastName: true } } } } } },
+              vehicle: { select: { modelName: true, plateNumber: true } }
+            };
+          } else if (entLower === 'clientviewing') {
+            includeOptions = {
+              client: { select: { name: true } },
+              property: { select: { title: true } }
+            };
+          } else if (entLower === 'clientpropertyinterest') {
+            includeOptions = {
+              client: { select: { name: true } },
+              property: { select: { title: true } }
+            };
+          } else if (entLower === 'leadactivity') {
+            includeOptions = { lead: { select: { name: true } } };
+          } else if (entLower === 'keytracker') {
+            includeOptions = { property: { select: { title: true } } };
+          } else if (entLower === 'keycheckout') {
+            includeOptions = {
+              key: { include: { property: { select: { title: true } } } },
+              user: { select: { firstName: true, lastName: true } }
+            };
+          } else if (entLower === 'employeedocument') {
+            includeOptions = { employeeProfile: { include: { user: { select: { firstName: true, lastName: true } } } } };
+          } else if (entLower === 'performancereview') {
+            includeOptions = {
+              employeeProfile: { include: { user: { select: { firstName: true, lastName: true } } } },
+              reviewedBy: { select: { firstName: true, lastName: true } }
+            };
+          } else if (entLower === 'propertypricehistory') {
+            includeOptions = { property: { select: { title: true } } };
+          } else if (entLower === 'ownerdocument') {
+            includeOptions = { owner: { select: { name: true } } };
+          } else if (entLower === 'ownercommunication') {
+            includeOptions = { owner: { select: { name: true } } };
+          } else if (entLower === 'clientcommunication') {
+            includeOptions = { client: { select: { name: true } } };
+          } else if (entLower === 'driverprofile') {
+            includeOptions = { employeeProfile: { include: { user: { select: { firstName: true, lastName: true } } } } };
           }
 
           let rows: any[] = [];

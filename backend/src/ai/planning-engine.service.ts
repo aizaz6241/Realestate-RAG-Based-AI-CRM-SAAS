@@ -84,7 +84,8 @@ Available Tools:
 Strict Guidelines:
 1. DAG Graph structure: Return a list of task nodes and dependency edges mapping topological execution order.
 2. Sensitive Action Detection: Flag the plan as "sensitiveAction: true" if it involves operations with financial impact.
-3. Tool mapping: Specify params matching what the tool needs. For SQL_ENGINE specify "operation" (fetch, aggregate, compare), "entities" (array of prisma models in lower case, e.g. property, task, user, employeeprofile), "filters" (json object for prisma where clause). For RAG_ENGINE specify "queryText" parameter.
+3. SINGLE DATABASE QUERY NODE (PUSH-DOWN DESIGN): Hamesha SQL database operations ke liye exactly ONE (1) SQL_ENGINE node generate karein. Banish creating separate LIST, JOIN, or FILTER nodes for PostgreSQL. All filters and sorting requirements must be pushed down directly inside the single node's "params.filters" object.
+4. Tool mapping: Specify params matching what the tool needs. For SQL_ENGINE hamesha specify "operation": "fetch" or "operation": "aggregate". Banish specifying custom operations like "join" or "filter". Specify "entities" (array of prisma models in lower case, e.g. "leaverequest", "employeeprofile", "property", "task") and "filters" (json object for prisma where clause). For RAG_ENGINE specify "queryText" parameter.
 
 Return strictly JSON matching this schema:
 {
