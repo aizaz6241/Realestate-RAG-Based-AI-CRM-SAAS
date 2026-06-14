@@ -247,7 +247,10 @@ export class AiLlmService {
     const openaiKey = this.getOpenAIKey();
 
     if (geminiKey && mode !== 'local_only') {
-      for (const model of ['gemini-embedding-001', 'gemini-embedding-2']) {
+      // Valid Gemini embedding models (in preference order):
+      // gemini-embedding-001 — 768-dim, fast
+      // text-embedding-004 — 768-dim, latest stable (replaces deprecated 'gemini-embedding-2')
+      for (const model of ['gemini-embedding-001', 'text-embedding-004']) {
         try {
           const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${geminiKey}`,
@@ -302,7 +305,9 @@ export class AiLlmService {
       }
     }
 
-    this.logger.error('Failed to generate embeddings via all configured (Local, Gemini, OpenAI) APIs.');
+    // All embedding APIs failed — return zero-vector with explicit warning
+    // Callers should check for all-zeros before writing to DB
+    this.logger.error('[Embedding CRITICAL] All configured embedding APIs (Local, Gemini, OpenAI) failed. Returning zero-vector. Any downstream DB writes should be skipped.');
     return new Array(3072).fill(0);
   }
 

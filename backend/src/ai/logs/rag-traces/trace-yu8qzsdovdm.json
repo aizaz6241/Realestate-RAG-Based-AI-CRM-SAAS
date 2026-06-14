@@ -1,0 +1,21 @@
+{
+  "traceId": "trace-yu8qzsdovdm",
+  "timestamp": "2026-06-12T03:29:46.824Z",
+  "query": "Who is the President of Mars?",
+  "status": "LLM_FALLBACK_INSUFFICIENT",
+  "latencyMs": 3278,
+  "confidenceScore": 0.54,
+  "retrievedChunks": [
+    {
+      "index": 1,
+      "chunkId": "2537a872-fd0e-4804-a550-640003beb984",
+      "documentId": "d5a8e7fc-a8ac-453a-8565-1a2bae986dd5",
+      "documentName": "DHA-Listing-Policy-Test-1781234964037.txt",
+      "rrfScore": 0.01639344262295082,
+      "rawSimilarityScore": 0,
+      "page": 1,
+      "paragraph": 1
+    }
+  ],
+  "responseAnswer": "Insufficient evidence found in retrieved documents."
+}

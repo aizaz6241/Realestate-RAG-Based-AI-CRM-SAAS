@@ -1,0 +1,45 @@
+{
+  "userQuestion": "Normalized Query: \"show properties in Dubai Marina\"",
+  "executionPlan": {
+    "nodes": [
+      {
+        "id": "node_1",
+        "type": "LIST",
+        "description": "Fetch properties in Dubai Marina",
+        "tool": "SQL_ENGINE",
+        "params": {
+          "operation": "fetch",
+          "entities": [
+            "property"
+          ],
+          "filters": {
+            "where": {
+              "region": "Dubai Marina"
+            }
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_1",
+        "source": "node_1",
+        "target": "node_2"
+      }
+    ],
+    "sensitiveAction": false,
+    "requiredRoles": [
+      "SUPER_ADMIN"
+    ]
+  },
+  "retrievedSources": {
+    "dbTables": [
+      "property"
+    ],
+    "documents": []
+  },
+  "finalResponse": "Based on the Grounded Evidence Context, the response to the query \"Normalized Query: 'show properties in Dubai Marina'\" is:\n\nThe properties in Dubai Marina include:\n\n* High-floor cozy 1-bedroom apartment overlooking the glamorous Yacht Marina harbor. [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n* Located near Metro. [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n* Price: 110,000 [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n* Location: Marina Heights, Dubai Marina, UAE [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n* Bedrooms: 1 [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n* Bathrooms: 2 [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n* Area Sqft: 950 [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n* Amenities:\n\t+ Marina View [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n\t+ Metro Access [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n\t+ Shared Gym [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n\t+ Shared Pool [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n\t+ Built-in Wardrobes [Doc: \"Dubai Marina Waterfront Apartment\", Page 1, Para 1]\n\nNote: The above response is based on the information provided in the Grounded Evidence Context, which includes a single property listing for a Dubai Marina Waterfront Apartment.",
+  "confidenceScore": 100,
+  "timestamp": "2026-06-13T15:41:15.195Z",
+  "organizationId": "47d28b09-b982-4c0c-966d-599f2f5408fe"
+}

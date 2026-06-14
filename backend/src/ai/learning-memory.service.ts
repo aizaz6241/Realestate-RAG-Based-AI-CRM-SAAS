@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiLlmService } from './ai-llm.service';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 
 export interface LearningInteraction {
@@ -20,14 +21,24 @@ export interface LearningInteraction {
 @Injectable()
 export class LearningMemoryService {
   private readonly logger = new Logger(LearningMemoryService.name);
-  private readonly logsDir = path.join(process.cwd(), 'src', 'ai', 'logs', 'learning-traces');
+  // Use DATA_DIR env var for production deployments (configurable). Never write to src/ in prod.
+  private readonly logsDir = path.join(
+    process.env.DATA_DIR || process.cwd(),
+    'ai-logs',
+    'learning-traces'
+  );
 
   constructor(
     private prisma: PrismaService,
     private llmService: AiLlmService
   ) {
-    if (!fs.existsSync(this.logsDir)) {
-      fs.mkdirSync(this.logsDir, { recursive: true });
+    // Use sync mkdir ONLY at startup — acceptable; production writes use async
+    try {
+      if (!fs.existsSync(this.logsDir)) {
+        fs.mkdirSync(this.logsDir, { recursive: true });
+      }
+    } catch (e) {
+      this.logger.warn(`Could not create learning traces dir: ${e.message}`);
     }
   }
 
@@ -37,10 +48,12 @@ export class LearningMemoryService {
     const filePath = path.join(this.logsDir, filename);
 
     try {
-      fs.writeFileSync(filePath, JSON.stringify({ ...log, organizationId }, null, 2));
+      // Fix: use async writeFile — sync blocks the NestJS event loop under load
+      await fsPromises.writeFile(filePath, JSON.stringify({ ...log, organizationId }, null, 2), 'utf-8');
       this.logger.log(`[Learning Engine] Saved interaction trace to ${filename}`);
     } catch (e) {
-      this.logger.error(`Failed to write learning trace: ${e.message}`);
+      // File write failure is non-fatal — log and continue
+      this.logger.warn(`[Learning Engine] Non-fatal: Failed to write learning trace: ${e.message}`);
     }
   }
 
@@ -61,13 +74,13 @@ Output these as single-sentence operational memory points.
 User Query: "${queryText}"
 Compiled Response:
 """
-${responseText}
+${responseText.slice(0, 2000)}
 """
 
 Instructions:
-1. Extract at most 2 critical organizational observations.
-2. Example memory: "Client budget threshold for Downtown Dubai listings is trending upwards of AED 4,000,000." or "Dubai Marina listings currently exhibit a 15% inventory shortage."
-3. Return ONLY a JSON array of strings. Do not include markdown code block tags.`;
+1. Extract at most 2 critical organizational observations from what is EXPLICITLY stated in the response. Do NOT infer or assume.
+2. Return ONLY a JSON array of strings. Do not include markdown code block tags.
+3. If no clear operational pattern exists, return an empty array: []`;
 
       const response = await this.llmService.callLLM(
         memoryExtractionPrompt,
@@ -96,6 +109,12 @@ Instructions:
 
           if (!exists) {
             const embedding = await this.llmService.generateEmbedding(bullet, organizationId, userId);
+            // Safety check: skip zero-vectors (embedding failure)
+            const isZeroVector = embedding.every(v => v === 0);
+            if (isZeroVector) {
+              this.logger.warn(`[Memory Engine] Skipping memory storage — zero-vector returned for: "${bullet.slice(0, 60)}"`);
+              continue;
+            }
             await this.prisma.aiMemoryVector.create({
               data: {
                 category: 'PATTERN:OPERATIONAL',

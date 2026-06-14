@@ -1,0 +1,41 @@
+{
+  "traceId": "trace-d8flivhr35j",
+  "timestamp": "2026-06-09T00:45:33.585Z",
+  "query": "What is the listing policy for DHA properties in 2026?",
+  "status": "SUCCESS",
+  "latencyMs": 10526,
+  "confidenceScore": 0.8325810928402151,
+  "retrievedChunks": [
+    {
+      "index": 1,
+      "chunkId": "e80b7cb7-6830-4df0-a0c7-ed39e31f01c6",
+      "documentId": "5e7b4af0-f971-40c7-adfc-19c89aa7d7cc",
+      "documentName": "DHA-Listing-Policy-Test-1780965685997.txt",
+      "rrfScore": 0.01639344262295082,
+      "rawSimilarityScore": 0.6065573770491803,
+      "page": 1,
+      "paragraph": 1
+    },
+    {
+      "index": 2,
+      "chunkId": "9d60b813-b29c-46d4-a7a7-a81d64ada52f",
+      "documentId": "1ad9460b-5ab6-4d11-b81c-cac6f191d9d2",
+      "documentName": "DHA-Listing-Policy-Test-1780965808956.txt",
+      "rrfScore": 0.016129032258064516,
+      "rawSimilarityScore": 0.6064516129032258,
+      "page": 1,
+      "paragraph": 1
+    },
+    {
+      "index": 3,
+      "chunkId": "c043d623-9207-407f-a748-520dd1ced8cd",
+      "documentId": "a681a355-7227-4927-a62f-7413dd1c8b4f",
+      "documentName": "DHA-Listing-Policy-Test-1780965905954.txt",
+      "rrfScore": 0.015873015873015872,
+      "rawSimilarityScore": 0.6063492063492063,
+      "page": 1,
+      "paragraph": 1
+    }
+  ],
+  "responseAnswer": "The listing policy for DHA properties in 2026 requires a signed form A from the landlord before advertising, which forms the baseline of listing compliance. [Doc: \"DHA-Listing-Policy-Test-1780965685997.txt\", Page 1, Para 1]\n\nAdditionally, commission rates for sales agents in 2026 are capped at 2.5% maximum of the deal size, unless approved by the Super Admin in writing. [Doc: \"DHA-Listing-Policy-Test-1780965685997.txt\", Page 1, Para 1]\n[Doc: \"DHA-Listing-Policy-Test-1780965808956.txt\", Page 1, Para 1]\n[Doc: \"DHA-Listing-Policy-Test-1780965905954.txt\", Page 1, Para 1]\n\nSubletting apartments without tenant registration with the organization portal is strictly prohibited and results in a fine of 5000 AED. [Doc: \"DHA-Listing-Policy-Test-1780965685997.txt\", Page 1, Para 1]\n[Doc: \"DHA-Listing-Policy-Test-1780965808956.txt\", Page 1, Para 1]\n[Doc: \"DHA-Listing-Policy-Test-1780965905954.txt\", Page 1, Para 1]"
+}

@@ -1,0 +1,31 @@
+{
+  "traceId": "trace-occgqojjyqc",
+  "timestamp": "2026-06-12T03:05:18.302Z",
+  "query": "What is the commission split rules for sales agents?",
+  "status": "SUCCESS",
+  "latencyMs": 6055,
+  "confidenceScore": 0.8086017979904813,
+  "retrievedChunks": [
+    {
+      "index": 1,
+      "chunkId": "2fb850b8-3f10-46b0-8232-74aa6c6da9ba",
+      "documentId": "4387fcfe-9575-4cb0-94dd-cd67b44a99b9",
+      "documentName": "DHA-Listing-Policy-Test-1781232148245.txt",
+      "rrfScore": 0.01639344262295082,
+      "rawSimilarityScore": 0.5465573770491804,
+      "page": 1,
+      "paragraph": 1
+    },
+    {
+      "index": 2,
+      "chunkId": "24f4b901-65db-4f38-80a9-128a11f627a2",
+      "documentId": "fa288bfd-f8dd-4c78-b76a-e608fdb4210a",
+      "documentName": "DHA-Listing-Policy-Test-1781233474811.txt",
+      "rrfScore": 0.016129032258064516,
+      "rawSimilarityScore": 0.5464516129032259,
+      "page": 1,
+      "paragraph": 1
+    }
+  ],
+  "responseAnswer": "Commission rates for sales agents in 2026 are capped at 2.5% maximum of the deal size, unless approved by the Super Admin in writing. [Doc: \"DHA-Listing-Policy-Test-1781232148245.txt\", Page 1, Para 1]\n[Doc: \"DHA-Listing-Policy-Test-1781233474811.txt\", Page 1, Para 1]"
+}

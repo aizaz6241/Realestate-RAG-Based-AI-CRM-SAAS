@@ -1,0 +1,18 @@
+{
+  "traceId": "trace-8lnoz7k2m5h",
+  "timestamp": "2026-06-13T14:54:24.663Z",
+  "query": "Properties count.",
+  "intent": "LOOKUP",
+  "classification": "DATABASE_ONLY",
+  "latencyMs": 18260,
+  "confidenceScore": 100,
+  "dbAccuracy": 100,
+  "ragAccuracy": 100,
+  "hallucinationRate": 0,
+  "fusionAccuracy": 100,
+  "tokenUsage": 144,
+  "cost": 0,
+  "securityViolations": [],
+  "workflowSuccess": true,
+  "organizationId": "47d28b09-b982-4c0c-966d-599f2f5408fe"
+}

@@ -1,0 +1,18 @@
+{
+  "traceId": "trace-test-1781234957058",
+  "timestamp": "2026-06-12T03:29:17.058Z",
+  "query": "Verify price of Marina Penthouse",
+  "intent": "LOOKUP",
+  "classification": "HYBRID",
+  "latencyMs": 150,
+  "confidenceScore": 81,
+  "dbAccuracy": 100,
+  "ragAccuracy": 100,
+  "hallucinationRate": 0,
+  "fusionAccuracy": 100,
+  "tokenUsage": 250,
+  "cost": 0.001,
+  "securityViolations": [],
+  "workflowSuccess": true,
+  "organizationId": "09d9cf2a-09ce-431f-a9d4-c340906a8ba7"
+}

@@ -25,19 +25,8 @@ import { ResponseSanitizer } from './response-sanitizer.service';
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private activeDrafts = new Map<string, any>();
-  private pendingApprovals = new Map<string, {
-    userId: string;
-    organizationId: string;
-    userRole: string;
-    history: { role: 'user' | 'model'; content: string }[];
-    userMessage: string;
-    sessionId?: string;
-    callPersona?: string;
-    executionGraph: any[];
-    toolCallIndex: number;
-    executedResults: any[];
-  }>();
+  private activeDrafts = new Map<string, any>(); // TODO Sprint 5: migrate to AiActiveDraft DB table
+  // pendingApprovals migrated to AiPendingApproval DB table (see approveAction and chat())
   
   constructor(
     private prisma: PrismaService,
@@ -99,9 +88,10 @@ export class AiService {
       });
 
       const TTL_MS: Record<string, number> = {
-        TEMPORARY_STATE: 5 * 60 * 1000, // 5 minutes
-        OBSERVATION: 60 * 60 * 1000,    // 1 hour
-        INSIGHT: 24 * 60 * 60 * 1000     // 24 hours
+        TEMPORARY_STATE: 5 * 60 * 1000,          // 5 minutes
+        OBSERVATION: 60 * 60 * 1000,              // 1 hour
+        INSIGHT: 24 * 60 * 60 * 1000,            // 24 hours
+        FACT: 90 * 24 * 60 * 60 * 1000           // 90 days (FACT memories expire to prevent org data staleness)
       };
 
       const getMemoryClassification = (content: string, category: string): string => {
@@ -132,13 +122,19 @@ export class AiService {
         const maxTtl = TTL_MS[classification];
 
         if (maxTtl && age > maxTtl) {
-          this.logger.log(`[Memory Hardening] Expired memory detected (${classification}, age: ${Math.round(age / 1000)}s). Evicting from DB.`);
+          this.logger.log(`[Memory Hardening] Expired memory evicted (${classification}, age: ${Math.round(age / (1000 * 60 * 60))}h): "${memory.content.slice(0, 60)}"`);
           this.prisma.aiMemoryVector.delete({ where: { id: memory.id } }).catch(() => null);
           continue;
         }
 
         // Only FACT memories participate in retrieval context to prevent state contamination
         if (classification === 'FACT') {
+          // Zero-vector guard: skip corrupted embeddings from API failures
+          const isZeroVector = !memory.embedding || memory.embedding.every((v: number) => v === 0);
+          if (isZeroVector) {
+            this.logger.warn(`[Memory Hardening] Skipping memory with zero-vector embedding (corrupted): id=${memory.id}`);
+            continue;
+          }
           const score = this.llmService.cosineSimilarity(queryVector, memory.embedding);
           processedMemories.push({
             id: memory.id,
@@ -868,17 +864,24 @@ Matches the language of the user's query. Keep it short, professional, and clear
       // Human Approval Gate for Sensitive Actions
       if (executionPlan.sensitiveAction) {
         const approvalId = 'appr-' + Math.random().toString(36).substring(2, 15);
-        this.pendingApprovals.set(approvalId, {
-          userId,
-          organizationId,
-          userRole,
-          history,
-          userMessage: gatewayOutput.query,
-          sessionId,
-          callPersona,
-          executionGraph: executionPlan.nodes,
-          toolCallIndex: 0,
-          executedResults: []
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30-minute expiry
+
+        // DB-backed approval storage (survives server restart + load balancer)
+        await this.prisma.aiPendingApproval.create({
+          data: {
+            id: approvalId,
+            organizationId,
+            userId,
+            userRole,
+            userMessage: gatewayOutput.query,
+            sessionId: sessionId || null,
+            callPersona: callPersona || null,
+            executionGraph: executionPlan.nodes as any,
+            toolCallIndex: 0,
+            executedResults: [] as any,
+            historyJson: history.slice(-12) as any,
+            expiresAt
+          }
         });
 
         this.zorvexGateway.broadcastToOrganization(organizationId, 'approval_required', {
@@ -1436,8 +1439,12 @@ ${fusionOutput.groundedEvidence}`;
   }
 
   async approveAction(approvalId: string, approved: boolean): Promise<any> {
-    const state = this.pendingApprovals.get(approvalId);
-    if (!state) {
+    // DB-backed lookup (works across server restarts and load balancer instances)
+    const dbState = await this.prisma.aiPendingApproval.findUnique({
+      where: { id: approvalId }
+    });
+
+    if (!dbState) {
       return {
         response: "The requested authorization request could not be found or has already been processed.",
         toolExecuted: null,
@@ -1446,7 +1453,19 @@ ${fusionOutput.groundedEvidence}`;
       };
     }
 
-    this.pendingApprovals.delete(approvalId);
+    // Check expiry
+    if (new Date() > new Date(dbState.expiresAt)) {
+      await this.prisma.aiPendingApproval.delete({ where: { id: approvalId } }).catch(() => null);
+      return {
+        response: "This authorization request has expired (30-minute timeout). Please re-initiate the operation.",
+        toolExecuted: null,
+        toolData: null,
+        citations: []
+      };
+    }
+
+    // Delete immediately to prevent double-execution
+    await this.prisma.aiPendingApproval.delete({ where: { id: approvalId } }).catch(() => null);
 
     if (!approved) {
       return {
@@ -1458,12 +1477,14 @@ ${fusionOutput.groundedEvidence}`;
     }
 
     try {
-      this.logger.log(`Resuming paused Zorvex v8 execution graph for approvalId: ${approvalId}`);
-      const { userId, organizationId, userRole, history, userMessage, sessionId, callPersona, executionGraph, toolCallIndex, executedResults } = state;
+      this.logger.log(`Resuming approved execution graph for approvalId: ${approvalId}`);
+      const { userId, organizationId, userRole, userMessage, sessionId, callPersona } = dbState;
+      const executionGraph = dbState.executionGraph as any[];
+      const history = dbState.historyJson as any[];
+      const executedResults: any[] = [];
 
-      for (let i = toolCallIndex; i < executionGraph.length; i++) {
+      for (let i = dbState.toolCallIndex; i < executionGraph.length; i++) {
         const toolCall = executionGraph[i];
-        
         this.logger.log(`Resuming and executing tool: ${toolCall.tool}`);
         const toolData = await this.dbToolsService.executeDatabaseTool(
           toolCall.tool,
@@ -1523,7 +1544,7 @@ ${fusionOutput.groundedEvidence}`;
         history,
         [], 
         executedResults,
-        callPersona,
+        callPersona ?? undefined,  // Prisma returns null, function expects string | undefined
         'ACTION_REQUEST',
         workspaceState
       );
@@ -1751,30 +1772,48 @@ Output only the follow-up suggestions.`;
       }
     }
 
-    // STEP 10 — KPI & BUSINESS GOAL ENGINE RESTRICTIONS
+    // STEP 10 — KPI & BUSINESS GOAL ENGINE (Per-Tenant Dynamic Goals)
     let kpiAlignmentText = '';
     if (!allSearchesEmpty && (intent === 'ANALYTICS_REQUEST' || intent === 'EXECUTIVE_REQUEST')) {
-      const businessGoals = {
-        salesTarget: "AED 10,000,000 / month",
-        leadConversionRate: "15%",
-        revenueTarget: "AED 2,000,000 / month",
-        inventoryGrowth: "50 new listings / month"
-      };
+      // Load per-tenant org config from DB, fallback to reasonable defaults if not configured
+      let orgGoals: any = {};
+      try {
+        const orgConfig = await this.prisma.organization.findUnique({
+          where: { id: organizationId },
+          select: { name: true }
+        });
+        // Derive dynamic baselines from actual DB data
+        const [totalLeads, convertedLeads, activeProperties] = await Promise.all([
+          this.prisma.lead.count({ where: { organizationId } }),
+          this.prisma.lead.count({ where: { organizationId, status: 'CONVERTED' } }),
+          this.prisma.property.count({ where: { organizationId, status: 'AVAILABLE' } })
+        ]);
+        const actualConversionRate = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
+        orgGoals = {
+          organization: orgConfig?.name || 'Your Organization',
+          leadConversionRate: `${actualConversionRate}% actual (${totalLeads} total leads, ${convertedLeads} converted)`,
+          activeInventory: `${activeProperties} available listings`,
+          note: 'Goals derived from live database metrics for this organization.'
+        };
+      } catch (e) {
+        this.logger.warn(`Could not load org goals from DB: ${e.message}`);
+        orgGoals = { note: 'Baseline metrics unavailable.' };
+      }
 
       const kpiEnginePrompt = `You are the Zorvex KPI & Business Goal Engine (Step 10).
-Analyze the current response and retrieved business data to evaluate how it aligns with organizational goals:
-- Sales Target: ${businessGoals.salesTarget}
-- Lead Conversion Goal: ${businessGoals.leadConversionRate}
-- Revenue Target: ${businessGoals.revenueTarget}
-- Inventory Goal: ${businessGoals.inventoryGrowth}
+Analyze the current response and retrieved business data to evaluate performance alignment:
+- Organization: ${orgGoals.organization}
+- Lead Conversion Rate: ${orgGoals.leadConversionRate}
+- Active Inventory: ${orgGoals.activeInventory}
+- Note: ${orgGoals.note}
 
 Instructions:
-1. If the current action or data aligns with a business goal, highlight this alignment.
-2. If it does not, suggest a proactive strategy or adjustment.
-3. Output the result in 1-2 concise sentences in a professional COO advisory tone.`;
+1. If the current action or data shows strong performance, acknowledge it.
+2. If it shows a gap, suggest a proactive and specific improvement.
+3. Output 1-2 concise sentences in a COO advisory tone. Do not fabricate statistics.`;
 
       try {
-        kpiAlignmentText = await this.llmService.callLLM(kpiEnginePrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false, organizationId, userId);
+        kpiAlignmentText = await this.llmService.callLLM(kpiEnginePrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData).slice(0, 2000)}`, [], false, organizationId, userId);
       } catch (e) {
         this.logger.warn(`KPI Engine alignment check failed: ${e.message}`);
       }
@@ -2147,6 +2186,19 @@ Output ONLY 'PASS' or 'RETRY: <discrepancies>' - do not add any other text.`;
     organizationId?: string,
     userId?: string
   ): Promise<string> {
+    // Fetch the actual caller's name dynamically — never hardcode
+    let callerName = '';
+    if (userId) {
+      try {
+        const caller = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { firstName: true }
+        });
+        if (caller?.firstName) callerName = caller.firstName;
+      } catch (e) { /* silent */ }
+    }
+    const nameGreeting = callerName ? `"${callerName} bhai", "${callerName} sahib"` : '"Ji bilkul", "Suno"';
+
     const systemPrompt = `You are a high-fidelity Text-to-Speech (TTS) summarization engine for a CRM ERP voice assistant call.
 The user asked: "${userQuery}"
 The system generated this comprehensive written response:
@@ -2156,10 +2208,10 @@ ${writtenResponse}
 
 Your task is to generate a natural, conversational, spoken-audio response (spokenResponse) that:
 1. Directly answers the user's query with concrete numbers, data, or states if present in the response (e.g. if employee count is 100, state "We have 100 employees in our system" instead of omitting the count).
-2. Summarizes ALL key points, categories, and actions mentioned in the written response (do NOT omit key sections like task management, client management, or logistics if they are mentioned). For example, if the user asks "how can you help me", list all the core modules/features in a concise summary rather than just stating one or two points.
+2. Summarizes ALL key points, categories, and actions mentioned in the written response (do NOT omit key sections like task management, client management, or logistics if they are mentioned).
 3. Keeps the response concise, engaging, and suitable for speech (around 3 to 4 sentences).
 4. Matches the language of the user's query (e.g., if the query is in English, write in English; if it is in Roman Urdu, write in Roman Urdu; if it is in Urdu script, write in Urdu script).
-5. Uses warm, professional human filler words (like "Aizaz bhai", "Ji bilkul", "Suno", "Acha", "Koi masla nahi") to sound natural on a phone call.
+5. Uses warm, professional human filler words (like ${nameGreeting}, "Ji bilkul", "Suno", "Acha", "Koi masla nahi") to sound natural on a phone call.
 6. Does NOT output any markdown, brackets, checkboxes, code, headings, or json wrapper. Return ONLY the plain text to be spoken.`;
 
     try {
@@ -2254,19 +2306,13 @@ JSON Structure:
       return summaryReport;
 
     } catch (err) {
-      this.logger.error(`Failed to synthesize AI meeting summary using LLM: ${err.message}. Falling back to default report.`);
-      const defaultReport = {
-        agenda: "General real estate operational synchronization.",
-        keyPoints: [
-          `Meeting call room active with ${captions.length} transcript logs.`,
-          "Participants discussed general inventory, HR schedules, or client pipelines."
-        ],
-        roleContributions: [
-          { role: "Participants", contribution: `Spoke in general terms. Logged ${captions.length} dialogue sentences.` }
-        ],
-        actionItems: [
-          "[STANDARD] Review past meetings transcript ledger logs"
-        ]
+      this.logger.error(`Failed to synthesize AI meeting summary using LLM: ${err.message}. Returning minimal fallback.`);
+      // Return honest empty state — NEVER fabricate a summary on failure
+      return {
+        agenda: "Meeting transcript processing encountered an error.",
+        keyPoints: [`Meeting had ${captions.length} voice transcript entries. Summary could not be generated automatically.`],
+        roleContributions: [],
+        actionItems: ["[STANDARD] Manually review the meeting transcript and document key action items."]
       };
     }
   }
@@ -2420,20 +2466,38 @@ JSON Structure:
           });
         }
 
-        result.opportunities = [
-          {
-            title: "Dubai Marina Growth Trend",
-            description: "Marina locations are showing a 15% increase in buyer conversion trends.",
+        // Opportunities — derived from real data, not hardcoded statistics
+        const marinaProperties = await this.prisma.property.count({
+          where: { organizationId, status: 'AVAILABLE', location: { contains: 'Marina', mode: 'insensitive' } }
+        });
+        const highBudgetClients = await this.prisma.client.count({
+          where: { organizationId, budget: { gte: 2000000 } }
+        });
+
+        if (marinaProperties > 0) {
+          result.opportunities.push({
+            title: "Dubai Marina Active Listings",
+            description: `There are ${marinaProperties} available properties in Dubai Marina. These are prime listings with strong buyer demand.`,
             actionText: "Dubai Marina Inventory",
             actionCommand: "Search properties in Dubai Marina"
-          },
-          {
+          });
+        } else {
+          result.opportunities.push({
+            title: "Expand Dubai Marina Inventory",
+            description: "No available Marina listings found. Consider adding new Marina properties to capture buyer interest in this premium zone.",
+            actionText: "View All Properties",
+            actionCommand: "Show all available properties"
+          });
+        }
+
+        if (highBudgetClients > 0) {
+          result.opportunities.push({
             title: "High-Budget Buyer Matching",
-            description: "Match active client preferences exceeding $2M budget with premium listings.",
+            description: `${highBudgetClients} clients in the pipeline have a budget exceeding AED 2M. Match them with premium available listings to accelerate conversion.`,
             actionText: "Check Matches",
             actionCommand: "Search clients with budget greater than 2000000"
-          }
-        ];
+          });
+        }
 
         result.actions = [
           { label: "Redistribute Task Load", command: "Redistribute workload among agents", style: "primary" },
@@ -2660,13 +2724,27 @@ JSON Structure:
           });
         }
 
-        result.risks = [
-          {
+        // Risk: derived from actual vehicle maintenance records, not hardcoded
+        let vehicleMaintenanceCount = 0;
+        try {
+          vehicleMaintenanceCount = await this.prisma.vehicleMaintenance.count({
+            where: { vehicle: { organizationId }, status: { in: ['PENDING', 'IN_PROGRESS'] } }
+          });
+        } catch (e) { /* vehicleMaintenance model may not exist in all orgs */ }
+
+        if (vehicleMaintenanceCount > 0) {
+          result.risks.push({
             level: "MEDIUM",
-            title: "Logistics Maintenance Cost Spike",
-            description: "Fleet logistics vehicle maintenance bills are up by 25% this quarter."
-          }
-        ];
+            title: "Open Vehicle Maintenance Requests",
+            description: `${vehicleMaintenanceCount} vehicle maintenance job(s) are currently open or in-progress. Review fleet status to prevent operational delays.`
+          });
+        } else {
+          result.risks.push({
+            level: "LOW",
+            title: "Fleet Maintenance Clear",
+            description: "No pending vehicle maintenance requests found. Fleet is operationally ready."
+          });
+        }
 
         result.opportunities = [
           {

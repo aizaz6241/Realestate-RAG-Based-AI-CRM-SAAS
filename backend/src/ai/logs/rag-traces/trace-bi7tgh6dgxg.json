@@ -1,0 +1,21 @@
+{
+  "traceId": "trace-bi7tgh6dgxg",
+  "timestamp": "2026-06-12T03:29:43.545Z",
+  "query": "What is the listing policy for DHA properties in 2026?",
+  "status": "SUCCESS",
+  "latencyMs": 4233,
+  "confidenceScore": 0.54,
+  "retrievedChunks": [
+    {
+      "index": 1,
+      "chunkId": "2537a872-fd0e-4804-a550-640003beb984",
+      "documentId": "d5a8e7fc-a8ac-453a-8565-1a2bae986dd5",
+      "documentName": "DHA-Listing-Policy-Test-1781234964037.txt",
+      "rrfScore": 0.01639344262295082,
+      "rawSimilarityScore": 0,
+      "page": 1,
+      "paragraph": 1
+    }
+  ],
+  "responseAnswer": "The listing policy for DHA properties in 2026 requires a signed form A from the landlord before advertising. This forms the baseline of listing compliance. [Doc: \"DHA-Listing-Policy-Test-1781234964037.txt\", Page 1, Para 1]."
+}

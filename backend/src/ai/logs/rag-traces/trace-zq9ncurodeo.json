@@ -1,0 +1,41 @@
+{
+  "traceId": "trace-zq9ncurodeo",
+  "timestamp": "2026-06-09T00:45:54.981Z",
+  "query": "How to bake a chocolate cake with cherries?",
+  "status": "LLM_FALLBACK_INSUFFICIENT",
+  "latencyMs": 4727,
+  "confidenceScore": 0.592581092840215,
+  "retrievedChunks": [
+    {
+      "index": 1,
+      "chunkId": "e80b7cb7-6830-4df0-a0c7-ed39e31f01c6",
+      "documentId": "5e7b4af0-f971-40c7-adfc-19c89aa7d7cc",
+      "documentName": "DHA-Listing-Policy-Test-1780965685997.txt",
+      "rrfScore": 0.01639344262295082,
+      "rawSimilarityScore": 0.006557377049180329,
+      "page": 1,
+      "paragraph": 1
+    },
+    {
+      "index": 2,
+      "chunkId": "9d60b813-b29c-46d4-a7a7-a81d64ada52f",
+      "documentId": "1ad9460b-5ab6-4d11-b81c-cac6f191d9d2",
+      "documentName": "DHA-Listing-Policy-Test-1780965808956.txt",
+      "rrfScore": 0.016129032258064516,
+      "rawSimilarityScore": 0.0064516129032258064,
+      "page": 1,
+      "paragraph": 1
+    },
+    {
+      "index": 3,
+      "chunkId": "c043d623-9207-407f-a748-520dd1ced8cd",
+      "documentId": "a681a355-7227-4927-a62f-7413dd1c8b4f",
+      "documentName": "DHA-Listing-Policy-Test-1780965905954.txt",
+      "rrfScore": 0.015873015873015872,
+      "rawSimilarityScore": 0.006349206349206349,
+      "page": 1,
+      "paragraph": 1
+    }
+  ],
+  "responseAnswer": "Insufficient evidence found in retrieved documents."
+}

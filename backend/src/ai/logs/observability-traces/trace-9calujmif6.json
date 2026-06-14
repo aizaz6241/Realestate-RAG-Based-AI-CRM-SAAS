@@ -1,0 +1,18 @@
+{
+  "traceId": "trace-9calujmif6",
+  "timestamp": "2026-06-12T23:17:41.886Z",
+  "query": "Normalized Query: \"show properties in Dubai Marina\"",
+  "intent": "LOOKUP",
+  "classification": "DATABASE_ONLY",
+  "latencyMs": 10960,
+  "confidenceScore": 84,
+  "dbAccuracy": 100,
+  "ragAccuracy": 0,
+  "hallucinationRate": 0,
+  "fusionAccuracy": 0,
+  "tokenUsage": 0,
+  "cost": 0,
+  "securityViolations": [],
+  "workflowSuccess": false,
+  "organizationId": "36660313-bbc2-4caa-98b7-636eeb78a323"
+}

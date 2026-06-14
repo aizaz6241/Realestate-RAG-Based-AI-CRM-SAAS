@@ -1,0 +1,36 @@
+{
+  "userQuestion": "how many employees do we have",
+  "executionPlan": {
+    "nodes": [
+      {
+        "id": "employee_count",
+        "type": "COUNT",
+        "description": "Deterministic Count of Employees",
+        "tool": "SQL_ENGINE",
+        "params": {
+          "operation": "aggregate",
+          "entities": [
+            "employeeprofile"
+          ],
+          "metrics": [
+            "count"
+          ],
+          "filters": {}
+        }
+      }
+    ],
+    "edges": [],
+    "sensitiveAction": false,
+    "requiredRoles": []
+  },
+  "retrievedSources": {
+    "dbTables": [
+      "employeeprofile"
+    ],
+    "documents": []
+  },
+  "finalResponse": "According to the LIVE_DATABASE records, we have a total of 5 employees. [Doc: \"LIVE_DATABASE\", Page 1, Para 1]\n\n[Table: \"employeeprofile\"] also confirms this count. [Table: \"employeeprofile\"]",
+  "confidenceScore": 100,
+  "timestamp": "2026-06-14T00:33:00.229Z",
+  "organizationId": "test-tenant-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+}

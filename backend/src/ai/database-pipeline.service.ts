@@ -856,12 +856,17 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
     const resolveDateStrings = (obj: any): any => {
       if (obj === null || obj === undefined) return obj;
       if (typeof obj === 'string') {
+        // Handle full ISO 8601 datetime strings: "2025-01-15T00:00:00.000Z"
         const isoDateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
         if (isoDateRegex.test(obj)) {
           const date = new Date(obj);
-          if (!isNaN(date.getTime())) {
-            return date;
-          }
+          if (!isNaN(date.getTime())) return date;
+        }
+        // Handle plain date strings: "2025-01-15" (LLM planner often returns this format)
+        const plainDateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (plainDateRegex.test(obj)) {
+          const date = new Date(obj + 'T00:00:00.000Z');
+          if (!isNaN(date.getTime())) return date;
         }
         return obj;
       }
@@ -1031,9 +1036,11 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
               const searchStr = (cleanFilters.location || cleanFilters.name || cleanFilters.firstName);
               if (searchStr && typeof searchStr === 'string') {
                 try {
+                  // Stage 4: full-table scan capped at 500 rows to prevent memory overload
                   const allRecords = await model.findMany({
                     where: this.tenantIsolationService.injectTenantFilter(ent, {}, organizationId),
-                    include: includeOptions
+                    include: includeOptions,
+                    take: 500  // Safety cap — avoids full table scan on large datasets
                   });
                   const cleanSearch = searchStr.toLowerCase().trim();
                   rows = allRecords.filter((rec: any) => {
@@ -1090,6 +1097,10 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
           }
         }
       } catch (err) {
+        // Re-throw ForbiddenException — must not swallow auth violations as empty results
+        if (err?.constructor?.name === 'ForbiddenException' || err?.status === 403) {
+          throw err;
+        }
         this.logger.error(`Postgres execution error on model ${modelKey}: ${err.message}`);
       }
     }

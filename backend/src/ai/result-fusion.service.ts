@@ -66,11 +66,11 @@ export class ResultFusionService {
       const crossValidationPrompt = `You are the Zorvex AI V9 Cross Validation Engine.
 Analyze the retrieved structured database records and the unstructured document chunks for any factual contradictions or inconsistencies.
 
-Live Database Records (PRIORITY 1):
-${JSON.stringify(dbRows, null, 2)}
+Live Database Records (PRIORITY 1 — showing first 50 rows max):
+${JSON.stringify(dbRows.slice(0, 50), null, 2)}
 
-Retrieved Documents Context (PRIORITY 2):
-${JSON.stringify(docChunks, null, 2)}
+Retrieved Documents Context (PRIORITY 2 — showing first 10 chunks max):
+${JSON.stringify(docChunks.slice(0, 10), null, 2)}
 
 Instructions:
 1. Detect if any metric, number, name, or policy contradicts.
@@ -107,8 +107,11 @@ Do not write markdown backticks. Return raw JSON only.`;
     }
 
     // 2. Confidence Engine: Calculate aggregate confidence score using multi-dimensional formula
-    const dbConf = input.dbResult?.confidenceScore ?? 0;
-    const docConf = (input.docResult?.confidenceScore ?? 0) * 100;
+    const dbConf = input.dbResult?.confidenceScore ?? 0; // already 0-100 from pipeline
+    // Fix: docResult.confidenceScore may arrive as 0-1 (vector similarity) or 0-100.
+    // Normalize to 0-100 safely: if value <= 1 treat as fraction, else treat as already 0-100.
+    const rawDocConf = input.docResult?.confidenceScore ?? 0;
+    const docConf = rawDocConf <= 1 ? rawDocConf * 100 : rawDocConf;
     const consistencyScore = isConsistent ? 100 : 50;
 
     // Dimension 1: queryMatchScore
@@ -189,7 +192,13 @@ Do not write markdown backticks. Return raw JSON only.`;
       ? memories.map((m, i) => `[Memory-${i + 1}]: ${m.content}`).join('\n')
       : 'No relevant past memory patterns found.';
 
-    const directives = this.evidenceAuthorityEngine.generateAuthorityDirectives(query, dbRows, input.dbResult?.tablesUsed || []);
+    // Wrap EvidenceAuthorityEngine in try-catch so a failure here doesn't kill fusion output
+    let directives = '';
+    try {
+      directives = this.evidenceAuthorityEngine.generateAuthorityDirectives(query, dbRows, input.dbResult?.tablesUsed || []);
+    } catch (e) {
+      this.logger.warn(`[Evidence Authority] Failed to generate directives: ${e.message}`);
+    }
 
     const groundedEvidence = `
 === STRUCTURED GROUNDED EVIDENCE ===

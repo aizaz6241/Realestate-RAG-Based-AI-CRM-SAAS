@@ -1,0 +1,33 @@
+{
+  "userQuestion": "How many employees do we have?",
+  "executionPlan": {
+    "steps": [
+      {
+        "step": 1,
+        "description": "Fetch employee data from database",
+        "tool": "SQL_ENGINE",
+        "params": {
+          "operation": "fetch",
+          "entities": [
+            "employee"
+          ],
+          "filters": {}
+        }
+      }
+    ],
+    "sensitiveAction": false,
+    "requiredRoles": [
+      "SUPER_ADMIN"
+    ]
+  },
+  "retrievedSources": {
+    "dbTables": [
+      "employeeprofile"
+    ],
+    "documents": []
+  },
+  "finalResponse": "The number of employees is 8. [Doc: \"Database Records\", Page 1, Para 1]",
+  "confidenceScore": 100,
+  "timestamp": "2026-06-13T14:54:06.386Z",
+  "organizationId": "47d28b09-b982-4c0c-966d-599f2f5408fe"
+}

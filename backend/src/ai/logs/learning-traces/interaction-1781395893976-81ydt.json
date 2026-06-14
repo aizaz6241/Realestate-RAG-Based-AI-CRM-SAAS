@@ -1,0 +1,39 @@
+{
+  "userQuestion": "how many employees do we have",
+  "executionPlan": {
+    "nodes": [
+      {
+        "id": "node_1",
+        "type": "LIST",
+        "description": "Get employee count",
+        "tool": "SQL_ENGINE",
+        "params": {
+          "operation": "fetch",
+          "entities": [
+            "employee"
+          ],
+          "filters": {}
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_1",
+        "source": "node_1",
+        "target": "node_1"
+      }
+    ],
+    "sensitiveAction": false,
+    "requiredRoles": []
+  },
+  "retrievedSources": {
+    "dbTables": [
+      "employeeprofile"
+    ],
+    "documents": []
+  },
+  "finalResponse": "According to the LIVE_DATABASE records, there are 5 employees in the system. [Doc: \"Employee Profile Database\", Page 1, Para 1]\n\n[Table: \"Employee Profile Table\"]",
+  "confidenceScore": 97,
+  "timestamp": "2026-06-14T00:11:33.975Z",
+  "organizationId": "test-tenant-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+}

@@ -1,0 +1,21 @@
+{
+  "traceId": "trace-p4h2eu98ky",
+  "timestamp": "2026-06-12T02:43:03.608Z",
+  "query": "How to bake a chocolate cake with cherries?",
+  "status": "LLM_FALLBACK_INSUFFICIENT",
+  "latencyMs": 3413,
+  "confidenceScore": 0.54,
+  "retrievedChunks": [
+    {
+      "index": 1,
+      "chunkId": "2fb850b8-3f10-46b0-8232-74aa6c6da9ba",
+      "documentId": "4387fcfe-9575-4cb0-94dd-cd67b44a99b9",
+      "documentName": "DHA-Listing-Policy-Test-1781232148245.txt",
+      "rrfScore": 0.01639344262295082,
+      "rawSimilarityScore": 0,
+      "page": 1,
+      "paragraph": 1
+    }
+  ],
+  "responseAnswer": "Insufficient evidence found in retrieved documents."
+}

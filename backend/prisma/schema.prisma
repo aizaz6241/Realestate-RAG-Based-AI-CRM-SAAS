@@ -58,6 +58,8 @@ model Organization {
   // SaaS owner modules
   subscription         Subscription?
   apiUsageLogs         ApiUsageLog[]
+  aiPendingApprovals   AiPendingApproval[]
+  aiActiveDrafts       AiActiveDraft[]
 }
 
 model User {
@@ -806,5 +808,36 @@ model ApiUsageLog {
   createdAt      DateTime @default(now())
 }
 
+// -----------------------------------------------------------------------------
+// AI Pending Approvals & Active Drafts (DB-backed to survive server restarts)
+// -----------------------------------------------------------------------------
 
+model AiPendingApproval {
+  id              String   @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId          String
+  userRole        String
+  userMessage     String   @db.Text
+  sessionId       String?
+  callPersona     String?
+  executionGraph  Json
+  toolCallIndex   Int      @default(0)
+  executedResults Json     @default("[]")
+  historyJson     Json     @default("[]")
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+}
+
+model AiActiveDraft {
+  id              String   @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId          String
+  draftType       String
+  draftData       Json
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
 

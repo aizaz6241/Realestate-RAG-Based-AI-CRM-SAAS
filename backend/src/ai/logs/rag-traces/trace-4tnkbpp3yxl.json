@@ -1,0 +1,21 @@
+{
+  "traceId": "trace-4tnkbpp3yxl",
+  "timestamp": "2026-06-12T02:42:43.856Z",
+  "query": "What are the commission split rates for sales agents in DHA?",
+  "status": "SUCCESS",
+  "latencyMs": 9446,
+  "confidenceScore": 0.54,
+  "retrievedChunks": [
+    {
+      "index": 1,
+      "chunkId": "2fb850b8-3f10-46b0-8232-74aa6c6da9ba",
+      "documentId": "4387fcfe-9575-4cb0-94dd-cd67b44a99b9",
+      "documentName": "DHA-Listing-Policy-Test-1781232148245.txt",
+      "rrfScore": 0.01639344262295082,
+      "rawSimilarityScore": 0,
+      "page": 1,
+      "paragraph": 1
+    }
+  ],
+  "responseAnswer": "The commission split rate for sales agents in DHA is capped at 2.5% maximum of the deal size, unless approved by the Super Admin in writing. [Doc: \"DHA-Listing-Policy-Test-1781232148245.txt\", Page 1, Para 1]."
+}

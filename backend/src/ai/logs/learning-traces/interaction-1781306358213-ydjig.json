@@ -1,0 +1,33 @@
+{
+  "userQuestion": "Normalized Query: \"How many properties do we have?\"",
+  "executionPlan": {
+    "steps": [
+      {
+        "step": 1,
+        "description": "Fetch properties from database",
+        "tool": "SQL_ENGINE",
+        "params": {
+          "operation": "fetch",
+          "entities": [
+            "property"
+          ],
+          "filters": {}
+        }
+      }
+    ],
+    "sensitiveAction": false,
+    "requiredRoles": [
+      "SUPER_ADMIN"
+    ]
+  },
+  "retrievedSources": {
+    "dbTables": [
+      "property"
+    ],
+    "documents": []
+  },
+  "finalResponse": "Based on the Grounded Evidence Context, the response to the query \"How many properties do we have?\" is:\n\nWe have 4 properties.\n\n[Doc: \"Database Records\", Page 1, Para 1]\n\nNote: This response is based on the \"_count\" field in the Database Records, which indicates that there are 4 properties in the database.",
+  "confidenceScore": 100,
+  "timestamp": "2026-06-12T23:19:18.213Z",
+  "organizationId": "36660313-bbc2-4caa-98b7-636eeb78a323"
+}

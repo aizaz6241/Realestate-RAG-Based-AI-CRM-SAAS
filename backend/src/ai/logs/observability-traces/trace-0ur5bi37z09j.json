@@ -1,0 +1,18 @@
+{
+  "traceId": "trace-0ur5bi37z09j",
+  "timestamp": "2026-06-12T23:17:20.677Z",
+  "query": "How many employees do we have?",
+  "intent": "LOOKUP",
+  "classification": "DATABASE_ONLY",
+  "latencyMs": 16561,
+  "confidenceScore": 100,
+  "dbAccuracy": 100,
+  "ragAccuracy": 100,
+  "hallucinationRate": 0,
+  "fusionAccuracy": 100,
+  "tokenUsage": 77,
+  "cost": 0,
+  "securityViolations": [],
+  "workflowSuccess": true,
+  "organizationId": "36660313-bbc2-4caa-98b7-636eeb78a323"
+}

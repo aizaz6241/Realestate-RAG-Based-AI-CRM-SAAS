@@ -1,0 +1,18 @@
+{
+  "traceId": "trace-2zjhfwh7qjj",
+  "timestamp": "2026-06-12T23:19:18.218Z",
+  "query": "Normalized Query: \"How many properties do we have?\"",
+  "intent": "LOOKUP",
+  "classification": "DATABASE_ONLY",
+  "latencyMs": 14635,
+  "confidenceScore": 100,
+  "dbAccuracy": 100,
+  "ragAccuracy": 100,
+  "hallucinationRate": 0,
+  "fusionAccuracy": 100,
+  "tokenUsage": 194,
+  "cost": 0,
+  "securityViolations": [],
+  "workflowSuccess": true,
+  "organizationId": "36660313-bbc2-4caa-98b7-636eeb78a323"
+}

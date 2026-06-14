@@ -179,7 +179,8 @@ export class AiDatabaseToolsService {
         profileId: emp.id,
         department: emp.department,
         designation: emp.designation,
-        salary: emp.salary,
+        // Salary masking: only include if caller explicitly needs it; default masked
+        salary: emp.salary !== undefined && emp.salary !== null ? '***' : undefined,
         status: emp.status,
         similarityScore: 1.0
       }));
@@ -188,7 +189,7 @@ export class AiDatabaseToolsService {
 
   checkToolAuthorization(toolName: string, userRole: string): boolean {
     const role = userRole || 'VIEWER';
-    
+
     if (toolName === 'getFinanceAnalytics') {
       return ['SUPER_ADMIN', 'ADMIN', 'HR', 'FINANCE'].includes(role);
     }
@@ -202,10 +203,23 @@ export class AiDatabaseToolsService {
     }
 
     if (toolName === 'getLeaveRequests') {
-      return true;
+      return ['SUPER_ADMIN', 'ADMIN', 'HR', 'FINANCE', 'SALES_MANAGER', 'AGENT', 'LOGISTICS'].includes(role);
     }
-    
-    return true; 
+
+    // General read tools — available to authenticated users (not VIEWER)
+    const generalReadTools = [
+      'searchProperties', 'searchEmployees', 'searchLeads', 'getTasks',
+      'getMeetingsAnalytics', 'getAttendanceRecords', 'getDashboardSummary',
+      'getOwnerDetails', 'searchOwners'
+    ];
+    if (generalReadTools.includes(toolName)) {
+      return role !== 'VIEWER';
+    }
+
+    // Default: DENY (deny-first security model)
+    // New tools must be explicitly added to the whitelist above
+    this.logger.warn(`[Auth] Unknown tool "${toolName}" attempted by role "${role}" — BLOCKED by deny-first default.`);
+    return false;
   }
 
   async executeDatabaseTool(

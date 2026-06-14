@@ -15,7 +15,11 @@ export interface CognitiveGatewayOutput {
 }
 
 export interface IntentObject {
-  intent: 'LOOKUP' | 'ANALYTICS' | 'TREND' | 'REPORTING' | 'POLICY' | 'COMPARISON' | 'FORECAST' | 'MIXED' | 'CONVERSATIONAL' | 'SYSTEM_HELP';
+  // COMPOSITE added to union — was missing but returned by LLM; ACTION added for task/meeting creation
+  intent: 'LOOKUP' | 'ANALYTICS' | 'COMPOSITE' | 'ACTION' | 'TREND' | 'REPORTING' | 'POLICY' | 'COMPARISON' | 'FORECAST' | 'MIXED' | 'CONVERSATIONAL' | 'SYSTEM_HELP';
+  subIntents?: string[];
+  executionMode?: 'parallel' | 'sequential';
+  aggregationStrategy?: 'merge' | 'fuse' | 'override';
   entities: {
     dates?: string[];
     regions?: string[];
@@ -52,7 +56,8 @@ export class CognitiveGatewayService {
   ): Promise<CognitiveGatewayOutput> {
     this.logger.log(`[Layer 1: Cognitive Gateway] Normalizing incoming request: "${userMessage}"`);
 
-    const chatHistory = history || [];
+    // Truncate history to last 12 exchanges to prevent context window overflow
+    const chatHistory = (history || []).slice(-12);
     let userName = 'Admin';
     try {
       const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -84,8 +89,8 @@ Current Session User:
 Active Workspace State Memory:
 ${JSON.stringify(workspaceState || {}, null, 2)}
 
-Conversational History Context:
-${chatHistory.map(h => `${h.role === 'user' ? 'User' : 'AI'}: ${h.content}`).join('\n')}
+Conversational History Context (last ${chatHistory.length} exchanges):
+${chatHistory.map(h => `${h.role === 'user' ? 'User' : 'AI'}: ${h.content.slice(0, 400)}`).join('\n')}
 
 Output ONLY the resolved and fully normalized query text in the matching language. Do not add markdown quotes, preface explanation, or wrappers.`;
 
