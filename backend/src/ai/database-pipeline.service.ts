@@ -327,6 +327,82 @@ export const SCHEMA_REGISTRY = {
         keyId: 'link to key tracker record',
         userId: 'link to user who checked out'
       }
+    },
+    employeedocument: {
+      name: 'EmployeeDocument',
+      description: 'Employee professional files, Emirates IDs, resumes, contracts.',
+      columns: {
+        id: 'uuid primary key',
+        name: 'document name (e.g. Resume, Emirates ID)',
+        category: 'document category (ID, CONTRACT, RESUME, OTHER)',
+        fileUrl: 'file storage URL string',
+        uploadedAt: 'date uploaded (timestamp)',
+        employeeProfileId: 'link to employee profile'
+      }
+    },
+    performancereview: {
+      name: 'PerformanceReview',
+      description: 'Performance reviews, ratings, and appraisals for staff.',
+      columns: {
+        id: 'uuid primary key',
+        reviewDate: 'date of review (timestamp)',
+        rating: 'review rating stars index (1 to 5)',
+        feedback: 'detailed review appraisal comments text',
+        employeeProfileId: 'link to employee profile review target'
+      }
+    },
+    propertypricehistory: {
+      name: 'PropertyPriceHistory',
+      description: 'Historical listing price changes audit logs for properties.',
+      columns: {
+        id: 'uuid primary key',
+        price: 'historical listed price amount (AED)',
+        changeDate: 'date price was changed (timestamp)',
+        propertyId: 'link to property listing'
+      }
+    },
+    ownerdocument: {
+      name: 'OwnerDocument',
+      description: 'KYC, agreements, title deeds, and POA files uploaded for landlords.',
+      columns: {
+        id: 'uuid primary key',
+        name: 'document name (Emirates ID, Title Deed, POA)',
+        fileUrl: 'file storage URL string',
+        uploadedAt: 'date uploaded (timestamp)',
+        ownerId: 'link to property owner landlord'
+      }
+    },
+    ownercommunication: {
+      name: 'OwnerCommunication',
+      description: 'Logs of historical communications (calls, emails) with landlords.',
+      columns: {
+        id: 'uuid primary key',
+        type: 'communication type (CALL, EMAIL, MEETING, WHATSAPP)',
+        summary: 'summary details of conversation',
+        date: 'date of communication (timestamp)',
+        ownerId: 'link to property owner landlord'
+      }
+    },
+    clientcommunication: {
+      name: 'ClientCommunication',
+      description: 'Logs of historical communications (calls, emails) with CRM clients.',
+      columns: {
+        id: 'uuid primary key',
+        type: 'communication type (CALL, EMAIL, MEETING, WHATSAPP)',
+        summary: 'summary details of conversation',
+        date: 'date of communication (timestamp)',
+        clientId: 'link to client profile'
+      }
+    },
+    driverprofile: {
+      name: 'DriverProfile',
+      description: 'Driver credentials, licenses, and availability statuses.',
+      columns: {
+        id: 'uuid primary key',
+        licenseNumber: 'driver license identification number',
+        status: 'status (AVAILABLE, BUSY, OFF_DUTY)',
+        employeeProfileId: 'link to employee profile'
+      }
     }
   }
 };
@@ -513,6 +589,27 @@ export class DatabasePipelineService {
     }
     if (q.includes('checkout') || q.includes('return')) {
       entities.push('keycheckout');
+    }
+    if (q.includes('employee document') || q.includes('staff file') || q.includes('resume') || q.includes('cv') || q.includes('passport') || q.includes('visa')) {
+      entities.push('employeedocument');
+    }
+    if (q.includes('performance') || q.includes('appraisal') || q.includes('rating') || q.includes('review')) {
+      entities.push('performancereview');
+    }
+    if (q.includes('price history') || q.includes('past price') || q.includes('price change')) {
+      entities.push('propertypricehistory');
+    }
+    if (q.includes('owner document') || q.includes('landlord file') || q.includes('owner paper')) {
+      entities.push('ownerdocument');
+    }
+    if (q.includes('owner call') || q.includes('owner email') || q.includes('owner communication') || q.includes('owner chat')) {
+      entities.push('ownercommunication');
+    }
+    if (q.includes('client call') || q.includes('client email') || q.includes('client communication') || q.includes('client chat')) {
+      entities.push('clientcommunication');
+    }
+    if (q.includes('driver') || q.includes('license')) {
+      entities.push('driverprofile');
     }
 
     if (entities.length === 0) {
