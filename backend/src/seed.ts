@@ -21,72 +21,61 @@ async function main() {
 
   console.log("🚀 Starting extensive ERP database clean-up...");
 
-  // 1. Delete all existing records using robust PostgreSQL TRUNCATE CASCADE
-  const tableNames = [
-    'Message',
-    'ChatRoom',
-    'CalendarEvent',
-    'AiDocumentChunk',
-    'AiDocument',
-    'AiChatSession',
-    'IntegrationLog',
-    'CommunicationTemplate',
-    'IntegrationConfig',
-    'LeadActivity',
-    'KeyCheckout',
-    'KeyTracker',
-    'LogisticsSchedule',
-    'VehicleMaintenance',
-    'Vehicle',
-    'DriverProfile',
-    'EmployeeDocument',
-    'Attendance',
-    'LeaveRequest',
-    'ActivityLog',
-    'PerformanceReview',
-    'Payroll',
-    'ClientViewing',
-    'ClientPropertyInterest',
-    'ClientCommunication',
-    'OwnerCommunication',
-    'OwnerDocument',
-    'EmployeeProfile',
-    'PropertyPriceHistory',
-    'Property',
-    'Owner',
-    'Task',
-    'Lead',
-    'Client',
-    'DocumentVersion',
-    'Document',
-    'SubscriptionPayment',
-    'Subscription',
-    'ApiUsageLog',
-    'User',
-    'Organization'
-  ];
-
-  for (const tableName of tableNames) {
-    try {
-      await prisma.$executeRawUnsafe(`TRUNCATE TABLE "${tableName}" CASCADE;`);
-    } catch (err) {
-      try {
-        await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableName} CASCADE;`);
-      } catch (e) {
-        console.log(`⚠️ Skip truncating table ${tableName}: ${e}`);
-      }
-    }
-  }
+  // 1. Safe idempotent cleanup using Prisma deleteMany() in correct dependency order
+  // (avoids TRUNCATE table-name casing issues on Neon/Render)
+  try { await prisma.message.deleteMany(); } catch (e) { console.log(`⚠️ Skip Message: ${e.message}`); }
+  try { await prisma.chatRoom.deleteMany(); } catch (e) { console.log(`⚠️ Skip ChatRoom: ${e.message}`); }
+  try { await prisma.calendarEvent.deleteMany(); } catch (e) { console.log(`⚠️ Skip CalendarEvent: ${e.message}`); }
+  try { await prisma.aiDocumentChunk.deleteMany(); } catch (e) { console.log(`⚠️ Skip AiDocumentChunk: ${e.message}`); }
+  try { await prisma.aiDocument.deleteMany(); } catch (e) { console.log(`⚠️ Skip AiDocument: ${e.message}`); }
+  try { await prisma.aiChatSession.deleteMany(); } catch (e) { console.log(`⚠️ Skip AiChatSession: ${e.message}`); }
+  try { await prisma.aiMemoryVector.deleteMany(); } catch (e) { console.log(`⚠️ Skip AiMemoryVector: ${e.message}`); }
+  try { await (prisma as any).aiPendingApproval.deleteMany(); } catch (e) { console.log(`⚠️ Skip AiPendingApproval: ${e.message}`); }
+  try { await (prisma as any).aiActiveDraft.deleteMany(); } catch (e) { console.log(`⚠️ Skip AiActiveDraft: ${e.message}`); }
+  try { await prisma.integrationLog.deleteMany(); } catch (e) { console.log(`⚠️ Skip IntegrationLog: ${e.message}`); }
+  try { await prisma.communicationTemplate.deleteMany(); } catch (e) { console.log(`⚠️ Skip CommunicationTemplate: ${e.message}`); }
+  try { await prisma.integrationConfig.deleteMany(); } catch (e) { console.log(`⚠️ Skip IntegrationConfig: ${e.message}`); }
+  try { await prisma.leadActivity.deleteMany(); } catch (e) { console.log(`⚠️ Skip LeadActivity: ${e.message}`); }
+  try { await prisma.keyCheckout.deleteMany(); } catch (e) { console.log(`⚠️ Skip KeyCheckout: ${e.message}`); }
+  try { await prisma.keyTracker.deleteMany(); } catch (e) { console.log(`⚠️ Skip KeyTracker: ${e.message}`); }
+  try { await prisma.logisticsSchedule.deleteMany(); } catch (e) { console.log(`⚠️ Skip LogisticsSchedule: ${e.message}`); }
+  try { await prisma.vehicleMaintenance.deleteMany(); } catch (e) { console.log(`⚠️ Skip VehicleMaintenance: ${e.message}`); }
+  try { await prisma.vehicle.deleteMany(); } catch (e) { console.log(`⚠️ Skip Vehicle: ${e.message}`); }
+  try { await prisma.driverProfile.deleteMany(); } catch (e) { console.log(`⚠️ Skip DriverProfile: ${e.message}`); }
+  try { await prisma.employeeDocument.deleteMany(); } catch (e) { console.log(`⚠️ Skip EmployeeDocument: ${e.message}`); }
+  try { await prisma.attendance.deleteMany(); } catch (e) { console.log(`⚠️ Skip Attendance: ${e.message}`); }
+  try { await prisma.leaveRequest.deleteMany(); } catch (e) { console.log(`⚠️ Skip LeaveRequest: ${e.message}`); }
+  try { await prisma.activityLog.deleteMany(); } catch (e) { console.log(`⚠️ Skip ActivityLog: ${e.message}`); }
+  try { await prisma.performanceReview.deleteMany(); } catch (e) { console.log(`⚠️ Skip PerformanceReview: ${e.message}`); }
+  try { await prisma.payroll.deleteMany(); } catch (e) { console.log(`⚠️ Skip Payroll: ${e.message}`); }
+  try { await prisma.clientViewing.deleteMany(); } catch (e) { console.log(`⚠️ Skip ClientViewing: ${e.message}`); }
+  try { await prisma.clientPropertyInterest.deleteMany(); } catch (e) { console.log(`⚠️ Skip ClientPropertyInterest: ${e.message}`); }
+  try { await prisma.clientCommunication.deleteMany(); } catch (e) { console.log(`⚠️ Skip ClientCommunication: ${e.message}`); }
+  try { await prisma.ownerCommunication.deleteMany(); } catch (e) { console.log(`⚠️ Skip OwnerCommunication: ${e.message}`); }
+  try { await prisma.ownerDocument.deleteMany(); } catch (e) { console.log(`⚠️ Skip OwnerDocument: ${e.message}`); }
+  try { await prisma.employeeProfile.deleteMany(); } catch (e) { console.log(`⚠️ Skip EmployeeProfile: ${e.message}`); }
+  try { await prisma.propertyPriceHistory.deleteMany(); } catch (e) { console.log(`⚠️ Skip PropertyPriceHistory: ${e.message}`); }
+  try { await prisma.property.deleteMany(); } catch (e) { console.log(`⚠️ Skip Property: ${e.message}`); }
+  try { await prisma.owner.deleteMany(); } catch (e) { console.log(`⚠️ Skip Owner: ${e.message}`); }
+  try { await prisma.task.deleteMany(); } catch (e) { console.log(`⚠️ Skip Task: ${e.message}`); }
+  try { await prisma.lead.deleteMany(); } catch (e) { console.log(`⚠️ Skip Lead: ${e.message}`); }
+  try { await prisma.client.deleteMany(); } catch (e) { console.log(`⚠️ Skip Client: ${e.message}`); }
+  try { await prisma.documentVersion.deleteMany(); } catch (e) { console.log(`⚠️ Skip DocumentVersion: ${e.message}`); }
+  try { await prisma.document.deleteMany(); } catch (e) { console.log(`⚠️ Skip Document: ${e.message}`); }
+  try { await prisma.subscriptionPayment.deleteMany(); } catch (e) { console.log(`⚠️ Skip SubscriptionPayment: ${e.message}`); }
+  try { await prisma.subscription.deleteMany(); } catch (e) { console.log(`⚠️ Skip Subscription: ${e.message}`); }
+  try { await prisma.apiUsageLog.deleteMany(); } catch (e) { console.log(`⚠️ Skip ApiUsageLog: ${e.message}`); }
+  try { await prisma.user.deleteMany(); } catch (e) { console.log(`⚠️ Skip User: ${e.message}`); }
+  try { await prisma.organization.deleteMany(); } catch (e) { console.log(`⚠️ Skip Organization: ${e.message}`); }
 
   console.log("🧹 Database cleared successfully.");
   console.log("🌱 Seeding premium multi-tenant ERP system...");
 
-  // 2. Create Organization
-  const org = await prisma.organization.create({
-    data: {
-      name: "Zorvex",
-      domain: "zorvex.com"
-    }
+  // 2. Create Organization — upsert to survive re-deploys on existing DB
+  const org = await prisma.organization.upsert({
+    where: { domain: "zorvex.com" },
+    update: { name: "Zorvex" },
+    create: { name: "Zorvex", domain: "zorvex.com" }
   });
   console.log(`🏢 Created Organization: ${org.name}`);
 
@@ -107,8 +96,18 @@ async function main() {
 
   const users: { [key: string]: any } = {};
   for (const u of usersData) {
-    const user = await prisma.user.create({
-      data: {
+    // upsert by email so re-deploys don't crash on existing users
+    const user = await prisma.user.upsert({
+      where: { email: u.email },
+      update: {
+        passwordHash,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        isSystemAdmin: u.isSystemAdmin,
+        organizationId: org.id
+      },
+      create: {
         email: u.email,
         passwordHash,
         firstName: u.firstName,
