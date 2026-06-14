@@ -21,6 +21,12 @@ import { LearningMemoryService } from './learning-memory.service';
 import { ObservabilityService } from './observability.service';
 import { MultiTierRouterService } from './multi-tier-router.service';
 
+// Remediation & Security Services
+import { TenantIsolationService } from './tenant-isolation.service';
+import { EvidenceAuthorityEngine } from './evidence-authority.service';
+import { EntityResolutionService } from './entity-resolution.service';
+import { ResponseSanitizer } from './response-sanitizer.service';
+
 // RAG Services
 import { AiRagService } from './rag/ai-rag.service';
 import { AiRagIngestionService } from './rag/ai-rag-ingestion.service';
@@ -49,6 +55,10 @@ import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
     LearningMemoryService,
     ObservabilityService,
     MultiTierRouterService,
+    TenantIsolationService,
+    EvidenceAuthorityEngine,
+    EntityResolutionService,
+    ResponseSanitizer,
     AiRagService,
     AiRagIngestionService,
     AiRagRetrievalService,
@@ -72,6 +82,10 @@ import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
     LearningMemoryService,
     ObservabilityService,
     MultiTierRouterService,
+    TenantIsolationService,
+    EvidenceAuthorityEngine,
+    EntityResolutionService,
+    ResponseSanitizer,
     AiRagService,
     AiRagIngestionService,
     AiRagRetrievalService,

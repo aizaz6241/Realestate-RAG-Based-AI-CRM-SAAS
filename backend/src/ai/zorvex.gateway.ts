@@ -49,6 +49,10 @@ export class ZorvexGateway implements OnGatewayConnection, OnGatewayDisconnect {
   broadcastToOrganization(organizationId: string, event: string, payload: any) {
     const roomName = `org_${organizationId}`;
     this.logger.log(`Broadcasting event "${event}" to room "${roomName}"`);
-    this.server.to(roomName).emit(event, payload);
+    if (this.server) {
+      this.server.to(roomName).emit(event, payload);
+    } else {
+      this.logger.warn(`Socket.io server not initialized. Skipping broadcast.`);
+    }
   }
 }

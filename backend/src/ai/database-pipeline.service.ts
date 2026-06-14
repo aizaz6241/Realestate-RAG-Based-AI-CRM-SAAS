@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiLlmService } from './ai-llm.service';
+import { TenantIsolationService } from './tenant-isolation.service';
 
 export interface DatabasePipelineResult {
   rows: any[];
@@ -196,7 +197,10 @@ export class DatabasePipelineService {
   buildStageWhereClause(baseWhere: any, stage: number): any {
     const where = JSON.parse(JSON.stringify(baseWhere));
     
-    const transformValue = (val: any, s: number): any => {
+    const transformValue = (val: any, s: number, keyName?: string): any => {
+      if (keyName && this.tenantIsolationService.isSecurityKey(keyName)) {
+        return val; // Protect security key from wildcard conversions
+      }
       if (typeof val === 'string') {
         if (s === 1) return val;
         if (s === 2) return { equals: val, mode: 'insensitive' };
@@ -208,7 +212,7 @@ export class DatabasePipelineService {
         if (val.contains !== undefined || val.equals !== undefined) return val;
         const trans: any = {};
         for (const k of Object.keys(val)) {
-          trans[k] = transformValue(val[k], s);
+          trans[k] = transformValue(val[k], s, k);
         }
         return trans;
       }
@@ -217,7 +221,7 @@ export class DatabasePipelineService {
 
     const transformed: any = {};
     for (const k of Object.keys(where)) {
-      transformed[k] = transformValue(where[k], stage);
+      transformed[k] = transformValue(where[k], stage, k);
     }
     return transformed;
   }
@@ -225,7 +229,8 @@ export class DatabasePipelineService {
 
   constructor(
     private prisma: PrismaService,
-    private llmService: AiLlmService
+    private llmService: AiLlmService,
+    private tenantIsolationService: TenantIsolationService
   ) {}
 
   // Layer 2: Semantic Mapping Engine
@@ -414,24 +419,45 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
       organization: 'organization',
       user: 'user',
       employeeprofile: 'employeeProfile',
+      employeedocument: 'employeeDocument',
       attendance: 'attendance',
       leaverequest: 'leaveRequest',
+      activitylog: 'activityLog',
+      performancereview: 'performanceReview',
       property: 'property',
       lead: 'lead',
       client: 'client',
       task: 'task',
+      owner: 'owner',
+      ownercommunication: 'ownerCommunication',
+      ownerdocument: 'ownerDocument',
+      clientpropertyinterest: 'clientPropertyInterest',
+      clientviewing: 'clientViewing',
+      clientcommunication: 'clientCommunication',
       payroll: 'payroll',
-      owner: 'owner'
-    };
-
-    const getBaseTenantFilter = (entityKey: string, orgId: string): any => {
-      const hasDirectOrgId = [
-        'organization', 'user', 'employeeprofile', 'property', 'lead',
-        'client', 'task', 'owner', 'attendance', 'leaverequest', 'payroll'
-      ];
-      if (entityKey === 'organization') return { id: orgId };
-      if (hasDirectOrgId.includes(entityKey)) return { organizationId: orgId };
-      return {};
+      propertypricehistory: 'propertyPriceHistory',
+      document: 'document',
+      documentversion: 'documentVersion',
+      driverprofile: 'driverProfile',
+      vehicle: 'vehicle',
+      vehiclemaintenance: 'vehicleMaintenance',
+      logisticsschedule: 'logisticsSchedule',
+      keytracker: 'keyTracker',
+      keycheckout: 'keyCheckout',
+      leadactivity: 'leadActivity',
+      chatroom: 'chatRoom',
+      message: 'message',
+      calendarevent: 'calendarEvent',
+      aidocument: 'aiDocument',
+      aidocumentchunk: 'aiDocumentChunk',
+      aichatsession: 'aiChatSession',
+      integrationconfig: 'integrationConfig',
+      communicationtemplate: 'communicationTemplate',
+      integrationlog: 'integrationLog',
+      aimemoryvector: 'aiMemoryVector',
+      subscription: 'subscription',
+      subscriptionpayment: 'subscriptionPayment',
+      apiusagelog: 'apiUsageLog'
     };
 
     // Deep date resolver helper
@@ -465,9 +491,7 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
       if (!modelKey) continue;
 
       const model = this.prisma[modelKey];
-      const tenantFilter = getBaseTenantFilter(ent.toLowerCase(), organizationId);
-      const mappedFilters = this.mapRelationalFilters(ent, cleanFilters);
-      const whereClause = { ...tenantFilter, ...mappedFilters };
+      const whereClause = this.tenantIsolationService.injectTenantFilter(ent, cleanFilters, organizationId);
 
       // Role boundaries injection
       if (userRole === 'AGENT') {
@@ -553,7 +577,7 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
               if (searchStr && typeof searchStr === 'string') {
                 try {
                   const allRecords = await model.findMany({
-                    where: { ...tenantFilter },
+                    where: this.tenantIsolationService.injectTenantFilter(ent, {}, organizationId),
                     include: includeOptions
                   });
                   const cleanSearch = searchStr.toLowerCase().trim();
@@ -676,22 +700,29 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
     queryText: string,
     organizationId: string,
     userId: string,
-    userRole: string
+    userRole: string,
+    prePlannedNode?: any
   ): Promise<DatabasePipelineResult> {
     const errors: string[] = [];
     const queriesRun: string[] = [];
 
-    // Layer 2: Semantic Mapping
-    const mapping = this.semanticMapping(queryText);
+    let plan: any;
+    if (prePlannedNode) {
+      this.logger.log(`[Database Pipeline] Reusing pre-planned DAG node parameters. Bypassing NL-to-SQL LLM.`);
+      plan = prePlannedNode;
+    } else {
+      // Layer 2: Semantic Mapping
+      const mapping = this.semanticMapping(queryText);
 
-    // Layer 3: NL-to-SQL
-    const plan = await this.generateQueryPlan(
-      queryText,
-      mapping.mappedEntities,
-      organizationId,
-      userId,
-      userRole
-    );
+      // Layer 3: NL-to-SQL
+      plan = await this.generateQueryPlan(
+        queryText,
+        mapping.mappedEntities,
+        organizationId,
+        userId,
+        userRole
+      );
+    }
     queriesRun.push(`Prisma Query Plan on [${plan.entities.join(', ')}]`);
 
     // Layer 4 & 5: SQL Validation & Optimization

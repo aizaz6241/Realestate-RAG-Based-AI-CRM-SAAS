@@ -18,6 +18,9 @@ import { LearningMemoryService } from './learning-memory.service';
 import { ObservabilityService } from './observability.service';
 import { MultiTierRouterService } from './multi-tier-router.service';
 import { AiRagService } from './rag/ai-rag.service';
+import { TenantIsolationService } from './tenant-isolation.service';
+import { EntityResolutionService } from './entity-resolution.service';
+import { ResponseSanitizer } from './response-sanitizer.service';
 
 @Injectable()
 export class AiService {
@@ -53,7 +56,10 @@ export class AiService {
     private learningMemoryService: LearningMemoryService,
     private observabilityService: ObservabilityService,
     private ragService: AiRagService,
-    private multiTierRouterService: MultiTierRouterService
+    private multiTierRouterService: MultiTierRouterService,
+    private tenantIsolationService: TenantIsolationService,
+    private entityResolutionService: EntityResolutionService,
+    private responseSanitizer: ResponseSanitizer
   ) {}
 
   // -----------------------------------------------------------------------------
@@ -92,17 +98,59 @@ export class AiService {
         where: { organizationId },
       });
 
-      const scoredMemories = memories
-        .map((memory) => {
+      const TTL_MS: Record<string, number> = {
+        TEMPORARY_STATE: 5 * 60 * 1000, // 5 minutes
+        OBSERVATION: 60 * 60 * 1000,    // 1 hour
+        INSIGHT: 24 * 60 * 60 * 1000     // 24 hours
+      };
+
+      const getMemoryClassification = (content: string, category: string): string => {
+        const lower = content.toLowerCase();
+        if (
+          lower.includes('count') || 
+          lower.includes('headcount') || 
+          lower.includes('total number') || 
+          lower.includes('currently at') || 
+          lower.includes('there is a lack of')
+        ) {
+          return 'TEMPORARY_STATE';
+        }
+        if (category.startsWith('PATTERN:') || category === 'OBSERVATION') {
+          return 'OBSERVATION';
+        }
+        if (category === 'INSIGHT' || lower.includes('trend') || lower.includes('preference')) {
+          return 'INSIGHT';
+        }
+        return 'FACT';
+      };
+
+      const processedMemories: any[] = [];
+
+      for (const memory of memories) {
+        const classification = getMemoryClassification(memory.content, memory.category);
+        const age = Date.now() - new Date(memory.createdAt).getTime();
+        const maxTtl = TTL_MS[classification];
+
+        if (maxTtl && age > maxTtl) {
+          this.logger.log(`[Memory Hardening] Expired memory detected (${classification}, age: ${Math.round(age / 1000)}s). Evicting from DB.`);
+          this.prisma.aiMemoryVector.delete({ where: { id: memory.id } }).catch(() => null);
+          continue;
+        }
+
+        // Only FACT memories participate in retrieval context to prevent state contamination
+        if (classification === 'FACT') {
           const score = this.llmService.cosineSimilarity(queryVector, memory.embedding);
-          return {
+          processedMemories.push({
             id: memory.id,
             category: memory.category,
             content: memory.content,
             score,
             createdAt: memory.createdAt,
-          };
-        })
+          });
+        }
+      }
+
+      const scoredMemories = processedMemories
         .filter((memory) => memory.score > 0.25)
         .sort((a, b) => b.score - a.score)
         .slice(0, limit);
@@ -896,8 +944,12 @@ Matches the language of the user's query. Keep it short, professional, and clear
           gatewayOutput.query,
           organizationId,
           userId,
-          userRole
+          userRole,
+          node.params // Consume planned parameters directly
         );
+
+        // deduplicate related entities to prevent duplicate responses
+        res.rows = this.entityResolutionService.resolveEntities(res.rows);
 
         const primaryFailed = (res.rows.length === 0 || res.confidenceScore < 50) && res.errors.length === 0;
 
@@ -1126,7 +1178,7 @@ Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
         userId
       );
 
-      const cleanedResponse = finalResponseText.trim();
+      const cleanedResponse = this.responseSanitizer.sanitizeResponse(finalResponseText.trim());
       emitTraceStep(15, "FINAL_RESPONSE_GENERATION", "SUCCESS", { query: gatewayOutput.query }, { responseLength: cleanedResponse.length }, composerStartTime);
 
       // Update active contexts in WorkspaceState

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AiLlmService } from './ai-llm.service';
+import { EvidenceAuthorityEngine } from './evidence-authority.service';
 
 export interface FusionInput {
   dbResult: {
@@ -32,7 +33,10 @@ export interface FusionOutput {
 export class ResultFusionService {
   private readonly logger = new Logger(ResultFusionService.name);
 
-  constructor(private llmService: AiLlmService) {}
+  constructor(
+    private llmService: AiLlmService,
+    private evidenceAuthorityEngine: EvidenceAuthorityEngine
+  ) {}
 
   // Result Fusion, Cross-Validation & Confidence Engine
   async fuseAndValidate(
@@ -185,6 +189,8 @@ Do not write markdown backticks. Return raw JSON only.`;
       ? memories.map((m, i) => `[Memory-${i + 1}]: ${m.content}`).join('\n')
       : 'No relevant past memory patterns found.';
 
+    const directives = this.evidenceAuthorityEngine.generateAuthorityDirectives(query, dbRows, input.dbResult?.tablesUsed || []);
+
     const groundedEvidence = `
 === STRUCTURED GROUNDED EVIDENCE ===
 ${dbFeed}
@@ -194,6 +200,8 @@ ${docFeed}
 
 === HISTORICAL MEMORY EVIDENCE ===
 ${memFeed}
+
+${directives}
 `.trim();
 
     return {
