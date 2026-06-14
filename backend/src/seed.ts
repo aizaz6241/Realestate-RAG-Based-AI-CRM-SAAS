@@ -859,15 +859,23 @@ async function main() {
   });
 
   // Al Hamra Properties Organization (Overdue & Partial Payment)
-  const hamraOrg = await prisma.organization.create({
-    data: {
+  const hamraOrg = await prisma.organization.upsert({
+    where: { domain: "alhamra.ae" },
+    update: { name: "Al Hamra Properties" },
+    create: {
       name: "Al Hamra Properties",
       domain: "alhamra.ae"
     }
   });
 
-  const hamraAdmin = await prisma.user.create({
-    data: {
+  const hamraAdmin = await prisma.user.upsert({
+    where: { email: "admin@alhamra.ae" },
+    update: { 
+      firstName: "Imran",
+      lastName: "Shaikh",
+      organizationId: hamraOrg.id
+    },
+    create: {
       email: "admin@alhamra.ae",
       passwordHash,
       firstName: "Imran",
