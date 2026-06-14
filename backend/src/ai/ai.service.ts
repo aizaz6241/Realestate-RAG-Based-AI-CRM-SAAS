@@ -957,65 +957,17 @@ Matches the language of the user's query. Keep it short, professional, and clear
         const primaryFailed = (res.rows.length === 0 || res.confidenceScore < 50) && res.errors.length === 0;
 
         if (primaryFailed) {
-          databasePipelineFallbacks++;
           this.logger.error(`[NL-to-SQL FAILURE DIAGNOSTICS]
           {
             "rawLlmResponse": ${JSON.stringify(res.rawLlmResponse || "", null, 2)},
             "parseError": ${JSON.stringify(res.parseError || "", null, 2)},
             "generatedPlan": ${JSON.stringify(res.generatedPlan || {}, null, 2)},
             "validationResult": ${JSON.stringify(res.validationResult || {}, null, 2)},
-            "fallbackTriggered": true
+            "fallbackTriggered": false
           }`);
 
-          emitTraceStep(9, "SQL_PIPELINE_FALLBACK", "WARNING", node.params || {}, "SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates...", sqlStartTime);
-          this.logger.log(`[Database Fallback] SQL Pipeline failed or yielded low confidence. Falling back to Prisma Query templates.`);
-          try {
-            const fallbackTool = this.planningEngineService['deduceEntityFromQuery'](gatewayOutput.query);
-            let mappedTool = 'searchProperties';
-            let fallbackParams = node.params?.filters || {};
-            
-            // Check if this is an aggregate query
-            const isAggregate = node.params?.operation === 'aggregate';
-            
-            if (isAggregate) {
-              mappedTool = 'runQueryPlan';
-              fallbackParams = {
-                operation: 'aggregate',
-                entities: [fallbackTool],
-                metrics: node.params?.metrics || ['count'],
-                filters: node.params?.filters || {}
-              };
-            } else {
-              if (fallbackTool === 'employeeprofile') mappedTool = 'searchEmployees';
-              if (fallbackTool === 'attendance') mappedTool = 'getAttendanceRecord';
-              if (fallbackTool === 'leaverequest') mappedTool = 'getLeaveRequests';
-              if (fallbackTool === 'task') mappedTool = 'getTasksBoard';
-              if (fallbackTool === 'lead' || fallbackTool === 'client') mappedTool = 'searchClients';
-              if (fallbackTool === 'payroll') mappedTool = 'getFinanceAnalytics';
-            }
-
-            const fallbackData = await this.dbToolsService.executeDatabaseTool(
-              mappedTool,
-              fallbackParams,
-              organizationId,
-              userRole,
-              userId
-            );
-
-            if (fallbackData && !fallbackData.error) {
-              const rows = fallbackData.rows ? fallbackData.rows : (Array.isArray(fallbackData) ? fallbackData : [fallbackData]);
-              res = {
-                rows,
-                verified: true,
-                confidenceScore: 80,
-                tablesUsed: [fallbackTool],
-                queriesRun: [`Fallback Prisma execution: ${mappedTool}`],
-                errors: []
-              };
-            }
-          } catch (err) {
-            this.logger.error(`Database Fallback execution failed: ${err.message}`);
-          }
+          emitTraceStep(9, "SQL_PIPELINE_FALLBACK", "WARNING", node.params || {}, "SQL Pipeline failed or yielded low confidence. Clean failure. No fallback.", sqlStartTime);
+          this.logger.log(`[Database Pipeline] SQL Pipeline failed or yielded low confidence. Clean failure. No fallback.`);
         } else {
           this.logger.log(`[NL-to-SQL SUCCESS DIAGNOSTICS]
           {

@@ -1161,6 +1161,52 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
     return Math.max(0, Math.min(100, confidence));
   }
 
+  // Layer 4.5: LLM Pre-Execution Validation (Critic)
+  async validateQueryWithLLM(
+    queryText: string,
+    planParams: any,
+    organizationId: string,
+    userId: string
+  ): Promise<{ isValid: boolean; fixedParams?: any; errorMsg?: string }> {
+    this.logger.log(`[Layer 4.5: LLM Pre-Execution Validation] Validating plan against schema`);
+    const schemaSub: any = {};
+    for (const ent of (planParams.entities || [])) {
+      if (SCHEMA_REGISTRY.tables[ent.toLowerCase()]) {
+        schemaSub[ent.toLowerCase()] = SCHEMA_REGISTRY.tables[ent.toLowerCase()];
+      }
+    }
+    
+    const prompt = `You are the Zorvex AI V9 Schema Validation Engine.
+Review the following Prisma Query Plan against the provided Schema Registry.
+1. Ensure all tables in 'entities' exist in the schema.
+2. Ensure all fields in 'filters', 'groupBy', and 'metrics' exist as columns in those tables.
+3. If valid, return {"isValid": true}.
+4. If invalid, fix the query parameters to match the schema (e.g. remove invalid filters or correct field names) and return {"isValid": false, "fixedParams": { ... fixed plan ... }, "errorMsg": "Explanation of fix"}.
+
+Original User Query: "${queryText}"
+
+Query Plan Parameters:
+${JSON.stringify(planParams, null, 2)}
+
+Available Schema:
+${JSON.stringify(schemaSub, null, 2)}
+
+Return ONLY raw JSON matching the structure: {"isValid": boolean, "fixedParams": object, "errorMsg": string}. Do not use markdown blocks.`;
+
+    try {
+      const resText = await this.llmService.callLLM(prompt, "Validate Query", [], false, organizationId, userId);
+      const cleanJson = resText.trim();
+      const jsonStart = cleanJson.indexOf('{');
+      const jsonEnd = cleanJson.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        return JSON.parse(cleanJson.substring(jsonStart, jsonEnd + 1));
+      }
+    } catch (e) {
+      this.logger.warn(`LLM Pre-Execution Validation failed to parse: ${e.message}`);
+    }
+    return { isValid: true }; // Fallback to allow original if critic fails
+  }
+
   // Entry Point: Run the entire Database Retrieval Pipeline
   async runDatabaseRetrievalPipeline(
     queryText: string,
@@ -1190,6 +1236,14 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
       );
     }
     queriesRun.push(`Prisma Query Plan on [${plan.entities.join(', ')}]`);
+
+    // Layer 4.5: LLM Pre-Execution Validation (Critic)
+    const criticValidation = await this.validateQueryWithLLM(queryText, plan, organizationId, userId);
+    if (!criticValidation.isValid && criticValidation.fixedParams) {
+      this.logger.warn(`[Critic Auto-Correction] Fixing invalid query plan: ${criticValidation.errorMsg}`);
+      plan = criticValidation.fixedParams;
+      queriesRun.push(`[Critic Auto-Corrected] Prisma Query Plan on [${plan.entities.join(', ')}]`);
+    }
 
     // Layer 4 & 5: SQL Validation & Optimization
     const validation = this.validateAndOptimizeQuery(plan, userRole);

@@ -60,6 +60,10 @@ export class PlanningEngineService {
     const planningPrompt = `You are the Zorvex AI V9 Planning Engine & Tool Selection Engine (Layer 3 & 5).
 Based on the intent analysis, compile an execution graph (DAG) consisting of task nodes and dependency edges.
 
+=== CURRENT LOCAL DATE & TIME ===
+Today is ${new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. Time: ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.
+Always resolve relative dates (like "last month", "yesterday", "this week") accurately based on this current date.
+
 === ACTOR CONTEXT (Identity & Authorization - READ ONLY, NON-QUERYABLE, AUTHORIZATION ONLY) ===
 - User Role: "${userRole}"
 
