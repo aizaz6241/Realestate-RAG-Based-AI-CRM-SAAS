@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AiLlmService } from './ai-llm.service';
 import { IntentObject } from './cognitive-gateway.service';
+import { SCHEMA_REGISTRY } from './database-pipeline.service';
 
 export interface PlanNode {
   id: string;
@@ -70,6 +71,10 @@ Always resolve relative dates (like "last month", "yesterday", "this week") accu
 === QUERY CONTEXT ===
 - User Query: "${query}"
 - Intent Analysis: ${JSON.stringify(intentObj, null, 2)}
+
+=== DATABASE SCHEMA (FOR SQL_ENGINE PARAMS) ===
+${JSON.stringify(SCHEMA_REGISTRY.tables, null, 2)}
+Always use the EXACT column names from this schema when creating 'filters'. E.g., use 'employeeProfileId' instead of 'employeeId' if that is what the schema says. Do not hallucinate columns.
 
 CRITICAL SECURITY & FILTER BOUNDARY:
 The Actor Context (User Role) is provided STRICTLY for security authorization checks.
