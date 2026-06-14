@@ -141,7 +141,8 @@ export const SCHEMA_REGISTRY = {
         department: 'department (e.g., Sales, HR, Finance, Logistics)',
         designation: 'job title (e.g. agent, manager, COO)',
         salary: 'monthly base salary',
-        status: 'ACTIVE, ON_LEAVE, TERMINATED'
+        status: 'ACTIVE, ON_LEAVE, TERMINATED',
+        user: 'Relation to User. To search by name, use: { user: { name: { contains: "Aizaz" } } }'
       }
     },
     attendance: {
@@ -153,7 +154,8 @@ export const SCHEMA_REGISTRY = {
         checkIn: 'timestamp',
         checkOut: 'timestamp',
         status: 'PRESENT, LATE, ABSENT, ON_LEAVE',
-        employeeProfileId: 'link to employee profile'
+        employeeProfileId: 'link to employee profile',
+        employeeProfile: 'Relation to EmployeeProfile. To search by employee name, use: { employeeProfile: { user: { name: { contains: "Aizaz" } } } }'
       }
     },
     payroll: {
@@ -167,7 +169,8 @@ export const SCHEMA_REGISTRY = {
         deductions: 'deducted amount',
         netSalary: 'net payout',
         status: 'PAID, UNPAID',
-        employeeProfileId: 'link to employee profile'
+        employeeProfileId: 'link to employee profile',
+        employeeProfile: 'Relation to EmployeeProfile. To search by employee name, use: { employeeProfile: { user: { name: { contains: "Aizaz" } } } }'
       }
     },
     task: {
@@ -213,7 +216,8 @@ export const SCHEMA_REGISTRY = {
         type: 'leave type (SICK, CASUAL, ANNUAL, UNPAID)',
         status: 'approval status (PENDING, APPROVED, REJECTED)',
         reason: 'reason explanation for leave Request',
-        employeeProfileId: 'link to employee profile'
+        employeeProfileId: 'link to employee profile',
+        employeeProfile: 'Relation to EmployeeProfile. To search by employee name, use: { employeeProfile: { user: { name: { contains: "Aizaz" } } } }'
       }
     },
     vehicle: {
