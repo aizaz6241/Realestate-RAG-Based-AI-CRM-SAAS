@@ -668,18 +668,29 @@ async function main() {
         checkoutSummary = "Absent from work.";
       } else if (fraction < 0.12) {
         status = "LATE";
-        // Late check-in: 09:15 AM to 10:05 AM
-        const lateMin = Math.floor(fraction * 50) + 15;
-        checkIn = new Date(`${dateStr}T09:${lateMin < 10 ? '0' + lateMin : lateMin}:15Z`);
-        checkOut = new Date(`${dateStr}T18:05:00Z`);
+        // Late check-in: 09:15 AM to 09:54 AM
+        const lateMin = Math.floor(fraction * 40) + 15;
+        checkIn = new Date(d);
+        checkIn.setUTCHours(9, lateMin, 15, 0);
+        
+        checkOut = new Date(d);
+        checkOut.setUTCHours(18, 5, 0, 0);
         checkoutSummary = "Arrived late due to commute delay. Handled delayed follow-ups.";
       } else {
-        // Present check-in: 08:35 AM to 08:58 AM
-        const presMin = Math.floor(fraction * 23) + 35;
-        checkIn = new Date(`${dateStr}T08:${presMin}:10Z`);
-        // Present check-out: 05:45 PM to 06:15 PM
-        const outMin = Math.floor(fraction * 30) + 45;
-        checkOut = new Date(`${dateStr}T17:${outMin}:45Z`);
+        // Present check-in: 08:35 AM to 08:54 AM
+        const presMin = Math.floor(fraction * 20) + 35;
+        checkIn = new Date(d);
+        checkIn.setUTCHours(8, presMin, 10, 0);
+        
+        // Present check-out: 05:45 PM to 06:14 PM (Safely handle 17:45 - 18:14)
+        checkOut = new Date(d);
+        if (fraction < 0.5) {
+          const outMin = Math.floor(fraction * 30) + 30; // 30 to 44 mins
+          checkOut.setUTCHours(17, outMin, 45, 0);
+        } else {
+          const outMin = Math.floor((fraction - 0.5) * 30); // 0 to 14 mins
+          checkOut.setUTCHours(18, outMin, 45, 0);
+        }
       }
       
       attendanceRecords.push({
