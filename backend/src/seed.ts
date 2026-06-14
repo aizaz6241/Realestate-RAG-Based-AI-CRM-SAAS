@@ -539,38 +539,65 @@ async function main() {
   });
   console.log(`📎 Uploaded Employee HR credentials`);
 
-  // 21. Create HR Attendance records (Last 5 Days)
-  const attendanceDays = ["2026-05-22", "2026-05-23", "2026-05-24", "2026-05-25", "2026-05-26"];
-  for (const email of Object.keys(profiles)) {
-    const prof = profiles[email];
-    for (const day of attendanceDays) {
-      await prisma.attendance.create({
-        data: {
-          dateStr: day,
-          checkIn: new Date(`${day}T09:02:15Z`),
-          checkOut: new Date(`${day}T18:04:30Z`),
-          status: "PRESENT",
-          checkoutSummary: "Completed routine dashboard checklist & followed up on assignments.",
-          employeeProfileId: prof.id
-        }
-      });
-    }
-  }
-  console.log(`⏱️ Populated last 5 days of shift attendance timers for all profiles`);
-
-  // 22. Create HR Leave Requests
-  await prisma.leaveRequest.create({
-    data: {
+  // 21. Create HR Leave Requests (Seeded first to construct matching Attendance logs)
+  const leaveRequestsData = [
+    // tenant-admin@zorvex.com (Nabih's account)
+    {
+      startDate: new Date("2026-02-10T09:00:00Z"),
+      endDate: new Date("2026-02-15T18:00:00Z"),
+      type: "ANNUAL",
+      status: "APPROVED",
+      reason: "Annual family holiday trip.",
+      approvedAt: new Date("2026-02-01T10:00:00Z"),
+      employeeProfileId: profiles["tenant-admin@zorvex.com"].id
+    },
+    {
+      startDate: new Date("2026-04-12T09:00:00Z"),
+      endDate: new Date("2026-04-14T18:00:00Z"),
+      type: "SICK",
+      status: "APPROVED",
+      reason: "Recovery from minor surgery.",
+      approvedAt: new Date("2026-04-12T08:00:00Z"),
+      employeeProfileId: profiles["tenant-admin@zorvex.com"].id
+    },
+    {
+      startDate: new Date("2026-05-05T09:00:00Z"),
+      endDate: new Date("2026-05-06T18:00:00Z"),
+      type: "CASUAL",
+      status: "REJECTED",
+      reason: "Urgent personal bank visit.",
+      employeeProfileId: profiles["tenant-admin@zorvex.com"].id
+    },
+    // aizazkhan6241@gmail.com (Aizaz's account)
+    {
+      startDate: new Date("2026-01-05T09:00:00Z"),
+      endDate: new Date("2026-01-09T18:00:00Z"),
+      type: "ANNUAL",
+      status: "APPROVED",
+      reason: "Winter family vacation in Murree.",
+      approvedAt: new Date("2025-12-28T11:00:00Z"),
+      employeeProfileId: profiles["aizazkhan6241@gmail.com"].id
+    },
+    {
+      startDate: new Date("2026-03-20T09:00:00Z"),
+      endDate: new Date("2026-03-21T18:00:00Z"),
+      type: "SICK",
+      status: "APPROVED",
+      reason: "Dental checkup and extraction.",
+      approvedAt: new Date("2026-03-20T08:30:00Z"),
+      employeeProfileId: profiles["aizazkhan6241@gmail.com"].id
+    },
+    // agent2
+    {
       startDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
       endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       type: "ANNUAL",
       status: "PENDING",
       reason: "Visiting family overseas in Tbilisi, Georgia.",
       employeeProfileId: profiles["agent2@zorvex.com"].id
-    }
-  });
-  await prisma.leaveRequest.create({
-    data: {
+    },
+    // agent1
+    {
       startDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
       endDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
       type: "SICK",
@@ -579,8 +606,103 @@ async function main() {
       approvedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
       employeeProfileId: profiles["agent1@zorvex.com"].id
     }
-  });
-  console.log(`🏖️ Created leave requests (pending annual & approved sick)`);
+  ];
+
+  for (const lr of leaveRequestsData) {
+    await prisma.leaveRequest.create({ data: lr });
+  }
+  console.log(`🏖️ Seeded leave requests (approved sick, rejected casual, pending annual)`);
+
+  // Build a set of approved leave days in format 'profileId_YYYY-MM-DD'
+  const approvedLeaveDays = new Set<string>();
+  for (const lr of leaveRequestsData) {
+    if (lr.status === "APPROVED") {
+      const start = new Date(lr.startDate);
+      const end = new Date(lr.endDate);
+      for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dStr = d.toISOString().split('T')[0];
+        approvedLeaveDays.add(`${lr.employeeProfileId}_${dStr}`);
+      }
+    }
+  }
+
+  // 22. Create HR Attendance records (Past 6 Months - natural data)
+  console.log("⏱️ Generating natural daily attendance records (past 6 months)...");
+  const attendanceRecords: any[] = [];
+  const attendanceStartDate = new Date("2025-12-15");
+  const attendanceEndDate = new Date("2026-06-14");
+
+  for (const email of Object.keys(profiles)) {
+    const prof = profiles[email];
+    
+    for (const d = new Date(attendanceStartDate); d <= attendanceEndDate; d.setDate(d.getDate() + 1)) {
+      const dayOfWeek = d.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) continue; // Skip weekends
+      
+      const dateStr = d.toISOString().split('T')[0];
+      const leaveKey = `${prof.id}_${dateStr}`;
+      
+      if (approvedLeaveDays.has(leaveKey)) {
+        attendanceRecords.push({
+          dateStr,
+          checkIn: null,
+          checkOut: null,
+          status: "ON_LEAVE",
+          checkoutSummary: "On approved leave.",
+          employeeProfileId: prof.id
+        });
+        continue;
+      }
+      
+      // Pseudo-random factor based on profile ID and date to vary behaviors
+      const seedVal = Math.sin(d.getTime() + prof.id.charCodeAt(0) + prof.id.charCodeAt(prof.id.length - 1)) * 10000;
+      const fraction = seedVal - Math.floor(seedVal);
+      
+      let status = "PRESENT";
+      let checkIn: Date | null = null;
+      let checkOut: Date | null = null;
+      let checkoutSummary = "Completed routine dashboard checklist & tasks.";
+      
+      if (fraction < 0.03) {
+        status = "ABSENT";
+        checkoutSummary = "Absent from work.";
+      } else if (fraction < 0.12) {
+        status = "LATE";
+        // Late check-in: 09:15 AM to 10:05 AM
+        const lateMin = Math.floor(fraction * 50) + 15;
+        checkIn = new Date(`${dateStr}T09:${lateMin < 10 ? '0' + lateMin : lateMin}:15Z`);
+        checkOut = new Date(`${dateStr}T18:05:00Z`);
+        checkoutSummary = "Arrived late due to commute delay. Handled delayed follow-ups.";
+      } else {
+        // Present check-in: 08:35 AM to 08:58 AM
+        const presMin = Math.floor(fraction * 23) + 35;
+        checkIn = new Date(`${dateStr}T08:${presMin}:10Z`);
+        // Present check-out: 05:45 PM to 06:15 PM
+        const outMin = Math.floor(fraction * 30) + 45;
+        checkOut = new Date(`${dateStr}T17:${outMin}:45Z`);
+      }
+      
+      attendanceRecords.push({
+        dateStr,
+        checkIn,
+        checkOut,
+        status,
+        checkoutSummary,
+        employeeProfileId: prof.id
+      });
+    }
+  }
+
+  // Bulk create attendance logs in chunks of 100
+  const attendanceChunkSize = 100;
+  for (let i = 0; i < attendanceRecords.length; i += attendanceChunkSize) {
+    const chunk = attendanceRecords.slice(i, i + attendanceChunkSize);
+    await prisma.attendance.createMany({
+      data: chunk,
+      skipDuplicates: true
+    });
+  }
+  console.log(`⏱️ Populated 6 months of daily attendance logs (${attendanceRecords.length} records) for all employees.`);
 
   // 23. Log Work Activities
   await prisma.activityLog.create({
@@ -610,15 +732,20 @@ async function main() {
   });
   console.log(`⭐ Seeded employee performance review cards`);
 
-  // 25. Populate Payrolls (Last 3 Months)
-  const payrollMonths = ["2026-03", "2026-04", "2026-05"];
+  // 25. Populate Payrolls (Last 6 Months - natural data)
+  const payrollMonths = ["2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05"];
   for (const prof of Object.values(profiles)) {
     const base = prof.salary || 10000;
-    const allowance = base * 0.1;
-    const deduction = base * 0.02;
-    const net = base + allowance - deduction;
-
+    
     for (const m of payrollMonths) {
+      const monthInt = parseInt(m.split("-")[1]);
+      // Vary calculations slightly based on month index to make data natural
+      const seedNoise = Math.sin(prof.salary + monthInt) * 150;
+      
+      const allowance = Math.round((base * 0.05) + Math.abs(seedNoise));
+      const deduction = Math.round((base * 0.012) + Math.abs(seedNoise * 0.1));
+      const net = base + allowance - deduction;
+      
       await prisma.payroll.create({
         data: {
           month: m,
@@ -633,7 +760,7 @@ async function main() {
       });
     }
   }
-  console.log(`💳 Seeded payroll histories (last 3 months) for all workers`);
+  console.log(`💳 Seeded payroll histories (last 6 months with allowances/deductions) for all workers`);
 
   // 26. Create Tasks Kanban Board
   await prisma.task.create({
