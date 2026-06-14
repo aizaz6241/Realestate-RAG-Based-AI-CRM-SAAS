@@ -32,7 +32,20 @@ export class EvidenceAuthorityEngine {
     this.logger.log(`[Evidence Authority Engine] Enforcing Database priority for metric/count query.`);
     
     // Calculate accurate counts from database rows
-    const dbRowsCount = dbRows.length;
+    let dbRowsCount = dbRows.length;
+    if (dbRows.length === 1 && dbRows[0] && typeof dbRows[0] === 'object') {
+      const firstRow = dbRows[0];
+      if (firstRow._count !== undefined) {
+        if (typeof firstRow._count === 'number') {
+          dbRowsCount = firstRow._count;
+        } else if (typeof firstRow._count === 'object' && firstRow._count !== null) {
+          const values = Object.values(firstRow._count);
+          if (values.length > 0 && typeof values[0] === 'number') {
+            dbRowsCount = values[0] as number;
+          }
+        }
+      }
+    }
     
     // Build direct authority directive instructions
     return `

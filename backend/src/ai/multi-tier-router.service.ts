@@ -13,7 +13,7 @@ export class MultiTierRouterService {
     // ==========================================
     // TIER 0: Regex Router (Counts)
     // ==========================================
-    if (/^how many employees\??$/i.test(q) || /^employee count\??$/i.test(q) || /^how many staff members\??$/i.test(q) || /^how many staff\??$/i.test(q)) {
+    if (/how many employees/i.test(q) || /employee count/i.test(q) || /how many staff members/i.test(q) || /how many staff/i.test(q) || /total employees/i.test(q)) {
       this.logger.log(`[Multi-Tier Router] Tier 0 Match: Employee Count`);
       return {
         nodes: [
@@ -36,7 +36,7 @@ export class MultiTierRouterService {
       };
     }
 
-    if (/^how many properties\??$/i.test(q) || /^properties count\??$/i.test(q) || /^total properties\??$/i.test(q)) {
+    if (/how many properties/i.test(q) || /properties count/i.test(q) || /total properties/i.test(q)) {
       this.logger.log(`[Multi-Tier Router] Tier 0 Match: Property Count`);
       return {
         nodes: [
@@ -59,7 +59,7 @@ export class MultiTierRouterService {
       };
     }
 
-    if (/^how many leads\??$/i.test(q) || /^total leads\??$/i.test(q)) {
+    if (/how many leads/i.test(q) || /total leads/i.test(q)) {
       this.logger.log(`[Multi-Tier Router] Tier 0 Match: Lead Count`);
       return {
         nodes: [

@@ -93,12 +93,13 @@ async function runTests() {
     );
 
     console.log('Response returned to user:', resA.response);
-    console.log('Total database records returned:', resA.toolData?.length);
+    const resultCount = resA.toolData?.count !== undefined ? resA.toolData.count : resA.toolData?.length;
+    console.log('Total database records returned:', resultCount);
     
-    if (resA.toolData?.length === 5) {
+    if (resultCount === 5) {
       console.log('✅ TEST A PASSED: Exactly 5 employee profiles returned. Cross-tenant leakage was blocked!');
     } else {
-      console.error(`❌ TEST A FAILED: Expected 5 profiles, got ${resA.toolData?.length}`);
+      console.error(`❌ TEST A FAILED: Expected 5 profiles, got ${resultCount}`);
     }
 
     console.log('\n=========================================');

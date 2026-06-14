@@ -969,23 +969,38 @@ Matches the language of the user's query. Keep it short, professional, and clear
           try {
             const fallbackTool = this.planningEngineService['deduceEntityFromQuery'](gatewayOutput.query);
             let mappedTool = 'searchProperties';
-            if (fallbackTool === 'employeeprofile') mappedTool = 'searchEmployees';
-            if (fallbackTool === 'attendance') mappedTool = 'getAttendanceRecord';
-            if (fallbackTool === 'leaverequest') mappedTool = 'getLeaveRequests';
-            if (fallbackTool === 'task') mappedTool = 'getTasksBoard';
-            if (fallbackTool === 'lead' || fallbackTool === 'client') mappedTool = 'searchClients';
-            if (fallbackTool === 'payroll') mappedTool = 'getFinanceAnalytics';
+            let fallbackParams = node.params?.filters || {};
+            
+            // Check if this is an aggregate query
+            const isAggregate = node.params?.operation === 'aggregate';
+            
+            if (isAggregate) {
+              mappedTool = 'runQueryPlan';
+              fallbackParams = {
+                operation: 'aggregate',
+                entities: [fallbackTool],
+                metrics: node.params?.metrics || ['count'],
+                filters: node.params?.filters || {}
+              };
+            } else {
+              if (fallbackTool === 'employeeprofile') mappedTool = 'searchEmployees';
+              if (fallbackTool === 'attendance') mappedTool = 'getAttendanceRecord';
+              if (fallbackTool === 'leaverequest') mappedTool = 'getLeaveRequests';
+              if (fallbackTool === 'task') mappedTool = 'getTasksBoard';
+              if (fallbackTool === 'lead' || fallbackTool === 'client') mappedTool = 'searchClients';
+              if (fallbackTool === 'payroll') mappedTool = 'getFinanceAnalytics';
+            }
 
             const fallbackData = await this.dbToolsService.executeDatabaseTool(
               mappedTool,
-              node.params?.filters || {},
+              fallbackParams,
               organizationId,
               userRole,
               userId
             );
 
             if (fallbackData && !fallbackData.error) {
-              const rows = Array.isArray(fallbackData) ? fallbackData : [fallbackData];
+              const rows = fallbackData.rows ? fallbackData.rows : (Array.isArray(fallbackData) ? fallbackData : [fallbackData]);
               res = {
                 rows,
                 verified: true,
@@ -1009,7 +1024,11 @@ Matches the language of the user's query. Keep it short, professional, and clear
         }
 
         emitTraceStep(9, "SQL_PIPELINE_END", res.errors.length > 0 ? "FAILED" : "SUCCESS", node.params || {}, { rowsCount: res.rows.length, verified: res.verified, confidenceScore: res.confidenceScore, queriesRun: res.queriesRun, errors: res.errors }, sqlStartTime);
-        sqlResultsCollector.push(res);
+        sqlResultsCollector.push({
+          ...res,
+          nodeType: node.type,
+          operation: node.params?.operation
+        });
       };
 
       const runRagStep = async (node: any) => {
@@ -1065,8 +1084,13 @@ Matches the language of the user's query. Keep it short, professional, and clear
 
       // MAP-REDUCE FUSION OF RESULTS COLLECTORS
       if (sqlResultsCollector.length > 0) {
+        const listResults = sqlResultsCollector.filter(r => r.nodeType !== 'COUNT' && r.operation !== 'aggregate');
+        let mergedRows = sqlResultsCollector.flatMap(r => r.rows || []);
+        if (listResults.length > 0) {
+          mergedRows = listResults.flatMap(r => r.rows || []);
+        }
         dbResult = {
-          rows: sqlResultsCollector.flatMap(r => r.rows || []),
+          rows: mergedRows,
           verified: sqlResultsCollector.every(r => r.verified ?? true),
           confidenceScore: Math.min(...sqlResultsCollector.map(r => r.confidenceScore ?? 100)),
           tablesUsed: Array.from(new Set(sqlResultsCollector.flatMap(r => r.tablesUsed || []))),
@@ -1274,11 +1298,54 @@ Recommendations: ${JSON.stringify(execAnalysis.recommendations)}`;
 
       emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, { response: cleanedResponse, toolExecuted: dbResult.tablesUsed[0] || null, citationsCount: citations.length, totalLatency: Date.now() - startTime }, startTime);
 
+      const extractCountHelper = (rows: any[]): number => {
+        if (!rows || rows.length === 0) return 0;
+        const first = rows[0];
+        if (!first || typeof first !== 'object') return 0;
+        if (first._count !== undefined) {
+          if (typeof first._count === 'number') return first._count;
+          if (typeof first._count === 'object' && first._count !== null) {
+            const vals = Object.values(first._count);
+            if (vals.length > 0 && typeof vals[0] === 'number') {
+              return vals[0] as number;
+            }
+          }
+        }
+        return rows.length;
+      };
+
+      let formattedToolData: any = dbResult.rows;
+      const hasCountNode = (executionPlan.nodes || []).some(n => n.type === 'COUNT' || n.params?.operation === 'aggregate');
+      const hasListNode = (executionPlan.nodes || []).some(n => n.type === 'LIST' || n.params?.operation === 'fetch');
+
+      if (hasCountNode && !hasListNode) {
+        formattedToolData = {
+          type: "AGGREGATE",
+          count: extractCountHelper(sqlResultsCollector.flatMap(r => r.rows || []))
+        };
+      } else if (hasListNode && !hasCountNode) {
+        formattedToolData = {
+          type: "ENTITY_LIST",
+          rows: dbResult.rows
+        };
+      } else if (hasCountNode && hasListNode) {
+        const countObj = sqlResultsCollector.find(r => r.nodeType === 'COUNT' || r.operation === 'aggregate');
+        const countVal = countObj ? extractCountHelper(countObj.rows) : 0;
+        formattedToolData = {
+          type: "ENTITY_LIST",
+          rows: dbResult.rows,
+          aggregate: {
+            type: "AGGREGATE",
+            count: countVal
+          }
+        };
+      }
+
       return {
         response: cleanedResponse,
         spokenResponse: finalSpoken,
         toolExecuted: dbResult.tablesUsed[0] || null,
-        toolData: dbResult.rows,
+        toolData: formattedToolData,
         citations,
         visualization,
         workspaceState
@@ -1941,11 +2008,46 @@ Output ONLY 'PASS' or 'RETRY: <discrepancies>' - do not add any other text.`;
 
     const visualization = this.selectSmartVisualization(toolExecuted || '', toolData, userMessage);
 
+    let formattedToolData: any = toolData;
+    if (toolData) {
+      const isCountQuery = userMessage.toLowerCase().includes('how many') || userMessage.toLowerCase().includes('count') || userMessage.toLowerCase().includes('total');
+      const hasCountNode = isCountQuery || (toolExecuted === 'runQueryPlan' && primaryResult?.query?.includes('(aggregate)'));
+      const extractCountHelper = (rows: any[]): number => {
+        if (!rows || rows.length === 0) return 0;
+        const first = rows[0];
+        if (!first || typeof first !== 'object') return 0;
+        if (first._count !== undefined) {
+          if (typeof first._count === 'number') return first._count;
+          if (typeof first._count === 'object' && first._count !== null) {
+            const vals = Object.values(first._count);
+            if (vals.length > 0 && typeof vals[0] === 'number') {
+              return vals[0] as number;
+            }
+          }
+        }
+        return rows.length;
+      };
+
+      if (hasCountNode) {
+        const rows = toolData.rows ? toolData.rows : (Array.isArray(toolData) ? toolData : [toolData]);
+        formattedToolData = {
+          type: "AGGREGATE",
+          count: extractCountHelper(rows)
+        };
+      } else {
+        const rows = toolData.rows ? toolData.rows : (Array.isArray(toolData) ? toolData : [toolData]);
+        formattedToolData = {
+          type: "ENTITY_LIST",
+          rows: rows
+        };
+      }
+    }
+
     return {
       response: cleanedResponse,
       spokenResponse: finalSpoken,
       toolExecuted,
-      toolData,
+      toolData: formattedToolData,
       citations,
       visualization,
       workspaceState
