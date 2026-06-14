@@ -661,6 +661,7 @@ Instructions:
   "metrics": ["field1", ...], // Optional array for aggregates (e.g. netSalary, baseSalary, price, budget)
   "take": 50
 }
+3. DO NOT CREATE FILTERS FOR GENERIC NOUNS: Do not add search or equality filters for generic nouns like "employee", "client", "tenant", "landlord", "owner", or "property" (e.g., trying to filter employee name by "employee") unless the user explicitly specifies a real name (like "Sarah"), location, status, or specific ID. Keep the filters empty or focused only on active status/dates for general questions.
 
 Return ONLY raw JSON matching the format. Do not include markdown code block tags.`;
 
