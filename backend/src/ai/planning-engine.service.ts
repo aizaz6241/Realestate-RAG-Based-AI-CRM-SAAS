@@ -172,14 +172,37 @@ Do not write markdown backticks or wrappers. Return raw JSON only.`;
 
   private deduceEntityFromQuery(query: string): string {
     const q = query.toLowerCase();
-    if (q.includes('property') || q.includes('listing')) return 'property';
-    if (q.includes('employee') || q.includes('staff')) return 'employeeprofile';
-    if (q.includes('task') || q.includes('todo')) return 'task';
+    if (q.includes('leave') || q.includes('chutti') || q.includes('vacation')) return 'leaverequest';
+    if (q.includes('attendance') || q.includes('hazri') || q.includes('late') || q.includes('absent') || q.includes('present')) return 'attendance';
+    if (q.includes('payroll') || q.includes('salary') || q.includes('paisa') || q.includes('pay')) return 'payroll';
+    if (q.includes('vehicle') || q.includes('gari') || q.includes('car')) {
+      if (q.includes('maintenance') || q.includes('repair') || q.includes('kharcha')) return 'vehiclemaintenance';
+      return 'vehicle';
+    }
+    if (q.includes('maintenance') || q.includes('repair')) return 'vehiclemaintenance';
+    if (q.includes('logistics') || q.includes('delivery') || q.includes('route') || q.includes('schedule')) return 'logisticsschedule';
+    if (q.includes('owner') || q.includes('landlord') || q.includes('malik')) return 'owner';
+    if (q.includes('viewing') || q.includes('visit') || q.includes('dikhana')) return 'clientviewing';
+    if (q.includes('interest') || q.includes('like') || q.includes('pasand')) return 'clientpropertyinterest';
+    if (q.includes('activity') || q.includes('lead timeline')) return 'leadactivity';
+    if (q.includes('event') || q.includes('meeting') || q.includes('calendar')) return 'calendarevent';
+    if (q.includes('key') || q.includes('chabi')) {
+      if (q.includes('checkout') || q.includes('return')) return 'keycheckout';
+      return 'keytracker';
+    }
+    if (q.includes('checkout') || q.includes('return')) return 'keycheckout';
+    if (q.includes('employee document') || q.includes('staff file') || q.includes('resume') || q.includes('cv') || q.includes('passport') || q.includes('visa')) return 'employeedocument';
+    if (q.includes('performance') || q.includes('appraisal') || q.includes('rating') || q.includes('review')) return 'performancereview';
+    if (q.includes('price history') || q.includes('past price') || q.includes('price change')) return 'propertypricehistory';
+    if (q.includes('owner document') || q.includes('landlord file') || q.includes('owner paper')) return 'ownerdocument';
+    if (q.includes('owner call') || q.includes('owner email') || q.includes('owner communication') || q.includes('owner chat')) return 'ownercommunication';
+    if (q.includes('client call') || q.includes('client email') || q.includes('client communication') || q.includes('client chat')) return 'clientcommunication';
+    if (q.includes('driver') || q.includes('license')) return 'driverprofile';
+    if (q.includes('task') || q.includes('todo') || q.includes('checklist')) return 'task';
     if (q.includes('lead')) return 'lead';
-    if (q.includes('client') || q.includes('buyer')) return 'client';
-    if (q.includes('attendance')) return 'attendance';
-    if (q.includes('leave')) return 'leaverequest';
-    if (q.includes('payroll') || q.includes('salary')) return 'payroll';
+    if (q.includes('client') || q.includes('buyer') || q.includes('investor') || q.includes('budget')) return 'client';
+    if (q.includes('employee') || q.includes('staff') || q.includes('agent') || q.includes('designation')) return 'employeeprofile';
+    if (q.includes('property') || q.includes('listing') || q.includes('apartment') || q.includes('villa') || q.includes('rent') || q.includes('sale')) return 'property';
     return 'property';
   }
 }

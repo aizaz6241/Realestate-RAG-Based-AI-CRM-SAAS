@@ -710,9 +710,45 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
   validateAndOptimizeQuery(queryPlan: any, userRole: string): { isValid: boolean; errorMsg?: string; optimizedPlan: any } {
     this.logger.log(`[Layer 4 & 5: Validation & Optimization] Validating Prisma query plan parameters`);
 
+    if (!queryPlan || !Array.isArray(queryPlan.entities)) {
+      return {
+        isValid: false,
+        errorMsg: 'Malformed Query Plan: No entities defined.',
+        optimizedPlan: null
+      };
+    }
+
+    // Auto-correct / normalize entity keys
+    const correctedEntities: string[] = [];
+    const validTables = Object.keys(SCHEMA_REGISTRY.tables); // lowercase keys
+
+    for (const ent of queryPlan.entities) {
+      if (typeof ent !== 'string') continue;
+      const cleanEnt = ent.toLowerCase().replace(/_/g, '').replace(/-/g, '').trim();
+      
+      if (validTables.includes(cleanEnt)) {
+        correctedEntities.push(cleanEnt);
+      } else {
+        // Advanced smart correction mapping for close variations
+        let matched = false;
+        for (const tbl of validTables) {
+          if (tbl.includes(cleanEnt) || cleanEnt.includes(tbl)) {
+            correctedEntities.push(tbl);
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) {
+          correctedEntities.push(cleanEnt);
+        }
+      }
+    }
+
+    const optimized = { ...queryPlan, entities: correctedEntities };
+
     // Validation checks
     const unauthorizedEntities = ['payroll'];
-    if (queryPlan.entities.some(e => unauthorizedEntities.includes(e))) {
+    if (optimized.entities.some(e => unauthorizedEntities.includes(e))) {
       const isAuthorized = ['SUPER_ADMIN', 'ADMIN', 'HR', 'FINANCE'].includes(userRole);
       if (!isAuthorized) {
         return {
@@ -723,8 +759,8 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
       }
     }
 
-    const logisticsEntities = ['vehicle', 'logisticsschedule'];
-    if (queryPlan.entities.some(e => logisticsEntities.includes(e))) {
+    const logisticsEntities = ['vehicle', 'logisticsschedule', 'vehiclemaintenance'];
+    if (optimized.entities.some(e => logisticsEntities.includes(e))) {
       const isAuthorized = ['SUPER_ADMIN', 'ADMIN', 'LOGISTICS'].includes(userRole);
       if (!isAuthorized) {
         return {
@@ -736,7 +772,7 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
     }
 
     // Block modifications - only read queries allowed
-    if (queryPlan.operation === 'delete' || queryPlan.operation === 'update' || queryPlan.operation === 'create') {
+    if (optimized.operation === 'delete' || optimized.operation === 'update' || optimized.operation === 'create') {
       return {
         isValid: false,
         errorMsg: 'Security Violation: Database retrieval pipeline is strictly READ ONLY. Alter/Delete statements blocked.',
@@ -745,7 +781,6 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
     }
 
     // Optimization step
-    const optimized = { ...queryPlan };
     if (!optimized.take) {
       optimized.take = 25; // Limit scan sizes
     }
