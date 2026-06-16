@@ -59,7 +59,7 @@ interface Stats {
   apiCostEstimate: number;
   totalPendingRent: number;
   apiRequests: {
-    ollama: number;
+    openrouter: number;
     gemini: number;
     openai: number;
     total: number;
@@ -336,7 +336,7 @@ export default function SaasAdminDashboard() {
   const statsPending = stats?.totalPendingRent ?? 0;
   
   const apiRequestsTotal = stats?.apiRequests?.total ?? 0;
-  const apiRequestsOllama = stats?.apiRequests?.ollama ?? 0;
+  const apiRequestsOpenrouter = stats?.apiRequests?.openrouter ?? 0;
   const apiRequestsGemini = stats?.apiRequests?.gemini ?? 0;
   const apiRequestsOpenai = stats?.apiRequests?.openai ?? 0;
 
@@ -582,14 +582,14 @@ export default function SaasAdminDashboard() {
                   <div className="border-t border-border/20 w-full"></div>
                 </div>
 
-                {/* Ollama Bar */}
+                {/* OpenRouter Bar */}
                 <div className="flex flex-col items-center gap-2 z-10 w-16">
-                  <span className="text-[10px] font-extrabold text-gray-300">{apiRequestsOllama.toLocaleString()}</span>
+                  <span className="text-[10px] font-extrabold text-gray-300">{apiRequestsOpenrouter.toLocaleString()}</span>
                   <div 
                     className="w-10 bg-indigo-500/20 hover:bg-indigo-500/40 border border-indigo-500/35 rounded-t-xl transition-all duration-500 shadow-md"
-                    style={{ height: `${apiRequestsTotal > 0 ? Math.max(15, (apiRequestsOllama / apiRequestsTotal) * 140) : 25}px` }}
+                    style={{ height: `${apiRequestsTotal > 0 ? Math.max(15, (apiRequestsOpenrouter / apiRequestsTotal) * 140) : 25}px` }}
                   />
-                  <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">Ollama</span>
+                  <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider">OpenRouter</span>
                 </div>
 
                 {/* Gemini Bar */}

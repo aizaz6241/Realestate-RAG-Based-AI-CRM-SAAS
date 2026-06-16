@@ -55,13 +55,13 @@ export class SaasAdminService {
       }
     });
 
-    let ollamaRequests = 0;
+    let openrouterRequests = 0;
     let geminiRequests = 0;
     let openaiRequests = 0;
 
     apiUsageAgg.forEach(agg => {
       const count = agg._sum.requestCount || 0;
-      if (agg.serviceName === 'Ollama') ollamaRequests = count;
+      if (agg.serviceName === 'OpenRouter') openrouterRequests = count;
       else if (agg.serviceName === 'Gemini') geminiRequests = count;
       else if (agg.serviceName === 'OpenAI') openaiRequests = count;
     });
@@ -133,10 +133,10 @@ export class SaasAdminService {
       apiCostEstimate: parseFloat(apiCostEstimate.toFixed(2)),
       totalPendingRent,
       apiRequests: {
-        ollama: ollamaRequests,
+        openrouter: openrouterRequests,
         gemini: geminiRequests,
         openai: openaiRequests,
-        total: ollamaRequests + geminiRequests + openaiRequests
+        total: openrouterRequests + geminiRequests + openaiRequests
       },
       monthlyRevenueTrend
     };

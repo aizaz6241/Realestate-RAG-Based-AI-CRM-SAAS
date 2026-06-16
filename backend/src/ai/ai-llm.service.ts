@@ -72,12 +72,12 @@ export class AiLlmService {
   }
 
   getLocalLlmUrl(): string {
-    const url = process.env.LOCAL_LLM_URL || 'http://localhost:11434/v1';
+    const url = process.env.LOCAL_LLM_URL || 'https://openrouter.ai/api/v1';
     return url.replace(/^["']|["']$/g, '').trim();
   }
 
   getLocalLlmModel(): string {
-    const model = process.env.LOCAL_LLM_MODEL || 'llama3.1';
+    const model = process.env.LOCAL_LLM_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b:free';
     return model.replace(/^["']|["']$/g, '').trim();
   }
 
@@ -238,7 +238,7 @@ export class AiLlmService {
     if (mode === 'hybrid' || mode === 'local_only') {
       const localEmbedding = await this.generateLocalEmbedding(text);
       if (localEmbedding) {
-        await this.logApiUsage(organizationId, userId, "Ollama", this.getLocalLlmEmbeddingModel(), "EMBEDDING", text.length, 0);
+        await this.logApiUsage(organizationId, userId, "OpenRouter", this.getLocalLlmEmbeddingModel(), "EMBEDDING", text.length, 0);
         return localEmbedding;
       }
     }
@@ -458,7 +458,7 @@ export class AiLlmService {
     if (tier === 'local') {
       try {
         const localResult = await this.callLocalLLM(systemPrompt, userPrompt, history);
-        await this.logApiUsage(organizationId, userId, "Ollama", this.getLocalLlmModel(), "TEXT_GENERATION", totalPromptLength, localResult.length);
+        await this.logApiUsage(organizationId, userId, "OpenRouter", this.getLocalLlmModel(), "TEXT_GENERATION", totalPromptLength, localResult.length);
         return localResult;
       } catch (err) {
         this.logger.warn(`Local LLM failed or offline. Falling back to Cloud suite...`);
@@ -560,7 +560,7 @@ export class AiLlmService {
     try {
       this.logger.warn(`Cloud suite completely failed. Attempting last resort fallback to Local/OpenRouter LLM...`);
       const localResult = await this.callLocalLLM(systemPrompt, userPrompt, history);
-      await this.logApiUsage(organizationId, userId, "Ollama", this.getLocalLlmModel(), "TEXT_GENERATION", totalPromptLength, localResult.length);
+      await this.logApiUsage(organizationId, userId, "OpenRouter", this.getLocalLlmModel(), "TEXT_GENERATION", totalPromptLength, localResult.length);
       return localResult;
     } catch (err) {
       this.logger.error(`Last resort Local/OpenRouter LLM fallback failed: ${err.message}`);
