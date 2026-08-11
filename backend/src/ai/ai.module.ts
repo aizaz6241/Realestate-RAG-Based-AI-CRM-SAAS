@@ -1,6 +1,13 @@
 import { Module } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { AiLlmService } from './ai-llm.service';
+import { VectorStoreService } from './vector-store.service';
+import { FactVerifierService } from './fact-verifier.service';
+import { QueryCacheService } from './query-cache.service';
+import { PermissionService } from './permission.service';
+import { ActionExecutorService } from './actions/action-executor.service';
+import { ActionPlannerService } from './actions/action-planner.service';
+import { UnifiedPlannerService } from './unified-planner.service';
 import { AiValidationService } from './ai-validation.service';
 import { AiAgentsService } from './ai-agents.service';
 import { AiDatabaseToolsService } from './ai-database-tools.service';
@@ -41,6 +48,13 @@ import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
   providers: [
     AiService,
     AiLlmService,
+    VectorStoreService,
+    FactVerifierService,
+    UnifiedPlannerService,
+    QueryCacheService,
+    PermissionService,
+    ActionExecutorService,
+    ActionPlannerService,
     AiValidationService,
     AiAgentsService,
     AiDatabaseToolsService,
@@ -69,6 +83,13 @@ import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
   exports: [
     AiService,
     AiLlmService,
+    VectorStoreService,
+    FactVerifierService,
+    UnifiedPlannerService,
+    QueryCacheService,
+    PermissionService,
+    ActionExecutorService,
+    ActionPlannerService,
     AiValidationService,
     AiAgentsService,
     AiDatabaseToolsService,

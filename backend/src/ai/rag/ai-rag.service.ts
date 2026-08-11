@@ -81,21 +81,47 @@ export class AiRagService {
     const chunks = this.ingestionService.chunkDocument(rawText);
     this.logger.log(`Created ${chunks.length} text chunks for document: ${fileName}`);
 
-    // 4. Generate embeddings and save each chunk in database
+    // 4. Embed and persist in batches.
+    //
+    // This used to be one embedding call + one INSERT per chunk, sequentially. For
+    // a 50-page PDF that is ~200 embedding round trips plus 200 separate inserts to
+    // Neon in us-east-1 — minutes of wall clock for a single upload. Now each batch
+    // embeds concurrently and lands as one multi-row INSERT.
+    //
+    // The insert is raw SQL because `embedding` is a pgvector column, which the
+    // Prisma client cannot write through the typed API.
+    const BATCH_SIZE = 20;
     let createdCount = 0;
-    for (const chunk of chunks) {
-      const embedding = await this.llmService.generateEmbedding(chunk.content, organizationId, authorId);
-      
-      // Store chunk along with page/paragraph metadata
-      await this.prisma.aiDocumentChunk.create({
-        data: {
-          content: chunk.content,
-          embedding,
-          metadata: chunk.metadata,
-          documentId: document.id,
-        },
+
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batch = chunks.slice(i, i + BATCH_SIZE);
+      const vectors = await this.llmService.generateEmbeddingsBatch(
+        batch.map(c => c.content),
+        organizationId,
+        authorId
+      );
+
+      const values: string[] = [];
+      const params: any[] = [];
+      batch.forEach((chunk, j) => {
+        const base = params.length;
+        values.push(`(gen_random_uuid(), $${base + 1}, $${base + 2}::vector, $${base + 3}::jsonb, $${base + 4}, NOW())`);
+        params.push(
+          chunk.content,
+          `[${vectors[j].join(',')}]`,
+          JSON.stringify(chunk.metadata ?? {}),
+          document.id
+        );
       });
-      createdCount++;
+
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO "AiDocumentChunk" (id, content, embedding, metadata, "documentId", "createdAt")
+         VALUES ${values.join(', ')}`,
+        ...params
+      );
+
+      createdCount += batch.length;
+      this.logger.log(`Indexed ${createdCount}/${chunks.length} chunks for "${fileName}".`);
     }
 
     const latencyMs = Date.now() - startTime;

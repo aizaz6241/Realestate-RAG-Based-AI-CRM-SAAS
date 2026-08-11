@@ -3,3 +3,6 @@ node_modules
 .env
 
 /generated/prisma
+
+# Generated AI traces (learning + observability). Runtime data, not source.
+ai-logs/

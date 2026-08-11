@@ -57,10 +57,14 @@ export class ResultFusionService {
     let conflicts: string[] = [];
     let isConsistent = true;
 
-    const skipCrossValidation = dbRows.length === 0 || docChunks.length === 0;
+    // Off by default: this is an extra LLM round trip on the critical path, and the
+    // composer is already instructed that live database rows outrank document text.
+    // Enable with AI_CROSS_VALIDATION=true when auditing document/DB drift.
+    const crossValidationEnabled = (process.env.AI_CROSS_VALIDATION || '').toLowerCase() === 'true';
+    const skipCrossValidation = !crossValidationEnabled || dbRows.length === 0 || docChunks.length === 0;
 
     if (skipCrossValidation) {
-      this.logger.log(`[Cross Validation Skipped] Skipping LLM contradiction check since dbRowsCount=${dbRows.length}, docChunksCount=${docChunks.length}`);
+      this.logger.log(`[Cross Validation Skipped] enabled=${crossValidationEnabled}, dbRows=${dbRows.length}, docChunks=${docChunks.length}`);
     } else {
       // Priority: Live Database > Approved Documents > Archived Documents
       const crossValidationPrompt = `You are the Zorvex AI V9 Cross Validation Engine.
@@ -180,8 +184,14 @@ Do not write markdown backticks. Return raw JSON only.`;
     }`);
 
     // 3. Construct Grounded Evidence string
+    //
+    // This was `JSON.stringify(dbRows, null, 2)` over every row, uncapped. With
+    // take: 50 and nested relations that runs to 10k+ tokens of pretty-printed JSON
+    // — the single largest contributor to composer latency, and most of it was
+    // padding: two-space indentation, null fields, and UUIDs the composer is
+    // explicitly instructed never to print.
     const dbFeed = dbRows.length > 0
-      ? `Database Records:\n${JSON.stringify(dbRows, null, 2)}`
+      ? `Database Records (${dbRows.length} row(s)):\n${this.compactRowsForPrompt(dbRows)}`
       : 'No relevant database records found.';
     
     const docFeed = docChunks.length > 0
@@ -223,5 +233,63 @@ ${directives}
       finalConfidence,
       groundedEvidence
     };
+  }
+
+  /**
+   * Serializes rows for the composer prompt as compactly as possible without
+   * losing anything the answer needs.
+   *
+   * - compact JSON, no indentation
+   * - drops null/undefined/empty fields
+   * - drops bare UUID values, which the composer is instructed never to print and
+   *   which cost ~12 tokens each
+   * - caps the row count, stating the true total so the composer can still report it
+   *
+   * The full row set stays available to the grounding verifier, which checks against
+   * `dbResult.rows` rather than this string — so trimming the prompt cannot cause a
+   * legitimate value to be flagged as fabricated.
+   */
+  private compactRowsForPrompt(rows: any[], maxRows = 25): string {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    const strip = (value: any, depth = 0): any => {
+      if (value == null || depth > 4) return undefined;
+
+      if (typeof value === 'string') {
+        if (!value.trim()) return undefined;
+        if (UUID_RE.test(value)) return undefined;
+        return value;
+      }
+
+      if (typeof value === 'number' || typeof value === 'boolean') return value;
+
+      if (value instanceof Date) return value.toISOString().slice(0, 10);
+
+      if (Array.isArray(value)) {
+        const out = value.map(v => strip(v, depth + 1)).filter(v => v !== undefined);
+        return out.length ? out : undefined;
+      }
+
+      if (typeof value === 'object') {
+        const out: Record<string, any> = {};
+        for (const [k, v] of Object.entries(value)) {
+          // Foreign keys are UUIDs by another name — the joined object carries the
+          // human-readable data the answer actually needs.
+          if (/Id$/.test(k) && typeof v === 'string' && UUID_RE.test(v)) continue;
+          const cleaned = strip(v, depth + 1);
+          if (cleaned !== undefined) out[k] = cleaned;
+        }
+        return Object.keys(out).length ? out : undefined;
+      }
+
+      return undefined;
+    };
+
+    const shown = rows.slice(0, maxRows).map(r => strip(r)).filter(r => r !== undefined);
+    const json = JSON.stringify(shown);
+
+    return rows.length > maxRows
+      ? `${json}\n(Showing the first ${maxRows} of ${rows.length} rows. The true total is ${rows.length} — report that figure, not ${maxRows}.)`
+      : json;
   }
 }

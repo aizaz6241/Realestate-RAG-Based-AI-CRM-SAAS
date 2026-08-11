@@ -7,6 +7,18 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "db:action-log": "node prisma/sql/run-sql.js prisma/sql/002_ai_action_log.sql",
+    "db:pgvector": "node prisma/sql/run-sql.js prisma/sql/001_pgvector.sql",
+    "ai:gen-schema": "ts-node src/ai/scripts/generate-schema-meta.ts",
+    "ai:inspect-schema": "ts-node src/ai/scripts/inspect-registry.ts",
+    "ai:test-actions": "ts-node src/ai/scripts/test-actions.ts",
+    "ai:test-coercion": "ts-node src/ai/scripts/test-filter-coercion.ts",
+    "ai:test-permissions": "ts-node src/ai/scripts/test-permissions.ts",
+    "ai:doctor": "ts-node src/ai/scripts/ai-doctor.ts",
+    "ai:bench": "ts-node src/ai/scripts/bench-pipeline.ts",
+    "ai:test-verifier": "ts-node src/ai/scripts/verify-fact-checker.ts",
+    "ai:validate-examples": "ts-node src/ai/scripts/validate-examples.ts",
+    "ai:bench-models": "ts-node src/ai/scripts/bench-models.ts",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -20,6 +32,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@hey-api/client-fetch": "^0.13.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.2",
@@ -35,6 +48,7 @@
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
     "pdf-parse": "^2.4.5",
+    "pgsql-ast-parser": "^12.0.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3"

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { ZorvexGateway } from './zorvex.gateway';
+import { QueryCacheService } from './query-cache.service';
 
 const DUBAI_PROXIMITY_MAP: Record<string, string[]> = {
   'marina': ['JBR', 'Palm Jumeirah', 'JLT', 'Al Sufouh', 'Jumeirah Beach Residence', 'Jumeirah Lake Towers'],
@@ -42,10 +43,25 @@ function getNearbyLocations(location: string): string[] {
 export class AiDatabaseToolsService {
   private readonly logger = new Logger(AiDatabaseToolsService.name);
 
+  /**
+   * Which cached tables each mutating tool invalidates.
+   *
+   * Keep this in sync when adding a write tool — a missing entry means the
+   * assistant can create a task and then, seconds later, answer "you have no
+   * tasks" from cache.
+   */
+  private static readonly WRITE_TOOL_TABLES: Record<string, string[]> = {
+    createTask: ['task'],
+    updateTask: ['task'],
+    createMeeting: ['calendarevent', 'meeting'],
+    updateLeadStatus: ['lead', 'leadactivity'],
+  };
+
   constructor(
     private prisma: PrismaService,
     private calendarService: CalendarService,
-    private zorvexGateway: ZorvexGateway
+    private zorvexGateway: ZorvexGateway,
+    private queryCache: QueryCacheService
   ) {}
 
   stripGenericName(name: string): string | undefined {
@@ -234,10 +250,17 @@ export class AiDatabaseToolsService {
     const isAuthorized = this.checkToolAuthorization(toolName, userRole);
     if (!isAuthorized) {
       this.logger.warn(`Security Warning: User with role ${userRole} attempted unauthorized execution of tool ${toolName}`);
-      return { 
+      return {
         error: `ACCESS_DENIED`,
         message: `Clearance Required: Your user profile (${userRole}) is not cleared to access secure finance databases.`
       };
+    }
+
+    // Any write must drop cached reads of the affected tables, otherwise the next
+    // question returns a pre-write answer that contradicts the action just taken.
+    const writeTargets = AiDatabaseToolsService.WRITE_TOOL_TABLES[toolName];
+    if (writeTargets) {
+      this.queryCache.invalidateTables(writeTargets);
     }
 
     try {

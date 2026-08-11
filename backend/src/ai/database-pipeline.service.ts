@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiLlmService } from './ai-llm.service';
+import { selectExamples, renderExamples } from './query-examples';
 import { TenantIsolationService } from './tenant-isolation.service';
+import { PermissionService } from './permission.service';
+import { coerceFilters, CoercionNote } from './filter-coercion';
 
 export interface DatabasePipelineResult {
   rows: any[];
@@ -14,425 +17,36 @@ export interface DatabasePipelineResult {
   parseError?: string;
   generatedPlan?: any;
   validationResult?: any;
+  /** Set when the original filters returned nothing and a broader retry succeeded. */
+  broadened?: { droppedFilters: string[]; rowCount: number } | null;
+  /** Human-readable notes about filters that were coerced or dropped. */
+  filterRepairs?: string[];
 }
 
 // Layer 1: Schema Registry
-/*
-// ROLLBACK BACKUP: ORIGINAL SCHEMA_REGISTRY
-export const SCHEMA_REGISTRY = {
-  tables: {
-    property: {
-      name: 'Property',
-      description: 'Real estate listings for rent or sale.',
-      columns: {
-        id: 'uuid primary key',
-        title: 'title or name of listing',
-        type: 'APARTMENT, VILLA, COMMERCIAL, PLOT',
-        status: 'DRAFT, PUBLISHED, SOLD, RENTED, AVAILABLE',
-        listingType: 'RENT, SALE',
-        price: 'asking price or rental amount (AED)',
-        location: 'geographical location (e.g. Dubai Marina, JVC, Downtown)',
-        bedrooms: 'number of bedrooms',
-        bathrooms: 'number of bathrooms',
-        areaSqft: 'total area in square feet',
-        ownerId: 'link to landlord/owner profile'
-      }
-    },
-    employeeprofile: {
-      name: 'EmployeeProfile',
-      description: 'Internal staff members and designations.',
-      columns: {
-        id: 'uuid primary key',
-        userId: 'associated user account link',
-        department: 'department (e.g., Sales, HR, Finance, Logistics)',
-        designation: 'job title (e.g. agent, manager, COO)',
-        salary: 'monthly base salary',
-        status: 'ACTIVE, ON_LEAVE, TERMINATED'
-      }
-    },
-    attendance: {
-      name: 'Attendance',
-      description: 'Daily check-in logs for employee attendance.',
-      columns: {
-        id: 'uuid primary key',
-        dateStr: 'format YYYY-MM-DD',
-        checkIn: 'timestamp',
-        checkOut: 'timestamp',
-        status: 'PRESENT, LATE, ABSENT, ON_LEAVE',
-        employeeProfileId: 'link to employee profile'
-      }
-    },
-    payroll: {
-      name: 'Payroll',
-      description: 'Monthly payroll salary batches disbursed to employees.',
-      columns: {
-        id: 'uuid primary key',
-        month: 'format YYYY-MM',
-        baseSalary: 'base salary amount',
-        allowances: 'bonus/allowance amount',
-        deductions: 'deducted amount',
-        netSalary: 'net payout',
-        status: 'PAID, UNPAID',
-        employeeProfileId: 'link to employee profile'
-      }
-    },
-    task: {
-      name: 'Task',
-      description: 'Task checklists and todos assigned to staff.',
-      columns: {
-        id: 'uuid primary key',
-        title: 'title of the task',
-        status: 'PENDING, IN_PROGRESS, COMPLETED',
-        dueDate: 'timestamp when task is due',
-        assignedToId: 'link to user assigned'
-      }
-    },
-    lead: {
-      name: 'Lead',
-      description: 'Open sales leads and prospects.',
-      columns: {
-        id: 'uuid primary key',
-        name: 'lead name',
-        status: 'NEW, CONTACTED, ENGAGED, DISQUALIFIED, CLOSED',
-        score: 'lead score index',
-        assignedToId: 'user assigned to broker this lead'
-      }
-    },
-    client: {
-      name: 'Client',
-      description: 'CRM Clients profiles representing buyers/tenants/investors.',
-      columns: {
-        id: 'uuid primary key',
-        name: 'client name',
-        type: 'BUYER, SELLER, INVESTOR',
-        stage: 'INQUIRY, VIEWING, OFFER, CLOSED',
-        budget: 'target investment/rental budget (AED)'
-      }
-    }
-  }
-};
-*/
+//
+// Moved out of this file into schema-registry.ts, which merges three sources:
+//   - schema-dictionary.ts        (44 tables + natural-language synonyms)
+//   - schema-meta.generated.ts    (parsed from prisma/schema.prisma: allowed values
+//                                  for status/type columns, types, relation graph)
+//   - curated per-column notes
+//
+// The previous inline copy covered 25 tables, had no synonyms, declared only 4
+// relationships, and had to be hand-edited to stay in step with Prisma. Re-exported
+// here so existing importers keep working unchanged.
+export {
+  SCHEMA_REGISTRY,
+  SCHEMA_RELATION_REGISTRY,
+  getEnumValues,
+  resolveTableSynonym,
+  buildTableCatalogue,
+} from './schema-registry';
 
-export const SCHEMA_REGISTRY = {
-  tables: {
-    property: {
-      name: 'Property',
-      description: 'Real estate listings for rent or sale.',
-      columns: {
-        id: 'uuid primary key',
-        title: 'title or name of listing',
-        type: 'APARTMENT, VILLA, COMMERCIAL, PLOT',
-        status: 'DRAFT, PUBLISHED, SOLD, RENTED, AVAILABLE',
-        listingType: 'RENT, SALE',
-        price: 'asking price or rental amount (AED)',
-        location: 'geographical location (e.g. Dubai Marina, JVC, Downtown)',
-        bedrooms: 'number of bedrooms',
-        bathrooms: 'number of bathrooms',
-        areaSqft: 'total area in square feet',
-        ownerId: 'link to landlord/owner profile'
-      }
-    },
-    employeeprofile: {
-      name: 'EmployeeProfile',
-      description: 'Internal staff members and designations.',
-      columns: {
-        id: 'uuid primary key',
-        userId: 'associated user account link',
-        department: 'department (e.g., Sales, HR, Finance, Logistics)',
-        designation: 'job title (e.g. agent, manager, COO)',
-        salary: 'monthly base salary',
-        status: 'ACTIVE, ON_LEAVE, TERMINATED',
-        user: 'Relation to User. To search by name, use: { user: { name: { contains: "Aizaz" } } }'
-      }
-    },
-    attendance: {
-      name: 'Attendance',
-      description: 'Daily check-in logs for employee attendance.',
-      columns: {
-        id: 'uuid primary key',
-        dateStr: 'format YYYY-MM-DD',
-        checkIn: 'timestamp',
-        checkOut: 'timestamp',
-        status: 'PRESENT, LATE, ABSENT, ON_LEAVE',
-        employeeProfileId: 'link to employee profile',
-        employeeProfile: 'Relation to EmployeeProfile. To search by employee name, use: { employeeProfile: { user: { name: { contains: "Aizaz" } } } }'
-      }
-    },
-    payroll: {
-      name: 'Payroll',
-      description: 'Monthly payroll salary batches disbursed to employees.',
-      columns: {
-        id: 'uuid primary key',
-        month: 'format YYYY-MM',
-        baseSalary: 'base salary amount',
-        allowances: 'bonus/allowance amount',
-        deductions: 'deducted amount',
-        netSalary: 'net payout',
-        status: 'PAID, UNPAID',
-        employeeProfileId: 'link to employee profile',
-        employeeProfile: 'Relation to EmployeeProfile. To search by employee name, use: { employeeProfile: { user: { name: { contains: "Aizaz" } } } }'
-      }
-    },
-    task: {
-      name: 'Task',
-      description: 'Task checklists and todos assigned to staff.',
-      columns: {
-        id: 'uuid primary key',
-        title: 'title of the task',
-        status: 'PENDING, IN_PROGRESS, COMPLETED',
-        dueDate: 'timestamp when task is due',
-        assignedToId: 'link to user assigned'
-      }
-    },
-    lead: {
-      name: 'Lead',
-      description: 'Open sales leads and prospects.',
-      columns: {
-        id: 'uuid primary key',
-        name: 'lead name',
-        status: 'NEW, CONTACTED, ENGAGED, DISQUALIFIED, CLOSED',
-        score: 'lead score index',
-        assignedToId: 'user assigned to broker this lead'
-      }
-    },
-    client: {
-      name: 'Client',
-      description: 'CRM Clients profiles representing buyers/tenants/investors.',
-      columns: {
-        id: 'uuid primary key',
-        name: 'client name',
-        type: 'BUYER, SELLER, INVESTOR',
-        stage: 'INQUIRY, VIEWING, OFFER, CLOSED',
-        budget: 'target investment/rental budget (AED)'
-      }
-    },
-    leaverequest: {
-      name: 'LeaveRequest',
-      description: 'Employee leave requests and vacation status.',
-      columns: {
-        id: 'uuid primary key',
-        startDate: 'start date of leave (timestamp)',
-        endDate: 'end date of leave (timestamp)',
-        type: 'leave type (SICK, CASUAL, ANNUAL, UNPAID)',
-        status: 'approval status (PENDING, APPROVED, REJECTED)',
-        reason: 'reason explanation for leave Request',
-        employeeProfileId: 'link to employee profile',
-        employeeProfile: 'Relation to EmployeeProfile. To search by employee name, use: { employeeProfile: { user: { name: { contains: "Aizaz" } } } }'
-      }
-    },
-    vehicle: {
-      name: 'Vehicle',
-      description: 'Fleet vehicles for logistics or client property viewings.',
-      columns: {
-        id: 'uuid primary key',
-        modelName: 'model or brand name of vehicle',
-        plateNumber: 'unique vehicle plate registration number',
-        status: 'status (ACTIVE, MAINTENANCE, OUT_OF_SERVICE)'
-      }
-    },
-    vehiclemaintenance: {
-      name: 'VehicleMaintenance',
-      description: 'Maintenance and repair logs for fleet vehicles.',
-      columns: {
-        id: 'uuid primary key',
-        description: 'details of maintenance/repair work',
-        cost: 'total maintenance cost (AED)',
-        status: 'status of request (PENDING, COMPLETED, CANCELLED)',
-        requestDate: 'date requested (timestamp)',
-        vehicleId: 'link to vehicle'
-      }
-    },
-    logisticsschedule: {
-      name: 'LogisticsSchedule',
-      description: 'Logistics pickup and drop transport schedules.',
-      columns: {
-        id: 'uuid primary key',
-        visitDate: 'date/time of logistics trip (timestamp)',
-        pickupLocation: 'pickup address location description',
-        dropLocation: 'destination address location description',
-        status: 'trip status (SCHEDULED, IN_TRANSIT, COMPLETED, CANCELLED)',
-        driverId: 'link to driver profile',
-        vehicleId: 'link to vehicle'
-      }
-    },
-    owner: {
-      name: 'Owner',
-      description: 'Property owners, landlords, or property sellers.',
-      columns: {
-        id: 'uuid primary key',
-        name: 'name of landlord or owner',
-        phone: 'phone contact number',
-        email: 'email address of owner',
-        status: 'status (ACTIVE, INACTIVE)',
-        kycVerified: 'boolean value indicating if KYC is verified'
-      }
-    },
-    clientviewing: {
-      name: 'ClientViewing',
-      description: 'Property viewing visits scheduled for potential clients.',
-      columns: {
-        id: 'uuid primary key',
-        viewingDate: 'date and time of viewing visit (timestamp)',
-        feedback: 'client feedback text comments',
-        status: 'status of viewing (SCHEDULED, COMPLETED, CANCELLED)',
-        clientId: 'link to client profile',
-        propertyId: 'link to property listing'
-      }
-    },
-    clientpropertyinterest: {
-      name: 'ClientPropertyInterest',
-      description: 'Mapping of clients who show specific interest in properties.',
-      columns: {
-        id: 'uuid primary key',
-        clientId: 'link to client profile',
-        propertyId: 'link to property listing'
-      }
-    },
-    leadactivity: {
-      name: 'LeadActivity',
-      description: 'Communication activities timeline log for a lead.',
-      columns: {
-        id: 'uuid primary key',
-        type: 'activity type (CALL, EMAIL, NOTES, STATUS_CHANGE)',
-        description: 'summary of what happened during activity',
-        activityDate: 'date of activity (timestamp)',
-        leadId: 'link to lead'
-      }
-    },
-    calendarevent: {
-      name: 'CalendarEvent',
-      description: 'Internal meetings, schedules, and events.',
-      columns: {
-        id: 'uuid primary key',
-        title: 'title of the meeting or event',
-        description: 'detailed description of meeting',
-        startTime: 'start time of meeting (timestamp)',
-        endTime: 'end time of meeting (timestamp)',
-        location: 'room name or address location description'
-      }
-    },
-    keytracker: {
-      name: 'KeyTracker',
-      description: 'Real estate physical keys tracking records.',
-      columns: {
-        id: 'uuid primary key',
-        keyTag: 'unique key tag reference (e.g. KEY-DHA-42)',
-        status: 'current status (IN_OFFICE, CHECKED_OUT, LOST)',
-        propertyId: 'link to property listing'
-      }
-    },
-    keycheckout: {
-      name: 'KeyCheckout',
-      description: 'Audit trails of checked out property keys by staff.',
-      columns: {
-        id: 'uuid primary key',
-        checkoutDate: 'date keys were checked out (timestamp)',
-        returnDate: 'date keys were returned (timestamp)',
-        keyId: 'link to key tracker record',
-        userId: 'link to user who checked out'
-      }
-    },
-    employeedocument: {
-      name: 'EmployeeDocument',
-      description: 'Employee professional files, Emirates IDs, resumes, contracts.',
-      columns: {
-        id: 'uuid primary key',
-        name: 'document name (e.g. Resume, Emirates ID)',
-        category: 'document category (ID, CONTRACT, RESUME, OTHER)',
-        fileUrl: 'file storage URL string',
-        uploadedAt: 'date uploaded (timestamp)',
-        employeeProfileId: 'link to employee profile'
-      }
-    },
-    performancereview: {
-      name: 'PerformanceReview',
-      description: 'Performance reviews, ratings, and appraisals for staff.',
-      columns: {
-        id: 'uuid primary key',
-        reviewDate: 'date of review (timestamp)',
-        rating: 'review rating stars index (1 to 5)',
-        feedback: 'detailed review appraisal comments text',
-        employeeProfileId: 'link to employee profile review target'
-      }
-    },
-    propertypricehistory: {
-      name: 'PropertyPriceHistory',
-      description: 'Historical listing price changes audit logs for properties.',
-      columns: {
-        id: 'uuid primary key',
-        price: 'historical listed price amount (AED)',
-        changeDate: 'date price was changed (timestamp)',
-        propertyId: 'link to property listing'
-      }
-    },
-    ownerdocument: {
-      name: 'OwnerDocument',
-      description: 'KYC, agreements, title deeds, and POA files uploaded for landlords.',
-      columns: {
-        id: 'uuid primary key',
-        name: 'document name (Emirates ID, Title Deed, POA)',
-        fileUrl: 'file storage URL string',
-        uploadedAt: 'date uploaded (timestamp)',
-        ownerId: 'link to property owner landlord'
-      }
-    },
-    ownercommunication: {
-      name: 'OwnerCommunication',
-      description: 'Logs of historical communications (calls, emails) with landlords.',
-      columns: {
-        id: 'uuid primary key',
-        type: 'communication type (CALL, EMAIL, MEETING, WHATSAPP)',
-        summary: 'summary details of conversation',
-        date: 'date of communication (timestamp)',
-        ownerId: 'link to property owner landlord'
-      }
-    },
-    clientcommunication: {
-      name: 'ClientCommunication',
-      description: 'Logs of historical communications (calls, emails) with CRM clients.',
-      columns: {
-        id: 'uuid primary key',
-        type: 'communication type (CALL, EMAIL, MEETING, WHATSAPP)',
-        summary: 'summary details of conversation',
-        date: 'date of communication (timestamp)',
-        clientId: 'link to client profile'
-      }
-    },
-    driverprofile: {
-      name: 'DriverProfile',
-      description: 'Driver credentials, licenses, and availability statuses.',
-      columns: {
-        id: 'uuid primary key',
-        licenseNumber: 'driver license identification number',
-        status: 'status (AVAILABLE, BUSY, OFF_DUTY)',
-        employeeProfileId: 'link to employee profile'
-      }
-    }
-  }
-};
-
-export const SCHEMA_RELATION_REGISTRY = {
-  employeeprofile: {
-    relations: {
-      user: { model: 'user', foreignKey: 'userId', fields: ['firstName', 'lastName', 'email', 'role', 'name'] }
-    }
-  },
-  property: {
-    relations: {
-      owner: { model: 'owner', foreignKey: 'ownerId', fields: ['name', 'phone'] }
-    }
-  },
-  lead: {
-    relations: {
-      assignedTo: { model: 'user', foreignKey: 'assignedToId', fields: ['firstName', 'lastName'] }
-    }
-  },
-  task: {
-    relations: {
-      assignedTo: { model: 'user', foreignKey: 'assignedToId', fields: ['firstName', 'lastName'] }
-    }
-  }
-};
+import {
+  SCHEMA_REGISTRY,
+  SCHEMA_RELATION_REGISTRY,
+  getEnumValues,
+} from './schema-registry';
 
 @Injectable()
 export class DatabasePipelineService {
@@ -531,7 +145,8 @@ export class DatabasePipelineService {
   constructor(
     private prisma: PrismaService,
     private llmService: AiLlmService,
-    private tenantIsolationService: TenantIsolationService
+    private tenantIsolationService: TenantIsolationService,
+    private permissionService: PermissionService
   ) {}
 
   // Layer 2: Semantic Mapping Engine
@@ -643,14 +258,27 @@ export class DatabasePipelineService {
       }
     }
 
+    // Few-shot examples. A schema dump alone tells the model what columns exist but
+    // not what a correct plan looks like for this codebase — so it invents shapes.
+    // Worked examples from the same tables fix most of that, and selection here is
+    // lexical, so it adds no latency.
+    const examples = selectExamples(queryText, mappedEntities, 4);
+    const exampleBlock = examples.length > 0
+      ? `\n=== VERIFIED EXAMPLES (follow these shapes exactly) ===\n${renderExamples(examples)}\n`
+      : '';
+
     const nlsPrompt = `You are the Zorvex AI V9 NL-to-SQL & Query Plan Generator (Layer 3).
 Convert the user request query step into a structured database query plan parameters object for Prisma.
+
+=== CURRENT DATE ===
+Today is ${new Date().toISOString().slice(0, 10)}. Resolve every relative date range
+("this month", "last week", "is mahine") into concrete ISO date strings.
 
 User Query: "${queryText}"
 Target Models: ${JSON.stringify(mappedEntities)}
 Schema Registry:
 ${JSON.stringify(schemaSub, null, 2)}
-
+${exampleBlock}
 Instructions:
 1. Translate the user query into valid filters, groupby, metrics, and operation options.
 2. The plan must output parameters matching this format:
@@ -750,29 +378,19 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
 
     const optimized = { ...queryPlan, entities: correctedEntities };
 
-    // Validation checks
-    const unauthorizedEntities = ['payroll'];
-    if (optimized.entities.some(e => unauthorizedEntities.includes(e))) {
-      const isAuthorized = ['SUPER_ADMIN', 'ADMIN', 'HR', 'FINANCE'].includes(userRole);
-      if (!isAuthorized) {
-        return {
-          isValid: false,
-          errorMsg: 'Clearance Required: Your user profile is not cleared to access secure finance databases.',
-          optimizedPlan: null
-        };
-      }
-    }
-
-    const logisticsEntities = ['vehicle', 'logisticsschedule', 'vehiclemaintenance'];
-    if (optimized.entities.some(e => logisticsEntities.includes(e))) {
-      const isAuthorized = ['SUPER_ADMIN', 'ADMIN', 'LOGISTICS'].includes(userRole);
-      if (!isAuthorized) {
-        return {
-          isValid: false,
-          errorMsg: 'Clearance Required: Your user profile is not cleared to access secure logistics databases.',
-          optimizedPlan: null
-        };
-      }
+    // Table-level access, from permission-registry.ts.
+    //
+    // This replaces two hardcoded role arrays that covered only 'payroll' and the
+    // three logistics tables — every other table was readable by any role that
+    // reached this point. The registry covers all 44 tables and fails closed on an
+    // unrecognised role.
+    const access = this.permissionService.checkTables(userRole, optimized.entities);
+    if (!access.allowed) {
+      return {
+        isValid: false,
+        errorMsg: `Clearance Required: ${access.reason}`,
+        optimizedPlan: null
+      };
     }
 
     // Block modifications - only read queries allowed
@@ -894,28 +512,36 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
       const model = this.prisma[modelKey];
       const rawWhereClause = this.tenantIsolationService.injectTenantFilter(ent, cleanFilters, organizationId);
 
-      // Role boundaries injection
-      if (userRole === 'AGENT') {
-        if (['lead', 'task', 'client'].includes(ent.toLowerCase())) {
-          rawWhereClause.assignedToId = userId;
-        }
-      }
+      // Row-level scoping from permission-registry.ts.
+      //
+      // Was a hardcoded AGENT check covering lead/task/client. It also assigned
+      // `rawWhereClause.assignedToId = userId` directly, overwriting any existing
+      // condition on that field — the registry version ANDs instead, so a filter can
+      // never widen the scope.
+      const scopedWhere = this.permissionService.applyRowLevelSecurity(
+        userRole, ent, rawWhereClause, userId
+      );
 
       // Filter sanitization to prevent Prisma crashes on invalid schema properties (e.g. from raw planner custom operations)
       const whereClause: any = {};
       const schemaCols = SCHEMA_REGISTRY.tables[ent.toLowerCase()]?.columns;
       if (schemaCols) {
-        const allowedKeys = [...Object.keys(schemaCols), 'organizationId', 'assignedToId', 'userId', 'OR', 'AND', 'NOT'];
-        // Also allow relations that we have defined includes for
-        const relKeys = ['owner', 'user', 'assignedTo', 'employeeProfile', 'vehicle', 'driver', 'client', 'property', 'key'];
-        const allAllowed = allowedKeys.concat(relKeys);
-        for (const k of Object.keys(rawWhereClause)) {
+        // Relation names now come from the generated relation graph rather than a
+        // hardcoded list of nine, which silently dropped any filter that traversed a
+        // relation outside it.
+        const relKeys = Object.keys(SCHEMA_RELATION_REGISTRY[ent.toLowerCase()]?.relations ?? {});
+        const allAllowed = [
+          ...Object.keys(schemaCols),
+          'organizationId', 'assignedToId', 'userId', 'OR', 'AND', 'NOT',
+          ...relKeys,
+        ];
+        for (const k of Object.keys(scopedWhere)) {
           if (allAllowed.includes(k)) {
-            whereClause[k] = rawWhereClause[k];
+            whereClause[k] = scopedWhere[k];
           }
         }
       } else {
-        Object.assign(whereClause, rawWhereClause);
+        Object.assign(whereClause, scopedWhere);
       }
 
       try {
@@ -1085,17 +711,28 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
             }
           }
 
-          // Salary masking rule
-          if (ent.toLowerCase() === 'employeeprofile') {
-            const canViewSalaries = ['SUPER_ADMIN', 'ADMIN', 'HR', 'FINANCE'].includes(userRole);
-            const sanitized = rows.map((emp: any) => {
-              const copy = { ...emp };
-              if (!canViewSalaries && emp.userId !== userId) {
-                copy.salary = "CONFIDENTIAL (Access Denied)";
-              }
-              return copy;
-            });
-            results.push(...sanitized);
+          // Column redaction from permission-registry.ts.
+          //
+          // The old rule was a shallow `salary` mask on employeeprofile only, applied
+          // to top-level rows. It missed the case that matters: `salary` arriving
+          // through a relation (attendance/payroll -> employeeProfile.salary), where
+          // it was returned in full to any role that could read the parent table. It
+          // also had no notion of passwordHash, which was reachable through the
+          // `user` relation. redactRows walks nested objects, so both are covered.
+          //
+          // Own-record exemption is preserved: you can always see your own salary.
+          const restricted = this.permissionService.getRestrictedColumns(userRole, ent);
+          if (restricted.length > 0) {
+            const ownRows: any[] = [];
+            const otherRows: any[] = [];
+            for (const row of rows) {
+              // employeeprofile.userId identifies whose record this is.
+              (row?.userId && row.userId === userId ? ownRows : otherRows).push(row);
+            }
+            results.push(
+              ...ownRows,
+              ...this.permissionService.redactRows(userRole, ent, otherRows)
+            );
           } else {
             results.push(...rows);
           }
@@ -1165,49 +802,262 @@ Return ONLY raw JSON matching the format. Do not include markdown code block tag
     return Math.max(0, Math.min(100, confidence));
   }
 
-  // Layer 4.5: LLM Pre-Execution Validation (Critic)
-  async validateQueryWithLLM(
-    queryText: string,
-    planParams: any,
-    organizationId: string,
-    userId: string
-  ): Promise<{ isValid: boolean; fixedParams?: any; errorMsg?: string }> {
-    this.logger.log(`[Layer 4.5: LLM Pre-Execution Validation] Validating plan against schema`);
-    const schemaSub: any = {};
-    for (const ent of (planParams.entities || [])) {
-      if (SCHEMA_REGISTRY.tables[ent.toLowerCase()]) {
-        schemaSub[ent.toLowerCase()] = SCHEMA_REGISTRY.tables[ent.toLowerCase()];
+  /**
+   * Layer 4.5: schema validation of a generated query plan.
+   *
+   * This was an LLM call ("Strict Syntax & Security Reviewer") whose entire brief was
+   * to confirm that the tables named in `entities` exist and the fields used in
+   * `filters` / `groupBy` / `metrics` are real columns on those tables. That is a set
+   * membership test against SCHEMA_REGISTRY — no judgement involved — so it ran here
+   * in microseconds instead of a network round trip.
+   *
+   * It also removes a correctness trap: on a parse failure the old critic returned
+   * `{ isValid: true }`, so a flaky model silently waved bad plans through.
+   *
+   * Returns a precise errorMsg naming the offending field and suggesting the closest
+   * real column, which is what the repair step needs to fix it in one shot.
+   */
+  /**
+   * Rewrites SQL-flavoured artefacts in a generated plan into the shape this
+   * pipeline expects, before validation runs.
+   *
+   * Models naturally reach for SQL when asked to express a query, so they emit
+   * `metrics: ["count(id)"]` or `["SUM(price)"]` even when shown counter-examples.
+   * Rejecting that and burning a repair call is worse than just translating it:
+   * the intent is unambiguous.
+   *
+   * `count(...)` is dropped entirely — with `operation: 'aggregate'` the row count
+   * is what the executor already returns, so a metrics entry for it is redundant.
+   */
+  normalizeGeneratedPlan(planParams: any): any {
+    if (!planParams || typeof planParams !== 'object') return planParams;
+
+    const unwrap = (raw: any): string | null => {
+      const s = String(raw ?? '').trim();
+      if (!s) return null;
+
+      const fn = /^(count|sum|avg|average|min|max|total)\s*\(\s*([^)]*)\s*\)$/i.exec(s);
+      if (!fn) return s;
+
+      const [, func, inner] = fn;
+      const arg = inner.trim().replace(/^["'`]|["'`]$/g, '');
+
+      // COUNT(*) / COUNT(id) carry no column information worth keeping.
+      if (/^count$/i.test(func)) return null;
+      if (!arg || arg === '*') return null;
+
+      return arg;
+    };
+
+    const normalizeList = (value: any): string[] | undefined => {
+      if (!value) return undefined;
+      const list = Array.isArray(value) ? value : [value];
+      const out = list
+        .map(item => unwrap(typeof item === 'string' ? item : item?.field))
+        .filter((v): v is string => Boolean(v));
+      return out.length ? Array.from(new Set(out)) : undefined;
+    };
+
+    const normalized = { ...planParams };
+
+    const metrics = normalizeList(planParams.metrics);
+    if (metrics) normalized.metrics = metrics;
+    else delete normalized.metrics;
+
+    const groupBy = normalizeList(planParams.groupBy);
+    if (groupBy) normalized.groupBy = groupBy;
+    else delete normalized.groupBy;
+
+    // A count-shaped request with nothing left to aggregate is still an aggregate.
+    if (!normalized.metrics && /count/i.test(JSON.stringify(planParams.metrics ?? ''))) {
+      normalized.operation = 'aggregate';
+    }
+
+    if (Array.isArray(normalized.entities)) {
+      normalized.entities = normalized.entities.map((e: any) => String(e).toLowerCase().trim());
+    }
+
+    return normalized;
+  }
+
+  validateQueryPlanAgainstSchema(
+    planParams: any
+  ): { isValid: boolean; errorMsg?: string } {
+    const problems: string[] = [];
+    const entities: string[] = (planParams?.entities || []).map((e: any) => String(e).toLowerCase());
+
+    if (entities.length === 0) {
+      return { isValid: false, errorMsg: 'The query plan names no tables in "entities".' };
+    }
+
+    // 1. Every table must exist.
+    const knownTables = Object.keys(SCHEMA_REGISTRY.tables);
+    const validEntities: string[] = [];
+    for (const ent of entities) {
+      if (SCHEMA_REGISTRY.tables[ent]) {
+        validEntities.push(ent);
+      } else {
+        const suggestion = this.closestMatch(ent, knownTables);
+        problems.push(
+          `Table "${ent}" does not exist.` +
+          (suggestion ? ` Did you mean "${suggestion}"?` : ` Valid tables: ${knownTables.slice(0, 12).join(', ')}...`)
+        );
       }
     }
-    
-    const prompt = `You are the Zorvex AI V9 Strict Syntax & Security Reviewer (Critic).
-Review the following Prisma Query Plan against the provided Schema Registry.
-Do NOT attempt to guess the user intent or change the meaning of the query. Your ONLY job is to verify schema matching.
-1. Ensure all tables in 'entities' exist in the schema.
-2. Ensure all fields in 'filters', 'groupBy', and 'metrics' exist EXACTLY as columns in those tables.
-3. If valid, return {"isValid": true}.
-4. If invalid (e.g. a column does not exist in the schema), DO NOT auto-fix it. Return {"isValid": false, "errorMsg": "Explain exactly which field is wrong and what table it belongs to so the Planner can fix it."}.
 
-Query Plan Parameters:
-${JSON.stringify(planParams, null, 2)}
-
-Available Schema:
-${JSON.stringify(schemaSub, null, 2)}
-
-Return ONLY raw JSON matching the structure: {"isValid": boolean, "errorMsg": string}. Do not use markdown blocks.`;
-
-    try {
-      const resText = await this.llmService.callLLM(prompt, "Validate Query", [], false, organizationId, userId);
-      const cleanJson = resText.trim();
-      const jsonStart = cleanJson.indexOf('{');
-      const jsonEnd = cleanJson.lastIndexOf('}');
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        return JSON.parse(cleanJson.substring(jsonStart, jsonEnd + 1));
-      }
-    } catch (e) {
-      this.logger.warn(`LLM Pre-Execution Validation failed to parse: ${e.message}`);
+    if (validEntities.length === 0) {
+      return { isValid: false, errorMsg: problems.join(' ') };
     }
-    return { isValid: true }; // Fallback to allow original if critic fails
+
+    // Field set for the selected tables, plus the relation graph so nested filters
+    // can be validated against the table they actually traverse into.
+    const { fields: allowedFields, relations: relationTargets } = this.describeTables(validEntities);
+
+    // Prisma operators and structural keys are not column names.
+    const structuralKeys = new Set([
+      'and', 'or', 'not', 'some', 'every', 'none', 'is', 'isnot',
+      'equals', 'in', 'notin', 'lt', 'lte', 'gt', 'gte', 'contains',
+      'startswith', 'endswith', 'mode', 'search', 'has', 'hasevery',
+      'hassome', 'isempty', 'select', 'include', 'where', 'orderby',
+      'take', 'skip', 'distinct', '_count', '_sum', '_avg', '_min', '_max',
+    ]);
+
+    // Relation-aware descent.
+    //
+    // A filter like { employeeProfile: { user: { firstName: ... } } } is legitimate — the
+    // schema documents it — but `user` is not a column on `attendance`. So when the
+    // walk crosses a relation, the allowed-field set switches to the related table's
+    // columns. Validating the whole nest against the root table's columns produced
+    // false positives, and each one would have triggered a needless repair call.
+    const checkFieldNames = (
+      obj: any,
+      path: string,
+      fields: Set<string>,
+      relations: Map<string, string>,
+      depth = 0
+    ) => {
+      if (!obj || typeof obj !== 'object' || depth > 6) return;
+      if (Array.isArray(obj)) {
+        obj.forEach(o => checkFieldNames(o, path, fields, relations, depth + 1));
+        return;
+      }
+
+      for (const key of Object.keys(obj)) {
+        const lower = key.toLowerCase();
+
+        // Prisma operators keep the current table context.
+        if (structuralKeys.has(lower)) {
+          checkFieldNames(obj[key], path, fields, relations, depth + 1);
+          continue;
+        }
+
+        // Crossing a relation: re-scope to the target table.
+        const target = relations.get(lower);
+        if (target) {
+          const scoped = this.describeTables([target]);
+          checkFieldNames(obj[key], `${path}.${key}`, scoped.fields, scoped.relations, depth + 1);
+          continue;
+        }
+
+        if (!fields.has(lower)) {
+          const suggestion = this.closestMatch(lower, Array.from(fields));
+          problems.push(
+            `Field "${key}" in ${path} is not a column on [${validEntities.join(', ')}].` +
+            (suggestion ? ` Closest real column is "${suggestion}".` : '')
+          );
+          continue;
+        }
+
+        checkFieldNames(obj[key], path, fields, relations, depth + 1);
+      }
+    };
+
+    checkFieldNames(planParams.filters, 'filters', allowedFields, relationTargets);
+
+    for (const key of ['groupBy', 'metrics'] as const) {
+      const value = planParams?.[key];
+      if (!value) continue;
+      const list = Array.isArray(value) ? value : [value];
+      for (const raw of list) {
+        const field = String(typeof raw === 'string' ? raw : raw?.field || '').toLowerCase();
+        if (!field || structuralKeys.has(field)) continue;
+        if (!allowedFields.has(field)) {
+          const suggestion = this.closestMatch(field, Array.from(allowedFields));
+          problems.push(
+            `Field "${field}" in ${key} is not a column on [${validEntities.join(', ')}].` +
+            (suggestion ? ` Closest real column is "${suggestion}".` : '')
+          );
+        }
+      }
+    }
+
+    if (problems.length > 0) {
+      this.logger.warn(`[Schema Validation] ${problems.length} problem(s): ${problems.join(' | ')}`);
+      return { isValid: false, errorMsg: problems.join(' ') };
+    }
+
+    return { isValid: true };
+  }
+
+  /**
+   * Collects the valid field names for a set of tables, plus a map of
+   * relationName -> targetTableKey so nested filters can be re-scoped.
+   *
+   * Relations are declared in two places, and both are honoured:
+   *   - SCHEMA_RELATION_REGISTRY, which names the target model explicitly
+   *   - column descriptions of the form "Relation to EmployeeProfile. ..." inside
+   *     SCHEMA_REGISTRY, which is how attendance/payroll document their links
+   */
+  private describeTables(entities: string[]): { fields: Set<string>; relations: Map<string, string> } {
+    const fields = new Set<string>();
+    const relations = new Map<string, string>();
+    const knownTables = Object.keys(SCHEMA_REGISTRY.tables);
+
+    for (const ent of entities) {
+      const def: any = SCHEMA_REGISTRY.tables[ent.toLowerCase()];
+      if (!def) continue;
+
+      for (const [colName, desc] of Object.entries(def.columns || {})) {
+        const lower = colName.toLowerCase();
+        fields.add(lower);
+
+        // "Relation to EmployeeProfile. To search by ..." -> employeeprofile
+        const match = /relation to ([a-z]+)/i.exec(String(desc));
+        if (match) {
+          const target = match[1].toLowerCase();
+          if (knownTables.includes(target)) relations.set(lower, target);
+        }
+      }
+
+      const relDef: any = (SCHEMA_RELATION_REGISTRY as any)[ent.toLowerCase()];
+      for (const [relName, rel] of Object.entries<any>(relDef?.relations || {})) {
+        const lower = relName.toLowerCase();
+        fields.add(lower);
+        const target = String(rel.model || '').toLowerCase();
+        if (knownTables.includes(target)) {
+          relations.set(lower, target);
+        } else {
+          // Target model is not in the registry (e.g. `user`), so its columns cannot
+          // be enumerated. Accept the declared field list instead of rejecting.
+          for (const f of (rel.fields || [])) fields.add(String(f).toLowerCase());
+        }
+      }
+    }
+
+    fields.delete('');
+    return { fields, relations };
+  }
+
+  /** Nearest candidate by edit distance, for actionable error messages. */
+  private closestMatch(needle: string, candidates: string[]): string | null {
+    let best: string | null = null;
+    let bestScore = Infinity;
+    for (const c of candidates) {
+      const d = this.levenshtein(needle, c);
+      if (d < bestScore) { bestScore = d; best = c; }
+    }
+    // Only suggest when it is plausibly a typo rather than a different concept.
+    return best && bestScore <= Math.max(2, Math.floor(needle.length / 3)) ? best : null;
   }
 
   async repairQueryPlan(
@@ -1295,19 +1145,57 @@ Do not use markdown blocks.`;
     }
     queriesRun.push(`Prisma Query Plan on [${plan.entities.join(', ')}]`);
 
-    // Layer 4.5: LLM Pre-Execution Validation (Critic) with Agentic Reflection Loop
-    let criticValidation = await this.validateQueryWithLLM(queryText, plan, organizationId, userId);
-    let retries = 0;
-    while (!criticValidation.isValid && retries < 2) {
-      this.logger.warn(`[Critic Reflection Loop] Invalid query plan detected. Retrying... Error: ${criticValidation.errorMsg}`);
-      plan = await this.repairQueryPlan(queryText, plan, criticValidation.errorMsg || 'Unknown schema error', organizationId, userId);
-      queriesRun.push(`[Critic Reflection] Repaired Prisma Query Plan on [${plan.entities?.join(', ') || 'unknown'}]`);
-      criticValidation = await this.validateQueryWithLLM(queryText, plan, organizationId, userId);
-      retries++;
+    // Layer 4.5: schema validation + repair.
+    //
+    // Validation is deterministic and free, so it runs first and runs every time.
+    // Only a genuine schema mismatch costs an LLM call, and then exactly one: the
+    // old loop alternated LLM-validate and LLM-repair up to 5 calls deep, on a
+    // check that never needed a model.
+    // Translate SQL-flavoured output (count(id), SUM(price)) before judging it —
+    // otherwise a perfectly clear intent costs a repair call.
+    plan = this.normalizeGeneratedPlan(plan);
+
+    // Repair filter values and aliased relation fields before validation.
+    //
+    // This is what stops the worst failure mode in the pipeline: a status value the
+    // enum does not contain (`status: 'OPEN'` against PENDING/APPROVED/REJECTED)
+    // returns zero rows, and zero rows is indistinguishable from truth downstream —
+    // the assistant then states "there are no pending leave requests" while one sits
+    // in the table.
+    const coercionNotes: CoercionNote[] = [];
+
+    const applyCoercion = (p: any) => {
+      if (!p?.filters || !p.entities?.length) return p;
+      const before = coercionNotes.length;
+      const { filters: repaired } = coerceFilters(p.entities[0], p.filters, coercionNotes);
+      p.filters = repaired;
+      for (const note of coercionNotes.slice(before)) {
+        this.logger.warn(`[Filter Repair] ${note.path}: ${JSON.stringify(note.from)} -> ${JSON.stringify(note.to)} (${note.reason})`);
+        queriesRun.push(`[Filter Repair] ${note.reason}`);
+      }
+      return p;
+    };
+
+    plan = applyCoercion(plan);
+
+    let criticValidation = this.validateQueryPlanAgainstSchema(plan);
+
+    if (!criticValidation.isValid) {
+      this.logger.warn(`[Schema Repair] Invalid plan: ${criticValidation.errorMsg}`);
+      plan = this.normalizeGeneratedPlan(
+        await this.repairQueryPlan(queryText, plan, criticValidation.errorMsg || 'Unknown schema error', organizationId, userId)
+      );
+      // The repaired plan needs the same treatment — it is fresh model output and
+      // reintroduces the same aliases. Observed live: the repair re-emitted
+      // `employeeProfile: { name: 'sara' }`, which then failed validation a second
+      // time and surfaced a raw schema error to the user.
+      plan = applyCoercion(plan);
+      queriesRun.push(`[Schema Repair] Repaired Prisma Query Plan on [${plan.entities?.join(', ') || 'unknown'}]`);
+      criticValidation = this.validateQueryPlanAgainstSchema(plan);
     }
 
     if (!criticValidation.isValid) {
-      this.logger.error(`[Critic Reflection Loop] Max retries reached. Query plan still invalid: ${criticValidation.errorMsg}`);
+      this.logger.error(`[Schema Repair] Plan still invalid after repair: ${criticValidation.errorMsg}`);
       errors.push(`AI Schema Validation Failed: ${criticValidation.errorMsg}`);
     }
 
@@ -1330,12 +1218,60 @@ Do not use markdown blocks.`;
     }
 
     // Layer 6: Execution
-    const rows = await this.executeDatabaseQuery(
+    let rows = await this.executeDatabaseQuery(
       validation.optimizedPlan,
       organizationId,
       userId,
       userRole
     );
+
+    // Layer 6.5: Agentic broadening.
+    //
+    // A zero-row result is ambiguous — it means either "no such record" or "my filter
+    // was wrong" — and the assistant has no way to tell them apart, so it confidently
+    // reports absence. That is how "are there open leave applications?" came back as
+    // "there are no pending leave requests" while a PENDING request existed.
+    //
+    // So on an empty result we retry once with the narrowing filters removed, and
+    // hand both outcomes to the composer: it can then say "nothing matched THAT, but
+    // here is what exists" instead of asserting the record does not exist.
+    let broadenedRows: any[] = [];
+    let droppedFilters: string[] = [];
+
+    if (rows.length === 0 && validation.optimizedPlan?.filters) {
+      const narrowing = Object.keys(validation.optimizedPlan.filters).filter(
+        k => !['organizationId', 'assignedToId', 'AND', 'OR', 'NOT'].includes(k)
+      );
+
+      if (narrowing.length > 0) {
+        this.logger.log(`[Agentic Retry] 0 rows with filters [${narrowing.join(', ')}] — retrying broader.`);
+
+        const broadPlan = {
+          ...validation.optimizedPlan,
+          // Keep only the security-critical scoping; drop what the model chose.
+          filters: Object.fromEntries(
+            Object.entries(validation.optimizedPlan.filters).filter(
+              ([k]) => ['organizationId', 'assignedToId'].includes(k)
+            )
+          ),
+          take: Math.min(validation.optimizedPlan.take ?? 25, 25),
+        };
+
+        try {
+          broadenedRows = await this.executeDatabaseQuery(broadPlan, organizationId, userId, userRole);
+          if (broadenedRows.length > 0) {
+            droppedFilters = narrowing;
+            queriesRun.push(`[Agentic Retry] Broadened by dropping [${narrowing.join(', ')}] — found ${broadenedRows.length} row(s)`);
+            this.logger.log(`[Agentic Retry] Broader query returned ${broadenedRows.length} row(s).`);
+            // Surface the broader set. Reporting "none" while related records exist is
+            // the more harmful error; the composer is told these are unfiltered.
+            rows = broadenedRows;
+          }
+        } catch (err) {
+          this.logger.warn(`[Agentic Retry] Broadened query failed: ${err.message}`);
+        }
+      }
+    }
 
     // Layer 7: Verification
     const verification = this.verifyResults(rows);
@@ -1362,7 +1298,15 @@ Do not use markdown blocks.`;
       rawLlmResponse: plan._rawLlmResponse,
       parseError: plan._parseError,
       generatedPlan: plan,
-      validationResult: validation
+      validationResult: validation,
+      // Set when the original filters matched nothing and the broadened retry did.
+      // The composer must say so rather than presenting these as an exact match.
+      broadened: droppedFilters.length > 0
+        ? { droppedFilters, rowCount: rows.length }
+        : null,
+      // Filters that were repaired or dropped as impossible, so the answer can
+      // explain why it is showing more than was literally asked for.
+      filterRepairs: coercionNotes.map(n => n.reason),
     };
   }
 }

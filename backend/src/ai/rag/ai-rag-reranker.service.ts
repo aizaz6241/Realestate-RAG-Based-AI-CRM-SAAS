@@ -8,7 +8,24 @@ export class AiRagRerankerService {
 
   constructor(private llmService: AiLlmService) {}
 
-  // Rerank candidates using LLM cognitive evaluation or fall back to hybrid search score
+  /**
+   * Lexical + structural reranking. No LLM call.
+   *
+   * This used to send every candidate chunk's full text to the model and ask for a
+   * relevance score per chunk. That is the single most expensive call in the RAG
+   * path — the prompt grows with the corpus slice, it costs a full round trip, and
+   * on a small model the returned scores were barely better than the RRF ordering
+   * that retrieval already produced.
+   *
+   * The signals below reproduce most of that ranking value for free:
+   *   - RRF score from hybrid retrieval (already fuses semantic + keyword rank)
+   *   - term coverage: how much of the query's content vocabulary the chunk contains
+   *   - phrase hit: exact multi-word overlap, which is strong evidence
+   *   - proximity: query terms appearing close together beats scattered mentions
+   *
+   * If you later want a genuine relevance model here, use a cross-encoder
+   * (e.g. bge-reranker) rather than a chat LLM — same job, ~20ms, no tokens.
+   */
   async rerank(
     query: string,
     candidates: RetrievedChunk[],
@@ -17,54 +34,78 @@ export class AiRagRerankerService {
   ): Promise<RetrievedChunk[]> {
     if (candidates.length <= 1) return candidates;
 
-    this.logger.log(`Executing cognitive reranker on ${candidates.length} chunks...`);
+    const terms = this.contentTerms(query);
+    const phrases = this.queryPhrases(query);
 
-    const systemPrompt = `You are a RAG Re-ranking engine for a real estate ERP.
-Analyze the user query and the provided document chunks. Score each chunk's relevance to answering the query on a scale of 0.0 (entirely irrelevant) to 10.0 (directly and completely answers the query).
-Output strictly a raw JSON array of objects, containing "index" (number) and "relevanceScore" (number).
-Example:
-[
-  {"index": 0, "relevanceScore": 9.2},
-  {"index": 1, "relevanceScore": 1.5}
-]
-Do not write markdown backticks. Output raw JSON only.`;
+    const scored = candidates.map(chunk => {
+      const haystack = chunk.content.toLowerCase();
 
-    const userPrompt = `User Query: "${query}"
-Retrieved Chunks:
-${candidates.map((c, idx) => `[Chunk ${idx}] (Source: ${c.documentName}):\n"${c.content}"`).join('\n\n')}`;
+      // Term coverage — fraction of distinct query terms present.
+      const hits = terms.filter(t => haystack.includes(t));
+      const coverage = terms.length ? hits.length / terms.length : 0;
 
-    try {
-      const resultText = await this.llmService.callLLM(systemPrompt, userPrompt, [], false, organizationId, userId);
-      const cleanRes = resultText.trim();
-      const jsonStart = cleanRes.indexOf('[');
-      const jsonEnd = cleanRes.lastIndexOf(']');
+      // Exact phrase matches are worth much more than scattered single terms.
+      const phraseHits = phrases.filter(p => haystack.includes(p)).length;
+      const phraseScore = phrases.length ? Math.min(1, phraseHits / phrases.length) : 0;
 
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        const scores = JSON.parse(cleanRes.substring(jsonStart, jsonEnd + 1)) as Array<{ index: number; relevanceScore: number }>;
-        
-        // Map scores back to chunks
-        const scoredChunks = candidates.map((chunk, idx) => {
-          const scoreObj = scores.find(s => s.index === idx);
-          const cognitiveScore = scoreObj ? scoreObj.relevanceScore / 10 : 0;
-          
-          // Hybrid re-ranked score: 60% LLM Cognitive Score, 40% initial RRF Score
-          const finalScore = 0.6 * cognitiveScore + 0.4 * chunk.rrfScore;
+      // Proximity — if all matched terms sit inside a tight window, the chunk is
+      // probably about the query rather than merely mentioning its words.
+      const proximity = this.proximityScore(haystack, hits);
 
-          return {
-            ...chunk,
-            score: finalScore
-          };
-        });
+      // rrfScore is ~1/60-scale; normalise it to roughly [0,1] before blending.
+      const normalizedRrf = Math.min(1, chunk.rrfScore * 30);
 
-        scoredChunks.sort((a, b) => b.score - a.score);
-        this.logger.log('Cognitive reranking applied successfully.');
-        return scoredChunks;
-      }
-    } catch (err) {
-      this.logger.warn(`Cognitive reranker failed: ${err.message}. Falling back to standard hybrid RRF ranking.`);
+      const finalScore =
+        0.45 * normalizedRrf +
+        0.25 * coverage +
+        0.20 * phraseScore +
+        0.10 * proximity;
+
+      return { ...chunk, score: finalScore };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    this.logger.log(`Lexical reranking applied to ${candidates.length} chunks (0 LLM calls).`);
+    return scored;
+  }
+
+  /** Query terms worth matching on — drops stopwords in English and Roman Urdu. */
+  private contentTerms(query: string): string[] {
+    const stop = new Set([
+      'the', 'a', 'an', 'is', 'are', 'was', 'were', 'of', 'for', 'to', 'in', 'on',
+      'and', 'or', 'what', 'which', 'who', 'how', 'many', 'much', 'me', 'my', 'our',
+      'show', 'list', 'give', 'tell', 'find', 'get', 'all', 'any', 'from', 'with',
+      'ka', 'ki', 'ke', 'ko', 'se', 'me', 'mein', 'hai', 'hain', 'kya', 'kaun',
+      'kitne', 'kitna', 'dikhao', 'batao', 'karo', 'kar', 'do', 'ap', 'aap',
+    ]);
+    return Array.from(new Set(
+      query.toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter(t => t.length > 2 && !stop.has(t))
+    ));
+  }
+
+  /** Adjacent content-term bigrams, used as approximate phrase probes. */
+  private queryPhrases(query: string): string[] {
+    const terms = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(t => t.length > 2);
+    const phrases: string[] = [];
+    for (let i = 0; i < terms.length - 1; i++) {
+      phrases.push(`${terms[i]} ${terms[i + 1]}`);
     }
+    return phrases;
+  }
 
-    return candidates;
+  /** 1.0 when every matched term fits in a tight window, decaying as they spread out. */
+  private proximityScore(haystack: string, hits: string[]): number {
+    if (hits.length < 2) return hits.length;
+    const positions = hits
+      .map(t => haystack.indexOf(t))
+      .filter(p => p >= 0)
+      .sort((a, b) => a - b);
+    if (positions.length < 2) return 0;
+    const span = positions[positions.length - 1] - positions[0];
+    const ideal = 120; // characters
+    return span <= ideal ? 1 : Math.max(0, ideal / span);
   }
 
   // Calculate detailed confidence score for a retrieved chunk

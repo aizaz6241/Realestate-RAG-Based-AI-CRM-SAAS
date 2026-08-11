@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 enum Role {
@@ -60,6 +62,7 @@ model Organization {
   apiUsageLogs         ApiUsageLog[]
   aiPendingApprovals   AiPendingApproval[]
   aiActiveDrafts       AiActiveDraft[]
+  aiActionLogs         AiActionLog[]
 }
 
 model User {
@@ -94,6 +97,7 @@ model User {
   aiDocuments        AiDocument[]
   aiChatSessions     AiChatSession[]
   apiUsageLogs       ApiUsageLog[]
+  aiActionLogs       AiActionLog[]
 }
 
 model EmployeeProfile {
@@ -666,13 +670,18 @@ model AiDocument {
 model AiDocumentChunk {
   id           String     @id @default(uuid())
   content      String     @db.Text
-  embedding    Float[]    // stores the floating point vector representation (768 for Gemini, 1536 for OpenAI)
+  /// pgvector column. Width MUST match EMBEDDING_DIMENSIONS in .env (default 768).
+  /// Prisma cannot read/write Unsupported types — use $queryRaw/$executeRaw.
+  /// Indexed with HNSW (vector_cosine_ops); see prisma/sql/001_pgvector.sql.
+  embedding    Unsupported("vector(768)")?
   metadata     Json?      // Page number, paragraph index, citation, etc.
-  
+
   documentId   String
   document     AiDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  
+
   createdAt    DateTime   @default(now())
+
+  @@index([documentId])
 }
 
 model AiChatSession {
@@ -737,8 +746,9 @@ model AiMemoryVector {
   id             String   @id @default(uuid())
   category       String   // e.g. CLIENT_PREFERENCE, EMPLOYEE_PERFORMANCE, OPERATIONAL_NOTE
   content        String   @db.Text
-  embedding      Float[]  // Vector representation
-  
+  /// pgvector column — see AiDocumentChunk.embedding for the contract.
+  embedding      Unsupported("vector(768)")?
+
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   
@@ -806,6 +816,40 @@ model ApiUsageLog {
   completionTokens Int    @default(0)
   totalTokens    Int      @default(0)
   createdAt      DateTime @default(now())
+}
+
+// -----------------------------------------------------------------------------
+// AI Action Audit
+// -----------------------------------------------------------------------------
+
+/// Every action the AI attempted on a user's behalf — successful or not.
+/// An assistant that can change records must leave a trail of who asked for what,
+/// and neither ActivityLog (employee work logs) nor IntegrationLog (external
+/// channel traffic) is the right home for it.
+model AiActionLog {
+  id             String   @id @default(uuid())
+  /// Registry action name, e.g. "createTask".
+  action         String
+  /// SUCCESS | FAILED | DENIED
+  status         String
+  /// Resolved parameters the handler actually received.
+  params         Json?
+  /// Human-readable summary of what was done.
+  summary        String?
+  errorMessage   String?
+  /// Role at the time of the request — roles change, the audit must not.
+  actorRole      String
+
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([userId])
 }
 
 // -----------------------------------------------------------------------------

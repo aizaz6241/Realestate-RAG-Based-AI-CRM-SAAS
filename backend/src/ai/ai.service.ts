@@ -3,6 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { ZorvexGateway } from './zorvex.gateway';
 import { AiLlmService } from './ai-llm.service';
+import { VectorStoreService } from './vector-store.service';
+import { FactVerifierService } from './fact-verifier.service';
+import { QueryCacheService } from './query-cache.service';
+import { UnifiedPlannerService } from './unified-planner.service';
+import { ActionExecutorService } from './actions/action-executor.service';
+import { ActionPlannerService } from './actions/action-planner.service';
 import { AiValidationService } from './ai-validation.service';
 import { AiAgentsService, AgentOutput } from './ai-agents.service';
 import { AiDatabaseToolsService } from './ai-database-tools.service';
@@ -48,7 +54,13 @@ export class AiService {
     private multiTierRouterService: MultiTierRouterService,
     private tenantIsolationService: TenantIsolationService,
     private entityResolutionService: EntityResolutionService,
-    private responseSanitizer: ResponseSanitizer
+    private responseSanitizer: ResponseSanitizer,
+    private vectorStore: VectorStoreService,
+    private factVerifier: FactVerifierService,
+    private unifiedPlanner: UnifiedPlannerService,
+    private queryCache: QueryCacheService,
+    private actionExecutor: ActionExecutorService,
+    private actionPlanner: ActionPlannerService
   ) {}
 
   // -----------------------------------------------------------------------------
@@ -70,88 +82,260 @@ export class AiService {
     return this.llmService.searchUnstructuredKnowledge(query, organizationId, limit);
   }
 
+  /**
+   * Runs an action and turns the outcome into something a person can respond to.
+   *
+   * Each outcome is a different conversational move, and getting these wrong is what
+   * makes assistants feel robotic:
+   *   - EXECUTED           → say what happened, concretely
+   *   - NEEDS_CONFIRMATION → show exactly what will happen, then wait
+   *   - NEEDS_INPUT        → ask only for what is actually missing
+   *   - AMBIGUOUS          → offer the candidates instead of guessing
+   *   - DENIED             → explain the limit and who can do it
+   */
+  private async runAction(
+    actionName: string,
+    params: Record<string, any>,
+    ctx: { userId: string; userRole: string; organizationId: string; actorName: string },
+    workspaceState: any,
+    confirmed: boolean
+  ): Promise<any> {
+    const outcome = await this.actionExecutor.execute(actionName, params, ctx, confirmed);
+
+    const base = {
+      toolExecuted: actionName,
+      toolData: null as any,
+      citations: [],
+      workspaceState,
+      _outcome: outcome.status,
+    };
+
+    switch (outcome.status) {
+      case 'EXECUTED': {
+        // The pending action is done — clear it so a later "yes" can't replay it.
+        if (workspaceState) workspaceState.pendingAction = null;
+        const suggestions = outcome.result.suggestions?.length
+          ? `\n\n_${outcome.result.suggestions.map(s => `• ${s}`).join('\n')}_`
+          : '';
+        return {
+          ...base,
+          response: `✅ ${outcome.result.message}${suggestions}`,
+          toolData: outcome.result.data,
+        };
+      }
+
+      case 'NEEDS_CONFIRMATION': {
+        // Park the resolved parameters so confirming doesn't re-resolve names and
+        // risk landing on a different record.
+        if (workspaceState) {
+          workspaceState.pendingAction = {
+            kind: 'ACTION',
+            action: outcome.action,
+            params: outcome.params,
+            preview: outcome.preview,
+          };
+        }
+        const elevated = outcome.risk === 'ELEVATED'
+          ? '\n\n⚠️ This one has a financial or HR impact.'
+          : '';
+        return {
+          ...base,
+          response: `Here's what I'm about to do:\n\n**${outcome.preview}**${elevated}\n\nShall I go ahead?`,
+          _pendingConfirmation: true,
+        };
+      }
+
+      case 'NEEDS_INPUT': {
+        if (workspaceState) {
+          workspaceState.pendingAction = {
+            kind: 'ACTION',
+            action: outcome.action,
+            params: outcome.params,
+            awaiting: outcome.missing,
+          };
+        }
+        return {
+          ...base,
+          response: outcome.questions.length === 1
+            ? outcome.questions[0]
+            : `I need a couple of details first:\n${outcome.questions.map(q => `• ${q}`).join('\n')}`,
+        };
+      }
+
+      case 'AMBIGUOUS': {
+        if (workspaceState) {
+          workspaceState.pendingAction = {
+            kind: 'ACTION',
+            action: outcome.action,
+            params: outcome.params,
+            awaiting: [outcome.field],
+            candidates: outcome.candidates,
+          };
+        }
+        return {
+          ...base,
+          response: `There's more than one match — which did you mean?\n${outcome.candidates.map(c => `• ${c.label}`).join('\n')}`,
+        };
+      }
+
+      case 'DENIED':
+        if (workspaceState) workspaceState.pendingAction = null;
+        return { ...base, response: `🔒 ${outcome.reason}` };
+
+      case 'FAILED':
+      default:
+        if (workspaceState) workspaceState.pendingAction = null;
+        return { ...base, response: `I couldn't complete that. ${(outcome as any).error}` };
+    }
+  }
+
+  /**
+   * Handles the turn after a preview or a question.
+   *
+   * Returns null when the message isn't a reply to the pending action, so the user
+   * can change the subject mid-flow without being trapped in a confirmation loop.
+   */
+  private async resumePendingAction(
+    message: string,
+    workspaceState: any,
+    ctx: { userId: string; userRole: string; organizationId: string; actorName: string }
+  ): Promise<any | null> {
+    const pending = workspaceState?.pendingAction;
+    if (!pending || pending.kind !== 'ACTION') return null;
+
+    const msg = message.toLowerCase().trim();
+
+    const isYes = /^(yes|yep|yeah|yup|ok|okay|sure|go ahead|do it|confirm|proceed|haan|ji|ji haan|bilkul|karo|kar do|theek hai|please do)\b/i.test(msg);
+    const isNo = /^(no|nope|nahi|cancel|stop|don'?t|dont|forget it|never mind|nevermind|rehne do)\b/i.test(msg);
+
+    if (isNo) {
+      workspaceState.pendingAction = null;
+      return {
+        response: 'No problem — I haven\'t changed anything.',
+        toolExecuted: null, toolData: null, citations: [], workspaceState,
+      };
+    }
+
+    if (isYes && pending.preview) {
+      return this.runAction(pending.action, pending.params, ctx, workspaceState, true);
+    }
+
+    // Answering an outstanding question: fold the reply into the parameters and
+    // retry. Candidate lists are matched by label so "the AGENT one" resolves.
+    if (pending.awaiting?.length) {
+      const field = pending.awaiting[0];
+      let value: any = message.trim();
+
+      if (pending.candidates?.length) {
+        const picked = pending.candidates.find((c: any) =>
+          c.label.toLowerCase().includes(msg) || msg.includes(c.label.split(' (')[0].toLowerCase())
+        );
+        if (!picked) return null; // not an answer to this question
+        value = picked.id;
+      }
+
+      const merged = { ...pending.params, [field]: value };
+      return this.runAction(pending.action, merged, ctx, workspaceState, false);
+    }
+
+    return null;
+  }
+
+  /**
+   * A name that reads naturally when addressed directly.
+   *
+   * Using `firstName` verbatim produced "Hello Tenant!" for an account named
+   * "Tenant Admin" — technically correct, and clearly not a person's name. Role-ish
+   * placeholder names are common in seeded and shared accounts, so they are dropped
+   * in favour of a neutral greeting rather than addressing someone as "Tenant".
+   */
+  private async getDisplayName(userId: string): Promise<string | null> {
+    const PLACEHOLDER_NAMES = new Set([
+      'tenant', 'admin', 'user', 'test', 'testing', 'demo', 'system',
+      'superadmin', 'super', 'owner', 'account', 'guest',
+    ]);
+
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstName: true, lastName: true },
+      });
+      if (!user?.firstName) return null;
+
+      const first = user.firstName.trim();
+      if (PLACEHOLDER_NAMES.has(first.toLowerCase())) {
+        // "Tenant Admin" -> no usable personal name; greet without one.
+        return null;
+      }
+      return first;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Templated small-talk reply. Detects Roman Urdu so the answer mirrors the
+   * user's language, which is the only thing the LLM was contributing here.
+   */
+  private buildConversationalReply(query: string, name: string | null, isVoiceCheck: boolean): string {
+    const q = query.toLowerCase();
+    const isUrdu = /\b(salam|salaam|assalam|aoa|kya|kaise|kaisay|haal|shukriya|theek|khuda|allah|hafiz|ji|acha)\b/i.test(q);
+
+    // Trailing-comma handling so a missing name doesn't leave "Anytime, ."
+    const addr = name ? ` ${name}` : '';
+    const addrComma = name ? `, ${name}` : '';
+
+    if (isVoiceCheck) {
+      return isUrdu
+        ? `Ji${addr}, awaaz bilkul clear aa rahi hai. Batayein kya dekhna hai?`
+        : `Yes${addr}, I can hear you clearly. What would you like to look at?`;
+    }
+
+    if (/\b(thanks|thank you|shukriya|thx)\b/i.test(q)) {
+      return isUrdu
+        ? `Koi baat nahi${addrComma}. Aur kuch chahiye ho to batayein.`
+        : `Anytime${addrComma}. Let me know what else you need.`;
+    }
+
+    if (/\b(bye|goodbye|hafiz)\b/i.test(q)) {
+      return isUrdu ? `Allah hafiz${addrComma}.` : `Goodbye${addrComma}.`;
+    }
+
+    return isUrdu
+      ? `Assalam o alaikum${addr}! Main aapke business data — properties, leads, clients, staff, attendance, finance — sab dekh sakta hoon. Kya check karna hai?`
+      : `Hello${addr}! I can pull up your properties, leads, clients, staff, attendance and finance data. What would you like to see?`;
+  }
+
+  /** Static capability summary — the module list is fixed, so generating it was waste. */
+  private buildHelpReply(query: string): string {
+    const isUrdu = /\b(kya|kar|sakte|karta|kon|aap|tum)\b/i.test(query.toLowerCase());
+
+    const modules = [
+      '**Properties & Listings** — search, filter by area/price/type, listing health',
+      '**Leads & Clients** — pipeline, conversion, interests, viewings',
+      '**Staff & HR** — profiles, attendance, leave requests, performance',
+      '**Finance** — payroll, commissions, revenue, expenses',
+      '**Tasks & Meetings** — create, assign, schedule, track',
+      '**Logistics** — vehicles, maintenance, schedules, key tracking',
+      '**Documents** — policies, contracts and handbooks you have uploaded',
+    ].map(m => `- ${m}`).join('\n');
+
+    return isUrdu
+      ? `Main aapka Zorvex AI assistant hoon. Ye sab kar sakta hoon:\n\n${modules}\n\nSirf normal zubaan mein poochein — jaise "JVC mein kitni properties hain?" ya "is mahine ki attendance dikhao".`
+      : `I'm your Zorvex AI assistant. Here's what I can do:\n\n${modules}\n\nJust ask in plain language — e.g. "how many properties in JVC?" or "show this month's attendance".`;
+  }
+
   async retrieveRelevantMemories(
     query: string,
     organizationId: string,
     limit = 5
   ): Promise<any[]> {
+    // Delegated to VectorStoreService: the previous implementation pulled every
+    // memory row for the tenant into Node, ran cosine similarity in JS, and issued
+    // one DELETE per expired row on the read path. It is now a single indexed
+    // nearest-neighbour query with TTL and classification filtered in SQL.
     try {
-      const memoryCount = await this.prisma.aiMemoryVector.count({
-        where: { organizationId },
-      });
-
-      if (memoryCount === 0) return [];
-
-      const queryVector = await this.llmService.generateEmbedding(query);
-      const memories = await this.prisma.aiMemoryVector.findMany({
-        where: { organizationId },
-      });
-
-      const TTL_MS: Record<string, number> = {
-        TEMPORARY_STATE: 5 * 60 * 1000,          // 5 minutes
-        OBSERVATION: 60 * 60 * 1000,              // 1 hour
-        INSIGHT: 24 * 60 * 60 * 1000,            // 24 hours
-        FACT: 90 * 24 * 60 * 60 * 1000           // 90 days (FACT memories expire to prevent org data staleness)
-      };
-
-      const getMemoryClassification = (content: string, category: string): string => {
-        const lower = content.toLowerCase();
-        if (
-          lower.includes('count') || 
-          lower.includes('headcount') || 
-          lower.includes('total number') || 
-          lower.includes('currently at') || 
-          lower.includes('there is a lack of')
-        ) {
-          return 'TEMPORARY_STATE';
-        }
-        if (category.startsWith('PATTERN:') || category === 'OBSERVATION') {
-          return 'OBSERVATION';
-        }
-        if (category === 'INSIGHT' || lower.includes('trend') || lower.includes('preference')) {
-          return 'INSIGHT';
-        }
-        return 'FACT';
-      };
-
-      const processedMemories: any[] = [];
-
-      for (const memory of memories) {
-        const classification = getMemoryClassification(memory.content, memory.category);
-        const age = Date.now() - new Date(memory.createdAt).getTime();
-        const maxTtl = TTL_MS[classification];
-
-        if (maxTtl && age > maxTtl) {
-          this.logger.log(`[Memory Hardening] Expired memory evicted (${classification}, age: ${Math.round(age / (1000 * 60 * 60))}h): "${memory.content.slice(0, 60)}"`);
-          this.prisma.aiMemoryVector.delete({ where: { id: memory.id } }).catch(() => null);
-          continue;
-        }
-
-        // Only FACT memories participate in retrieval context to prevent state contamination
-        if (classification === 'FACT') {
-          // Zero-vector guard: skip corrupted embeddings from API failures
-          const isZeroVector = !memory.embedding || memory.embedding.every((v: number) => v === 0);
-          if (isZeroVector) {
-            this.logger.warn(`[Memory Hardening] Skipping memory with zero-vector embedding (corrupted): id=${memory.id}`);
-            continue;
-          }
-          const score = this.llmService.cosineSimilarity(queryVector, memory.embedding);
-          processedMemories.push({
-            id: memory.id,
-            category: memory.category,
-            content: memory.content,
-            score,
-            createdAt: memory.createdAt,
-          });
-        }
-      }
-
-      const scoredMemories = processedMemories
-        .filter((memory) => memory.score > 0.25)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit);
-
-      return scoredMemories;
+      return await this.vectorStore.searchMemories(query, organizationId, limit);
     } catch (err) {
       this.logger.error(`Error in memory vector search: ${err.message}`);
       return [];
@@ -217,15 +401,7 @@ export class AiService {
         });
 
         if (!exists) {
-          const embedding = await this.llmService.generateEmbedding(bullet, organizationId);
-          await this.prisma.aiMemoryVector.create({
-            data: {
-              category,
-              content: bullet,
-              embedding,
-              organizationId
-            }
-          });
+          await this.vectorStore.insertMemoryVector(bullet, category, organizationId);
           this.logger.log(`[Memory Layer] Persisted memory: "${bullet}" under category "${category}"`);
         }
       }
@@ -581,6 +757,17 @@ INSTRUCTIONS:
     const startTime = Date.now();
     const traceId = 'trace-' + Math.random().toString(36).substring(2, 15);
 
+    // Response cache. Only safe for a fresh conversation turn: once history or a
+    // pending action is in play the answer depends on prior context, and the cache
+    // key only covers the question itself.
+    const cacheEligible = history.length === 0 && !debug;
+    if (cacheEligible) {
+      const cached = this.queryCache.get(userMessage, organizationId, userId, userRole);
+      if (cached) {
+        return { ...cached, _cached: true, _latencyMs: Date.now() - startTime };
+      }
+    }
+
     const emitTraceStep = (
       stepNumber: number,
       stepName: string,
@@ -638,17 +825,34 @@ INSTRUCTIONS:
         }
       }
 
-      // STEP 0 — CONTEXT-AWARE QUERY REFINEMENT & COGNITIVE GATEWAY (Layer 1)
+      // STEP 0 — UNIFIED PLANNING (Layers 1-3 in a single LLM call)
+      //
+      // Was three sequential calls: Cognitive Gateway (normalize) -> Query
+      // Understanding (classify) -> Planning Engine (build DAG). All three read the
+      // same inputs and produced one combined decision, so they are now one call.
+      // Greetings and help requests are matched deterministically and cost nothing.
       const gatewayStartTime = Date.now();
-      const gatewayOutput = await this.cognitiveGatewayService.cognitiveGateway(
+      const unified = await this.unifiedPlanner.planQuery(
         userMessage,
         userId,
         organizationId,
         userRole,
         history,
-        workspaceState
+        workspaceState,
+        // A pending action means a bare "yes"/"ok" is a confirmation, not small talk,
+        // so the conversational fast path must not swallow it.
+        { allowFastPath: !workspaceState?.pendingAction }
       );
-      emitTraceStep(2, "COGNITIVE_GATEWAY", "SUCCESS", userMessage, gatewayOutput, gatewayStartTime);
+      const gatewayOutput = unified.gateway;
+      const intentObj = unified.intent;
+      emitTraceStep(2, "UNIFIED_PLANNER", "SUCCESS", userMessage, {
+        normalizedQuery: gatewayOutput.query,
+        intent: intentObj.intent,
+        classification: intentObj.classification,
+        confidence: intentObj.confidence,
+        llmCalls: unified._meta.llmCalls,
+        fastPath: unified._meta.fastPath,
+      }, gatewayStartTime);
 
       // STEP 0.5 — RESUME PENDING ACTION (DRAFT MEMORY RESUMPTION)
       let wasPendingResumed = false;
@@ -744,26 +948,65 @@ INSTRUCTIONS:
         };
       }
 
-      // STEP 1 — QUERY UNDERSTANDING ENGINE (Layer 2)
+      // STEP 0.75 — ACTION INTENT
+      //
+      // Runs before retrieval because "assign a task to Sarah" is an instruction, not
+      // a question — answering it with a task list would be useless. Gated by a cheap
+      // regex pre-filter so ordinary questions never pay for the extra call, and by a
+      // confidence floor so an ambiguous message falls through to the read path
+      // rather than changing a record on a guess.
+      if (!workspaceState?.pendingAction) {
+        const actionIntent = await this.actionPlanner.detectAction(
+          gatewayOutput.query, userRole, organizationId, userId, history
+        );
+
+        if (actionIntent.isAction && actionIntent.action) {
+          const actionResponse = await this.runAction(
+            actionIntent.action,
+            actionIntent.params || {},
+            { userId, userRole, organizationId, actorName: (await this.getDisplayName(userId)) || 'there' },
+            workspaceState,
+            false
+          );
+          emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, {
+            action: actionIntent.action,
+            outcome: actionResponse._outcome,
+          }, startTime);
+          return actionResponse;
+        }
+      }
+
+      // Resuming a previously previewed action: the user has now said yes or no.
+      if (workspaceState?.pendingAction?.kind === 'ACTION') {
+        const resumed = await this.resumePendingAction(
+          gatewayOutput.query, workspaceState, { userId, userRole, organizationId, actorName: (await this.getDisplayName(userId)) || 'there' }
+        );
+        if (resumed) {
+          emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, { resumed: true }, startTime);
+          return resumed;
+        }
+      }
+
+      // STEP 1 — intent already resolved by the unified planner above (no extra call)
       const understandingStartTime = Date.now();
-      const intentObj = await this.cognitiveGatewayService.queryUnderstanding(gatewayOutput);
       emitTraceStep(3, "INTENT_CLASSIFICATION", "SUCCESS", gatewayOutput.query, { intent: intentObj.intent, classification: intentObj.classification, complexity: intentObj.complexity }, understandingStartTime);
       emitTraceStep(4, "ENTITY_EXTRACTION", "SUCCESS", gatewayOutput.query, intentObj.entities, understandingStartTime);
 
-      // Greetings & voice bypass checks
       const isVoiceCheck = ["can you hear me", "voice test", "mic check", "connection check"].some(phrase => gatewayOutput.query.toLowerCase().includes(phrase));
-      const isGreeting = ["hello", "hi", "salam", "hey", "assalam o alaikum", "aoa"].some(phrase => gatewayOutput.query.toLowerCase().trim() === phrase || gatewayOutput.query.toLowerCase().trim().startsWith(phrase + " "));
 
-      if (intentObj.intent === 'CONVERSATIONAL' || isGreeting || isVoiceCheck) {
-        const name = (await this.prisma.user.findUnique({ where: { id: userId } }))?.firstName || 'Admin';
-        const systemPrompt = `You are the Zorvex Conversational Responder (v9).
-Acknowledge user greeting or query naturally.
-Maintain an Executive Assistant/COO tone. Matches the language of user query. Keep it short, direct, and human.`;
-        const responseText = await this.llmService.callLLM(systemPrompt, `User: "${gatewayOutput.query}". Name: "${name}"`, [], false, organizationId, userId);
-        emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, { response: responseText.trim(), conversational: true }, startTime);
+      // Conversational and help replies are templated rather than generated. These
+      // are fixed-shape responses; spending an LLM call (and 1-2s) to phrase a
+      // greeting was pure latency for no gain.
+      if (intentObj.intent === 'CONVERSATIONAL' || isVoiceCheck) {
+        const responseText = this.buildConversationalReply(
+          gatewayOutput.query,
+          await this.getDisplayName(userId),
+          isVoiceCheck
+        );
+        emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, { response: responseText, conversational: true, llmCalls: 0 }, startTime);
         return {
-          response: responseText.trim(),
-          spokenResponse: callPersona ? responseText.trim() : undefined,
+          response: responseText,
+          spokenResponse: callPersona ? responseText : undefined,
           toolExecuted: null,
           toolData: null,
           citations: [],
@@ -772,14 +1015,11 @@ Maintain an Executive Assistant/COO tone. Matches the language of user query. Ke
       }
 
       if (intentObj.intent === 'SYSTEM_HELP') {
-        const systemPrompt = `You are the Zorvex System Help Guide (v9).
-Explain concisely what tasks and modules you can help the user with (Real Estate Listings, Meetings, Tasks, Logistics, Finance, Attendance).
-Matches the language of the user's query. Keep it short, professional, and clear.`;
-        const responseText = await this.llmService.callLLM(systemPrompt, `Query: "${gatewayOutput.query}"`, [], false, organizationId, userId);
-        emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, { response: responseText.trim(), conversational: true }, startTime);
+        const responseText = this.buildHelpReply(gatewayOutput.query);
+        emitTraceStep(17, "FINAL_OUTPUT_SENT", "SUCCESS", userMessage, { response: responseText, conversational: true, llmCalls: 0 }, startTime);
         return {
-          response: responseText.trim(),
-          spokenResponse: callPersona ? responseText.trim() : undefined,
+          response: responseText,
+          spokenResponse: callPersona ? responseText : undefined,
           toolExecuted: null,
           toolData: null,
           citations: [],
@@ -787,23 +1027,17 @@ Matches the language of the user's query. Keep it short, professional, and clear
         };
       }
 
-      // STEP 2 — PLANNING ENGINE (Layer 3) & TOOL SELECTION ENGINE (Layer 5)
+      // STEP 2 — plan came from the unified planner. The deterministic Tier 0/1
+      // router still wins when it matches, since a hardcoded route beats a
+      // generated one for known query shapes.
       const planningStartTime = Date.now();
-      let executionPlan = this.multiTierRouterService.routeQuery(gatewayOutput.query);
-      let isDeterministicBypassed = false;
-      if (executionPlan) {
-        isDeterministicBypassed = true;
-        this.logger.log(`[Multi-Tier Retrieval Router] Bypassing LLM planning. Tier 0/1 Route matched.`);
-      } else {
-        executionPlan = await this.planningEngineService.generateExecutionPlan(
-          gatewayOutput.query,
-          intentObj,
-          organizationId,
-          userId,
-          userRole
-        );
+      const routedPlan = this.multiTierRouterService.routeQuery(gatewayOutput.query);
+      const isDeterministicBypassed = Boolean(routedPlan);
+      let executionPlan = routedPlan || unified.plan;
+      if (isDeterministicBypassed) {
+        this.logger.log(`[Multi-Tier Retrieval Router] Tier 0/1 route matched — using deterministic plan.`);
       }
-      
+
       let plannerDuplicateRate = 0;
       let fallbackRate = 0;
       let roleContaminationIncidents = 0;
@@ -861,8 +1095,26 @@ Matches the language of the user's query. Keep it short, professional, and clear
         }
       }
 
-      // Human Approval Gate for Sensitive Actions
-      if (executionPlan.sensitiveAction) {
+      // Human Approval Gate for Sensitive Actions.
+      //
+      // Gated on the plan actually WRITING something. It previously fired on
+      // `sensitiveAction` alone, which the planner sets from topic keywords — so
+      // merely mentioning leave or salary in a question triggered it. Observed live:
+      // the user typed "sara has annual leave pending still" (a correction to a wrong
+      // answer) and got "⚠️ Executive Authorization Required" instead of a re-search.
+      //
+      // A read cannot need corporate approval: there is no action to approve.
+      const WRITE_TOOLS = ['createTask', 'createMeeting', 'updateTask', 'updateLeadStatus', 'sendReminder'];
+      const planWrites = (executionPlan.nodes || []).some((n: any) =>
+        WRITE_TOOLS.includes(n.tool) ||
+        ['create', 'update', 'delete'].includes(String(n.params?.operation || '').toLowerCase())
+      );
+
+      if (executionPlan.sensitiveAction && !planWrites) {
+        this.logger.log(`[Approval Gate] Plan is flagged sensitive but performs no write — answering normally.`);
+      }
+
+      if (executionPlan.sensitiveAction && planWrites) {
         const approvalId = 'appr-' + Math.random().toString(36).substring(2, 15);
         const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30-minute expiry
 
@@ -1078,10 +1330,34 @@ Matches the language of the user's query. Keep it short, professional, and clear
       emitTraceStep(13, "CROSS_VALIDATION", fusionOutput.conflicts && fusionOutput.conflicts.length > 0 ? "WARNING" : "SUCCESS", { dbResultSize: dbResult.rows.length, docChunksSize: docResult.chunks.length }, { conflicts: fusionOutput.conflicts || [] }, fusionStartTime);
       emitTraceStep(14, "CONFIDENCE_SCORE_BREAKDOWN", fusionOutput.finalConfidence >= 85 ? "SUCCESS" : "FAILED", gatewayOutput.query, { finalConfidence: fusionOutput.finalConfidence, threshold: 85 }, fusionStartTime);
 
-      // Confidence Gating: Refuse if aggregate confidence < 85
-      if (fusionOutput.finalConfidence < 85) {
-        this.logger.warn(`Aggregate confidence (${fusionOutput.finalConfidence}) is below threshold 85. Refusing query gracefully.`);
-        
+      // Confidence gating.
+      //
+      // This used to refuse whenever the heuristic aggregate score fell under 85,
+      // which threw away correct answers: a query that executed cleanly and returned
+      // "1 property" (or legitimately returned zero rows) could still score below the
+      // threshold, and the user got "Insufficient evidence available to answer
+      // confidently" instead of their answer. An empty result set is a valid answer,
+      // not low confidence.
+      //
+      // So the gate now fires only on *evidence of failure* — the query errored, or
+      // the plan failed schema validation. Fabrication risk is handled separately and
+      // deterministically by FactVerifierService after composition, which is a much
+      // stronger guarantee than a weighted score.
+      const hadExecutionFailure = (dbResult.errors || []).length > 0;
+      const hadSchemaFailure = dbResult.validationResult?.isValid === false;
+      const retrievalUnusable = hadExecutionFailure || hadSchemaFailure;
+
+      if (fusionOutput.finalConfidence < 85 && !retrievalUnusable) {
+        this.logger.log(
+          `[Confidence Gate] Score ${fusionOutput.finalConfidence} is under 85, but the query ` +
+          `executed cleanly (${dbResult.rows.length} row(s), no errors) — answering anyway. ` +
+          `Grounding is enforced by the fact verifier.`
+        );
+      }
+
+      if (retrievalUnusable) {
+        this.logger.warn(`Retrieval failed (errors=${(dbResult.errors || []).length}, schemaValid=${dbResult.validationResult?.isValid !== false}). Refusing gracefully.`);
+
         await this.observabilityService.logTrace({
           traceId,
           timestamp: new Date().toISOString(),
@@ -1107,11 +1383,25 @@ Matches the language of the user's query. Keep it short, professional, and clear
           intentMisclassificationRate: 0
         }, organizationId);
 
-        emitTraceStep(17, "FINAL_OUTPUT_SENT", "FAILED", userMessage, { response: "Insufficient evidence available to answer confidently.", reason: `Confidence score ${fusionOutput.finalConfidence} is below gating threshold of 85` }, startTime);
+        // Say what actually went wrong. "Insufficient evidence available to answer
+        // confidently" told the user nothing and was indistinguishable from an empty
+        // result, so real failures (a bad generated plan, a query error) looked like
+        // missing data and went uninvestigated.
+        const failureDetail = hadSchemaFailure
+          ? `I built an invalid query for that request${dbResult.validationResult?.errorMsg ? ` (${dbResult.validationResult.errorMsg})` : ''}.`
+          : `The database query failed: ${(dbResult.errors || []).join('; ')}`;
+
+        const refusal = `I wasn't able to run that lookup. ${failureDetail}\n\nTry rephrasing it, or name the specific records you want (e.g. "properties in JVC under 2 million").`;
+
+        emitTraceStep(17, "FINAL_OUTPUT_SENT", "FAILED", userMessage, {
+          response: refusal,
+          reason: hadSchemaFailure ? 'Generated query plan failed schema validation' : 'Database execution error',
+          errors: dbResult.errors,
+        }, startTime);
 
         return {
-          response: "Insufficient evidence available to answer confidently.",
-          spokenResponse: callPersona ? "I'm sorry, I could not find enough evidence to answer confidently." : undefined,
+          response: refusal,
+          spokenResponse: callPersona ? "I couldn't run that lookup. Could you rephrase it?" : undefined,
           toolExecuted: null,
           toolData: null,
           citations: [],
@@ -1181,9 +1471,11 @@ STRICT CHATGPT STYLE & TONALITY RULES:
    - NO EMPTY OR RAW TABLES: Never print tables containing raw/empty UUIDs, empty columns, or raw timestamps. If you show a table, it must be highly clean and legible. If names are missing or data is sparse, use a beautiful bulleted list instead.
    - HUMAN-READABLE DATES: Convert all database ISO strings (like "2025-01-15T00:00:00.000Z") to clean human dates (like "15th Jan 2025" or "January 15, 2025").
    - RESOLVE NAMES: When listing employees, retrieve their names from the nested "user.firstName" and "user.lastName" fields of the EmployeeProfile. Do not print empty name columns or raw user IDs.
-5. SUBTLE INLINE CITATIONS: Factual assertions must be cited inline, but keep it extremely brief and unobtrusive at the end of sentences, e.g., "[EmployeeProfile]" or "[LeaveRequest]". Banish terms like "Database", "Table", "Registry", or quotes around table names.
+5. SUBTLE INLINE CITATIONS: Cite the table the fact actually came from, briefly, at the end of the sentence — e.g. "[LeaveRequest]". The tag MUST name the table that supplied that specific fact. Property owner names come from [Owner], not [EmployeeProfile]. If unsure which table a fact came from, omit the citation — a wrong citation is worse than none. Banish terms like "Database", "Table", "Registry", or quotes around table names.
 6. DATA-FIRST PRINCIPLE: Always present the requested data/answer first, followed by any analysis or natural follow-up question.
-7. NATURAL EMPTY RESULTS: If no records are found (0 results), explain it naturally and politely as a human would (e.g. "Mujhe Suhail ki attendance records nahi mili hain" or "Currently, there are no pending leave requests in the system"). Never use robotic terms like "Records found: 0" or "0 results". Do not offer unsolicited corporate advice.
+7. EMPTY RESULTS — STATE THE LIMIT, NOT A VERDICT. If 0 records came back, say what you searched for and that nothing matched, then offer the next step. Do NOT declare the thing does not exist: an empty result often means the filter was wrong, not that the record is absent. Prefer "Mujhe koi pending leave request nahi mili — kya main saari leave requests dikhaon?" over "There are no pending leave requests in the system." Never use robotic phrasing like "Records found: 0". Do not offer unsolicited corporate advice.
+8. NEVER SUBSTITUTE INFERENCE FOR DATA. If the user asks for something the retrieved rows do not contain, say the data isn't there and name what you would need. Do NOT reason your way to an answer from adjacent fields — never rank "performance" from someone's role or job title, and never infer seniority, quality, or ranking that is not an actual column in the data. Guessing dressed up as analysis is the worst failure mode here.
+9. RESPECT THE USER'S CORRECTION. If the user says a record exists that you reported as missing, treat that as strong evidence your filter was wrong. Say what you searched for and offer to search more broadly — never simply repeat the denial.
 
 MODE-SPECIFIC GUIDELINES:
 - LOOKUP MODE (Data searches): Short, direct, factual. No unsolicited advice or recommendations.
@@ -1196,6 +1488,16 @@ Risks: ${JSON.stringify(execAnalysis.risks)}
 Opportunities: ${JSON.stringify(execAnalysis.opportunities)}
 Recommendations: ${JSON.stringify(execAnalysis.recommendations)}
 ${isFallback ? `DUBAI REAL ESTATE PROXIMITY ADVICE: The user queried properties in "${fallbackOrigLoc}". Since no listings are currently available in "${fallbackOrigLoc}", Zorvex searched adjacent locations: [${fallbackAreas.join(', ')}]. Explain this to the user clearly, informing them that while no properties are in "${fallbackOrigLoc}", we have options in these adjacent prime areas.` : ''}
+
+${dbResult.broadened ? `
+⚠️ RETRIEVAL NOTE — READ BEFORE ANSWERING:
+The user's exact filters (${dbResult.broadened.droppedFilters.join(', ')}) matched ZERO records,
+so the search was automatically broadened and the rows below are the UNFILTERED set.
+You MUST tell the user this. Say that nothing matched their exact criteria, then show
+what does exist and offer to narrow it down. Do NOT present these rows as if they
+matched what was asked.` : ''}${(dbResult.filterRepairs?.length ?? 0) > 0 ? `
+⚠️ FILTER REPAIRS APPLIED: ${dbResult.filterRepairs!.join(' | ')}
+If a filter was dropped, mention that you searched more broadly than asked.` : ''}
 
 Grounded Evidence Context:
 ${fusionOutput.groundedEvidence}`;
@@ -1210,8 +1512,58 @@ ${fusionOutput.groundedEvidence}`;
         userId
       );
 
-      const cleanedResponse = this.responseSanitizer.sanitizeResponse(finalResponseText.trim());
+      let cleanedResponse = this.responseSanitizer.sanitizeResponse(finalResponseText.trim());
       emitTraceStep(15, "FINAL_RESPONSE_GENERATION", "SUCCESS", { query: gatewayOutput.query }, { responseLength: cleanedResponse.length }, composerStartTime);
+
+      // STEP 7.5 — GROUNDING VERIFICATION
+      //
+      // This check was previously only reachable through the action-approval flow
+      // (compileFinalResponse), so the main question-answering path — the one users
+      // actually hit — shipped composer output straight to the client with no
+      // grounding check at all, despite the architecture describing a
+      // "Zero Hallucination Validation" layer. It now runs here, deterministically.
+      const groundingStartTime = Date.now();
+      let verification = this.factVerifier.verify(cleanedResponse, dbResult.rows || [], {
+        tablesUsed: dbResult.tablesUsed || [],
+        counts: { sql: (dbResult.rows || []).length },
+      });
+
+      if (!verification.passed) {
+        this.logger.warn(`[Grounding] Violations: ${verification.violations.map(v => v.rule).join(', ')} — regenerating once.`);
+        const correctionPrompt = `${composerPrompt}
+
+⚠️ GROUNDING VIOLATION — your previous answer contained claims the retrieved records do not support:
+${verification.correctionInstruction}
+
+Rewrite using ONLY facts present in the Grounded Evidence Context. If it is empty, say plainly that no records were found. Never invent names, counts, or values.`;
+
+        const retryText = await this.llmService.callLLM(
+          correctionPrompt,
+          `Generate grounded response for query: "${gatewayOutput.query}"`,
+          history, false, organizationId, userId
+        );
+        cleanedResponse = this.responseSanitizer.sanitizeResponse(retryText.trim());
+
+        verification = this.factVerifier.verify(cleanedResponse, dbResult.rows || [], {
+          tablesUsed: dbResult.tablesUsed || [],
+          counts: { sql: (dbResult.rows || []).length },
+        });
+
+        // One retry only. Looping a model against a constraint it keeps breaking
+        // burns latency without converging; fall back to the honest answer instead.
+        if (!verification.passed && (dbResult.rows || []).length === 0) {
+          cleanedResponse = `I couldn't find any records matching that. Try adjusting the filters — a different date range or area usually helps.`;
+        }
+      }
+
+      emitTraceStep(16, "GROUNDING_VERIFICATION", verification.passed ? "SUCCESS" : "WARNING",
+        { rowCount: (dbResult.rows || []).length },
+        {
+          passed: verification.passed,
+          violations: verification.violations,
+          checkedNumbers: verification.checkedNumbers,
+          checkedNames: verification.checkedNames,
+        }, groundingStartTime);
 
       // Update active contexts in WorkspaceState
       if (dbResult.rows.length > 0) {
@@ -1349,7 +1701,7 @@ ${fusionOutput.groundedEvidence}`;
         };
       }
 
-      return {
+      const finalPayload = {
         response: cleanedResponse,
         spokenResponse: finalSpoken,
         toolExecuted: dbResult.tablesUsed[0] || null,
@@ -1358,6 +1710,17 @@ ${fusionOutput.groundedEvidence}`;
         visualization,
         workspaceState
       };
+
+      // Only cache verified, well-grounded answers. Caching a low-confidence or
+      // ungrounded reply would keep serving a bad answer for the whole TTL.
+      if (cacheEligible && verification.passed && dbResult.errors.length === 0) {
+        this.queryCache.set(
+          userMessage, organizationId, userId, userRole,
+          finalPayload, dbResult.tablesUsed || []
+        );
+      }
+
+      return finalPayload;
 
     } catch (err) {
       this.logger.error(`AOS v9 Cognitive Core Pipeline breakdown: ${err.message}`);
@@ -1498,7 +1861,11 @@ ${fusionOutput.groundedEvidence}`;
         executedResults,
         callPersona ?? undefined,  // Prisma returns null, function expects string | undefined
         'ACTION_REQUEST',
-        workspaceState
+        workspaceState,
+        // Action approvals write records rather than reading them, so there is no
+        // document retrieval to do and nothing for the grounding check to compare
+        // against beyond the tool results themselves.
+        { classification: 'DATABASE_ONLY', executionPlan: { nodes: [] }, tablesUsed: [], rowCount: executedResults.length }
       );
 
       // Save history if active session
@@ -1611,8 +1978,21 @@ ${fusionOutput.groundedEvidence}`;
     executedResults: any[],
     callPersona?: string,
     intent?: string,
-    workspaceState?: any
+    workspaceState?: any,
+    // Retrieval context from the pipeline. Needed so the composer can (a) skip the
+    // document search when the plan never asked for documents, and (b) run grounding
+    // verification against the tables that were actually queried.
+    retrievalContext?: {
+      classification?: string;
+      executionPlan?: any;
+      tablesUsed?: string[];
+      rowCount?: number;
+    }
   ): Promise<any> {
+    const classification = retrievalContext?.classification || 'DATABASE_ONLY';
+    const executionPlan = retrievalContext?.executionPlan || { nodes: [] };
+    const tablesUsed = retrievalContext?.tablesUsed || [];
+    const retrievedRowCount = retrievalContext?.rowCount ?? 0;
     // STEP 4.5 — RESPONSE RELEVANCY ENGINE & DYNAMIC UI ASSET ROUTER
     let primaryResult = executedResults[0] || null;
     const lowerQuery = userMessage.toLowerCase();
@@ -1711,16 +2091,27 @@ ${fusionOutput.groundedEvidence}`;
 
     const hasMeaningfulNextAction = allSearchesEmpty || hasUnassignedLeads || hasOverdueTasks;
 
+    // Suggestions are derived from the conditions we already detected above, so
+    // they are generated in code. Asking the model to restate them cost a full
+    // round trip to produce text we could template deterministically — and the
+    // model occasionally invented conditions that were not in the data.
     if (hasMeaningfulNextAction) {
-      const workflowPrompt = `You are the Zorvex Autonomous Workflow Engine (Step 7).
-Analyze the executed database results and user intent to suggest 2-3 logical next actions, automations, or workflow continuation.
-Format them naturally as conversational bullet points without markdown checkboxes.
-Output only the follow-up suggestions.`;
+      const suggestions: string[] = [];
 
-      try {
-        proactiveSuggestions = await this.llmService.callLLM(workflowPrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData)}`, [], false, organizationId, userId);
-      } catch (e) {
-        this.logger.warn(`Autonomous Workflow Engine suggestion failed: ${e.message}`);
+      if (allSearchesEmpty) {
+        suggestions.push('Try widening the filters — a different date range or area often surfaces matches.');
+        suggestions.push('I can also search adjacent areas or related record types if that helps.');
+      }
+      if (hasUnassignedLeads) {
+        const n = leads.filter(l => !l.assignedToId || l.status === 'NEW').length;
+        suggestions.push(`There ${n === 1 ? 'is' : 'are'} ${n || 'some'} unassigned or new lead${n === 1 ? '' : 's'} here — want me to assign them to an agent?`);
+      }
+      if (hasOverdueTasks) {
+        suggestions.push('Some tasks in this set are past their due date — I can list them by owner or reschedule them.');
+      }
+
+      if (suggestions.length > 0) {
+        proactiveSuggestions = suggestions.slice(0, 3).map(s => `• ${s}`).join('\n');
       }
     }
 
@@ -1743,8 +2134,10 @@ Output only the follow-up suggestions.`;
         const actualConversionRate = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 100) : 0;
         orgGoals = {
           organization: orgConfig?.name || 'Your Organization',
-          leadConversionRate: `${actualConversionRate}% actual (${totalLeads} total leads, ${convertedLeads} converted)`,
-          activeInventory: `${activeProperties} available listings`,
+          conversionRate: actualConversionRate,
+          totalLeads,
+          convertedLeads,
+          activeProperties,
           note: 'Goals derived from live database metrics for this organization.'
         };
       } catch (e) {
@@ -1752,26 +2145,38 @@ Output only the follow-up suggestions.`;
         orgGoals = { note: 'Baseline metrics unavailable.' };
       }
 
-      const kpiEnginePrompt = `You are the Zorvex KPI & Business Goal Engine (Step 10).
-Analyze the current response and retrieved business data to evaluate performance alignment:
-- Organization: ${orgGoals.organization}
-- Lead Conversion Rate: ${orgGoals.leadConversionRate}
-- Active Inventory: ${orgGoals.activeInventory}
-- Note: ${orgGoals.note}
+      // KPI commentary is computed from the counts we just queried. The LLM was
+      // being handed these exact numbers and asked to phrase a judgement about
+      // them — a threshold comparison dressed up as a generation task, at the
+      // cost of a round trip. Thresholds are explicit here and auditable.
+      if (orgGoals.conversionRate !== undefined) {
+        const rate = orgGoals.conversionRate as number;
+        if (rate >= 25) {
+          kpiAlignmentText = `Lead conversion is at ${rate}% across ${orgGoals.totalLeads} leads — healthy against a 20% benchmark.`;
+        } else if (rate >= 10) {
+          kpiAlignmentText = `Lead conversion is ${rate}% (${orgGoals.convertedLeads}/${orgGoals.totalLeads}). There's room to push toward 20% — tightening follow-up on new leads is usually where that comes from.`;
+        } else if (orgGoals.totalLeads > 0) {
+          kpiAlignmentText = `Lead conversion is ${rate}% (${orgGoals.convertedLeads}/${orgGoals.totalLeads}), below the 10% floor. Worth reviewing lead source quality and first-response time.`;
+        }
 
-Instructions:
-1. If the current action or data shows strong performance, acknowledge it.
-2. If it shows a gap, suggest a proactive and specific improvement.
-3. Output 1-2 concise sentences in a COO advisory tone. Do not fabricate statistics.`;
-
-      try {
-        kpiAlignmentText = await this.llmService.callLLM(kpiEnginePrompt, `Query: "${userMessage}"\nData: ${JSON.stringify(toolData).slice(0, 2000)}`, [], false, organizationId, userId);
-      } catch (e) {
-        this.logger.warn(`KPI Engine alignment check failed: ${e.message}`);
+        if (orgGoals.activeProperties === 0) {
+          kpiAlignmentText += ` Note: there are no available listings on the books right now.`;
+        }
       }
     }
 
-    const matchingChunks = await this.llmService.searchUnstructuredKnowledge(userMessage, organizationId, 4);
+    // Only search documents when the plan actually called for them. This ran on
+    // every single request — including pure database lookups — costing an
+    // embedding call plus a vector query for context that was then discarded.
+    const needsDocuments =
+      classification === 'DOCUMENT_ONLY' ||
+      classification === 'HYBRID' ||
+      (executionPlan?.nodes || []).some((n: any) => n.tool === 'RAG_ENGINE');
+
+    let matchingChunks: any[] = [];
+    if (needsDocuments) {
+      matchingChunks = await this.llmService.searchUnstructuredKnowledge(userMessage, organizationId, 4);
+    }
     const documentContext = matchingChunks.length > 0
       ? matchingChunks.map((c, i) => `[Doc ${i + 1}]: ${c.content} (Source: ${c.documentName})`).join('\n\n')
       : 'No relevant unstructured documents.';
@@ -1860,9 +2265,11 @@ STRICT CHATGPT STYLE & TONALITY RULES:
    - NO EMPTY OR RAW TABLES: Never print tables containing raw/empty UUIDs, empty columns, or raw timestamps. If you show a table, it must be highly clean and legible. If names are missing or data is sparse, use a beautiful bulleted list instead.
    - HUMAN-READABLE DATES: Convert all database ISO strings (like "2025-01-15T00:00:00.000Z") to clean human dates (like "15th Jan 2025" or "January 15, 2025").
    - RESOLVE NAMES: When listing employees, retrieve their names from the nested "user.firstName" and "user.lastName" fields of the EmployeeProfile. Do not print empty name columns or raw user IDs.
-5. SUBTLE INLINE CITATIONS: Factual assertions must be cited inline, but keep it extremely brief and unobtrusive at the end of sentences, e.g., "[EmployeeProfile]" or "[LeaveRequest]". Banish terms like "Database", "Table", "Registry", or quotes around table names.
+5. SUBTLE INLINE CITATIONS: Cite the table the fact actually came from, briefly, at the end of the sentence — e.g. "[LeaveRequest]". The tag MUST name the table that supplied that specific fact. Property owner names come from [Owner], not [EmployeeProfile]. If unsure which table a fact came from, omit the citation — a wrong citation is worse than none. Banish terms like "Database", "Table", "Registry", or quotes around table names.
 6. DATA-FIRST PRINCIPLE: Always present the requested data/answer first, followed by any analysis or natural follow-up question.
-7. NATURAL EMPTY RESULTS: If no records are found (0 results), explain it naturally and politely as a human would (e.g. "Mujhe Suhail ki attendance records nahi mili hain" or "Currently, there are no pending leave requests in the system"). Never use robotic terms like "Records found: 0" or "0 results". Do not offer unsolicited corporate advice.
+7. EMPTY RESULTS — STATE THE LIMIT, NOT A VERDICT. If 0 records came back, say what you searched for and that nothing matched, then offer the next step. Do NOT declare the thing does not exist: an empty result often means the filter was wrong, not that the record is absent. Prefer "Mujhe koi pending leave request nahi mili — kya main saari leave requests dikhaon?" over "There are no pending leave requests in the system." Never use robotic phrasing like "Records found: 0". Do not offer unsolicited corporate advice.
+8. NEVER SUBSTITUTE INFERENCE FOR DATA. If the user asks for something the retrieved rows do not contain, say the data isn't there and name what you would need. Do NOT reason your way to an answer from adjacent fields — never rank "performance" from someone's role or job title, and never infer seniority, quality, or ranking that is not an actual column in the data. Guessing dressed up as analysis is the worst failure mode here.
+9. RESPECT THE USER'S CORRECTION. If the user says a record exists that you reported as missing, treat that as strong evidence your filter was wrong. Say what you searched for and offer to search more broadly — never simply repeat the denial.
 
 MODE-SPECIFIC GUIDELINES:
 - LOOKUP MODE (Data searches): Short, direct, factual. No unsolicited advice or recommendations.
@@ -1890,54 +2297,58 @@ ${proactiveSuggestions}`;
     let responseText = await this.llmService.callLLM(composerPrompt, databaseFeedPrompt, history, false, organizationId, userId);
     let cleanedResponse = responseText.trim();
 
-    // STEP 11 — ZERO HALLUCINATION RESPONSE VALIDATION V4
-    let verificationPassed = false;
-    let retries = 0;
-    
-    while (!verificationPassed && retries < 2) {
-      const countsMap: Record<string, number> = {};
-      for (const res of executedResults) {
-        if (res.success && res.data) {
-          let count = 0;
-          if (Array.isArray(res.data)) count = res.data.length;
-          else if (res.data.rows && Array.isArray(res.data.rows)) count = res.data.rows.length;
-          else if (res.data.count !== undefined) count = res.data.count;
-          countsMap[res.tool] = count;
-        }
+    // STEP 11 — GROUNDING VERIFICATION (deterministic)
+    //
+    // Previously this asked the LLM to audit its own output: one call to judge, plus
+    // up to two more to regenerate — so the common case (a correct answer) still paid
+    // for an extra round trip just to hear "PASS". FactVerifierService performs the
+    // same checks in memory against the rows we already hold, in microseconds, and a
+    // regeneration now only happens when something is provably wrong.
+    const countsMap: Record<string, number> = {};
+    for (const res of executedResults) {
+      if (res.success && res.data) {
+        let count = 0;
+        if (Array.isArray(res.data)) count = res.data.length;
+        else if (res.data.rows && Array.isArray(res.data.rows)) count = res.data.rows.length;
+        else if (res.data.count !== undefined) count = res.data.count;
+        countsMap[res.tool] = count;
       }
+    }
 
-      const verificationPrompt = `You are the Zorvex Zero-Hallucination Verification Engine V4.
-Your job is to compare the AI's generated response against the actual database records and verify all facts.
+    const verifiableRows: any[] = executedResults
+      .filter(r => r.success && r.data)
+      .map(r => r.data);
 
-ACTUAL DATABASE RECORDS & COUNTS:
-${JSON.stringify(executedResults.map(r => ({ tool: r.tool, data: r.data })), null, 2)}
-Counts: ${JSON.stringify(countsMap)}
+    let verification = this.factVerifier.verify(cleanedResponse, verifiableRows, {
+      tablesUsed,
+      counts: countsMap,
+    });
 
-GENERATED RESPONSE TO AUDIT:
-"""
-${cleanedResponse}
-"""
+    if (!verification.passed) {
+      this.logger.warn(`[Grounding] Regenerating once: ${verification.violations.map(v => v.rule).join(', ')}`);
+      const correctionPrompt = `${composerPrompt}
 
-STRICT RULES TO VALIDATE:
-1. Record Counts: If a query returned 0 records, the response must report 0 or no records. It must never fabricate lists, names, or values.
-2. Names & Entities: The response must only mention names of employees, clients, owners, or properties that are present in the actual database records. Any unrecognized names must be marked as hallucinations.
-3. Tasks & Meetings: The response must only mention tasks, meetings, or schedules that were actually found or successfully created in the database records.
-4. Property Ownership: The response must not make up or assume who owns a property unless it is explicitly stated in the owner relation of the property records.
-5. Specific Entity Check: If the generated response details employee leave requests (such as sick leave, annual leave, casual leave, pending leaves, leave counts, or approval status), the actual database records MUST contain data from the 'leaverequest' (LeaveRequest) entity. If the database records only contain 'employeeprofile' records and no 'leaverequest' records, the response MUST NOT fabricate, infer, or detail any leave requests, and must report that no leave request records were found.
+⚠️ GROUNDING VIOLATION — your previous answer contained claims not supported by the retrieved records:
+${verification.correctionInstruction}
 
-If any of the rules are violated, output RETRY followed by the exact list of discrepancies.
-If the response is 100% factual and matches the database records, output PASS.
-Output ONLY 'PASS' or 'RETRY: <discrepancies>' - do not add any other text.`;
+Rewrite the answer using ONLY facts present in the retrieved data. If the data is empty, say plainly that no records were found. Do not invent names, counts, or values.`;
 
-      const checkResult = await this.llmService.callLLM(verificationPrompt, "Validate response facts", [], false, organizationId, userId);
-      if (checkResult.trim().startsWith("PASS")) {
-        verificationPassed = true;
-      } else {
-        this.logger.warn(`Verification V4 Failed (Attempt ${retries + 1}): ${checkResult.trim()}`);
-        retries++;
-        const correctionPrompt = `${composerPrompt}\n\n⚠️ SYSTEM CORRECTION ALERT: Your previous response was rejected by the Verification Engine due to facts/hallucinations mismatch: ${checkResult.trim()}. You must correct these discrepancies and output a completely factual response matching the database records.`;
-        responseText = await this.llmService.callLLM(correctionPrompt, databaseFeedPrompt, history, false, organizationId, userId);
-        cleanedResponse = responseText.trim();
+      cleanedResponse = (await this.llmService.callLLM(
+        correctionPrompt, databaseFeedPrompt, history, false, organizationId, userId
+      )).trim();
+
+      // One retry only. If it still fails we surface the data-backed failure rather
+      // than looping the model against a problem it is evidently not solving.
+      verification = this.factVerifier.verify(cleanedResponse, verifiableRows, {
+        tablesUsed,
+        counts: countsMap,
+      });
+
+      if (!verification.passed) {
+        this.logger.error(`[Grounding] Still failing after retry — returning conservative fallback.`);
+        cleanedResponse = verifiableRows.length === 0 || retrievedRowCount === 0
+          ? `I could not find any records matching that request. Please check the filters or try rephrasing.`
+          : cleanedResponse;
       }
     }
 
@@ -2058,17 +2469,13 @@ Output ONLY 'PASS' or 'RETRY: <discrepancies>' - do not add any other text.`;
       if (combinedOpps.length > 0 || combinedRisks.length > 0) {
         const patternBullet = `[Pattern Sourced] Query: "${userMessage}". Detected Risks: ${combinedRisks.join(' | ')}. Opportunities: ${combinedOpps.join(' | ')}.`;
         if (patternBullet.length < 500) {
-          const embedding = await this.llmService.generateEmbedding(patternBullet, organizationId, userId);
-          await this.prisma.aiMemoryVector.create({
-            data: {
-              category: 'PATTERN:OPERATIONAL',
-              content: patternBullet,
-              embedding,
-              organizationId
-            }
-          }).catch(err => {
-            this.logger.warn(`Failed to store pattern memory: ${err.message}`);
-          });
+          // Fire-and-forget: this is a background learning write, not part of the
+          // answer, so it must never add latency to the user's request.
+          this.vectorStore
+            .insertMemoryVector(patternBullet, 'PATTERN:OPERATIONAL', organizationId, {}, userId)
+            .catch(err => {
+              this.logger.warn(`Failed to store pattern memory: ${err.message}`);
+            });
         }
       }
     }

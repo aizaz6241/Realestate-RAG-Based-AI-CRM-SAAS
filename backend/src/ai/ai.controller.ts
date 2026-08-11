@@ -18,6 +18,9 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiRagService } from './rag/ai-rag.service';
 import { AiRagEvaluatorService } from './rag/ai-rag-evaluator.service';
+import { AiRagRetrievalService } from './rag/ai-rag-retrieval.service';
+import { VectorStoreService } from './vector-store.service';
+import { QueryCacheService } from './query-cache.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('ai')
@@ -26,8 +29,29 @@ export class AiController {
     private readonly aiService: AiService,
     private prisma: PrismaService,
     private readonly ragService: AiRagService,
-    private readonly ragEvaluatorService: AiRagEvaluatorService
+    private readonly ragEvaluatorService: AiRagEvaluatorService,
+    private readonly vectorStore: VectorStoreService,
+    private readonly ragRetrievalService: AiRagRetrievalService,
+    private readonly queryCache: QueryCacheService
   ) {}
+
+  /**
+   * Health check for the document/RAG stack.
+   *
+   * Added because a missing pgvector extension was indistinguishable from an empty
+   * knowledge base: retrieval swallowed the error and every document question came
+   * back "no evidence found". This endpoint names the actual problem.
+   */
+  @Get('rag/health')
+  async ragHealth(@Request() req: any) {
+    return this.ragRetrievalService.diagnose(req.user.organizationId);
+  }
+
+  /** Query cache hit rate and size. Useful for confirming the cache is doing work. */
+  @Get('cache/metrics')
+  cacheMetrics() {
+    return this.queryCache.getMetrics();
+  }
 
   // -----------------------------------------------------------------------------
   // Chat core endpoint (RAG + Postgres live database tools)
@@ -269,23 +293,20 @@ export class AiController {
       // 2. Split document text into overlapping sliding window chunks
       const chunks = this.aiService.chunkText(rawText);
 
-      // 3. Generate embeddings and save each chunk in database
-      for (const chunkText of chunks) {
-        const embedding = await this.aiService.generateEmbedding(chunkText, req.user.organizationId, req.user.id);
-        await this.prisma.aiDocumentChunk.create({
-          data: {
-            content: chunkText,
-            embedding,
-            documentId: document.id,
-          },
-        });
-      }
+      // 3. Embed and persist in batches via the vector store (pgvector column
+      //    cannot be written through the Prisma typed client).
+      const written = await this.vectorStore.insertDocumentChunks(
+        document.id,
+        chunks.map(content => ({ content })),
+        req.user.organizationId,
+        req.user.id
+      );
 
       return {
         success: true,
-        message: `Indexed "${docName}" successfully. Generated ${chunks.length} knowledge vectors.`,
+        message: `Indexed "${docName}" successfully. Generated ${written} knowledge vectors.`,
         documentId: document.id,
-        chunksCount: chunks.length,
+        chunksCount: written,
       };
     } catch (err) {
       throw new HttpException(`Vector Indexing Error: ${err.message}`, HttpStatus.INTERNAL_SERVER_ERROR);

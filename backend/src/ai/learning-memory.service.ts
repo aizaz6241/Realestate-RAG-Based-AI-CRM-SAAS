@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiLlmService } from './ai-llm.service';
+import { VectorStoreService } from './vector-store.service';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
@@ -30,7 +31,8 @@ export class LearningMemoryService {
 
   constructor(
     private prisma: PrismaService,
-    private llmService: AiLlmService
+    private llmService: AiLlmService,
+    private vectorStore: VectorStoreService
   ) {
     // Use sync mkdir ONLY at startup — acceptable; production writes use async
     try {
@@ -108,21 +110,16 @@ Instructions:
           });
 
           if (!exists) {
-            const embedding = await this.llmService.generateEmbedding(bullet, organizationId, userId);
-            // Safety check: skip zero-vectors (embedding failure)
-            const isZeroVector = embedding.every(v => v === 0);
-            if (isZeroVector) {
-              this.logger.warn(`[Memory Engine] Skipping memory storage — zero-vector returned for: "${bullet.slice(0, 60)}"`);
-              continue;
-            }
-            await this.prisma.aiMemoryVector.create({
-              data: {
-                category: 'PATTERN:OPERATIONAL',
-                content: bullet,
-                embedding,
-                organizationId
-              }
-            });
+            // Zero-vector rejection now lives in generateEmbedding, which throws
+            // rather than returning a poison vector — so reaching here means the
+            // embedding is valid.
+            await this.vectorStore.insertMemoryVector(
+              bullet,
+              'PATTERN:OPERATIONAL',
+              organizationId,
+              {},
+              userId
+            );
             this.logger.log(`[Memory Engine] Persisted operational memory: "${bullet}"`);
           }
         }
